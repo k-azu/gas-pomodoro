@@ -1,0 +1,267 @@
+<script>
+var RecordForm = (function() {
+  var currentMode = 'recording'; // 'recording' | 'abandoning'
+
+  function show() {
+    currentMode = 'recording';
+    document.getElementById('record-form-card').classList.add('visible');
+    document.getElementById('record-form-actions-normal').style.display = '';
+    document.getElementById('record-form-actions-abandon').style.display = 'none';
+    document.getElementById('record-form-title').textContent = '作業記録';
+    renderInterruptionList();
+    document.getElementById('record-description').focus();
+  }
+
+  function showForAbandon() {
+    currentMode = 'abandoning';
+    document.getElementById('record-form-card').classList.add('visible');
+    document.getElementById('record-form-actions-normal').style.display = 'none';
+    document.getElementById('record-form-actions-abandon').style.display = '';
+    document.getElementById('record-form-title').textContent = '中止 - 作業記録';
+    renderInterruptionList();
+    document.getElementById('record-description').focus();
+  }
+
+  function hide() {
+    document.getElementById('record-form-card').classList.remove('visible');
+    document.getElementById('record-description').value = '';
+  }
+
+  function populateCategories(categories) {
+    var select = document.getElementById('record-category');
+    select.innerHTML = '<option value="">-- 選択 --</option>';
+    categories.forEach(function(cat) {
+      var opt = document.createElement('option');
+      opt.value = cat.name;
+      opt.textContent = cat.name;
+      select.appendChild(opt);
+    });
+  }
+
+  function renderInterruptionList() {
+    var container = document.getElementById('interruption-list');
+    var state = App.getState();
+    var interruptions = state.interruptions;
+    container.innerHTML = '';
+
+    if (interruptions.length === 0) {
+      container.style.display = 'none';
+      return;
+    }
+
+    container.style.display = '';
+
+    interruptions.forEach(function(int) {
+      var item = document.createElement('div');
+      item.className = 'interruption-item';
+
+      var typeLabel = int.type === 'work' ? '作業' : '非作業';
+      var mins = Math.floor(int.durationSeconds / 60);
+      var secs = int.durationSeconds % 60;
+      var durStr = mins > 0
+        ? mins + '分' + (secs > 0 ? secs + '秒' : '')
+        : secs + '秒';
+
+      var header = document.createElement('div');
+      header.className = 'interruption-item-header';
+      header.textContent = typeLabel + '中断 (' + durStr + ')';
+
+      var detail = document.createElement('div');
+      detail.className = 'interruption-item-detail';
+      var parts = [];
+      if (int.category) parts.push(int.category);
+      if (int.note) parts.push(int.note);
+      detail.textContent = parts.join(' - ') || '';
+
+      item.appendChild(header);
+      if (parts.length > 0) item.appendChild(detail);
+      container.appendChild(item);
+    });
+  }
+
+  function submit() {
+    var description = document.getElementById('record-description').value.trim();
+    var category = document.getElementById('record-category').value;
+
+    var state = App.getState();
+    var now = new Date();
+    var startTime = new Date(state.startTimestamp);
+    var actualSeconds = Math.round((now.getTime() - startTime.getTime()) / 1000);
+
+    var workCount = state.interruptions.filter(function(i) { return i.type === 'work'; }).length;
+    var nonWorkCount = state.interruptions.filter(function(i) { return i.type === 'nonWork'; }).length;
+    var workIntSeconds = state.interruptions.filter(function(i) { return i.type === 'work'; }).reduce(function(sum, i) { return sum + i.durationSeconds; }, 0);
+    var nonWorkIntSeconds = state.interruptions.filter(function(i) { return i.type === 'nonWork'; }).reduce(function(sum, i) { return sum + i.durationSeconds; }, 0);
+
+    var pomodoroId = generateUUID();
+
+    var record = {
+      id: pomodoroId,
+      date: formatDate(now),
+      startTime: startTime.toISOString(),
+      endTime: now.toISOString(),
+      durationSeconds: state.config.workMinutes * 60,
+      actualDurationSeconds: actualSeconds,
+      type: 'work',
+      description: description,
+      category: category,
+      workInterruptions: workCount,
+      nonWorkInterruptions: nonWorkCount,
+      workInterruptionSeconds: workIntSeconds,
+      nonWorkInterruptionSeconds: nonWorkIntSeconds,
+      completionStatus: 'completed',
+      pomodoroSetIndex: state.pomodoroSetIndex
+    };
+
+    // Build interruption records with user-entered category/note
+    var intRecords = state.interruptions.map(function(i) {
+      return {
+        id: i.id,
+        pomodoroId: pomodoroId,
+        type: i.type,
+        startTime: i.startTime,
+        endTime: i.endTime,
+        durationSeconds: i.durationSeconds,
+        category: i.category || '',
+        note: i.note || ''
+      };
+    });
+
+    showLoading(true);
+    serverCall('saveRecord', record)
+      .then(function() {
+        if (intRecords.length > 0) {
+          return serverCall('saveInterruptions', intRecords);
+        }
+      })
+      .then(function() {
+        hide();
+        App.onRecordSaved();
+        refreshHistory();
+        refreshStats();
+      })
+      .catch(function(err) {
+        alert('記録の保存に失敗しました: ' + err);
+      })
+      .finally(function() {
+        showLoading(false);
+      });
+  }
+
+  function submitAbandon(resetSet) {
+    var description = document.getElementById('record-description').value.trim();
+    var category = document.getElementById('record-category').value;
+
+    var state = App.getState();
+    var now = new Date();
+    var startTime = new Date(state.startTimestamp);
+    var actualSeconds = Math.round((now.getTime() - startTime.getTime()) / 1000);
+
+    var workCount = state.interruptions.filter(function(i) { return i.type === 'work'; }).length;
+    var nonWorkCount = state.interruptions.filter(function(i) { return i.type === 'nonWork'; }).length;
+    var workIntSeconds = state.interruptions.filter(function(i) { return i.type === 'work'; }).reduce(function(sum, i) { return sum + i.durationSeconds; }, 0);
+    var nonWorkIntSeconds = state.interruptions.filter(function(i) { return i.type === 'nonWork'; }).reduce(function(sum, i) { return sum + i.durationSeconds; }, 0);
+
+    var pomodoroId = generateUUID();
+
+    var record = {
+      id: pomodoroId,
+      date: formatDate(now),
+      startTime: startTime.toISOString(),
+      endTime: now.toISOString(),
+      durationSeconds: state.config.workMinutes * 60,
+      actualDurationSeconds: actualSeconds,
+      type: 'work',
+      description: description,
+      category: category,
+      workInterruptions: workCount,
+      nonWorkInterruptions: nonWorkCount,
+      workInterruptionSeconds: workIntSeconds,
+      nonWorkInterruptionSeconds: nonWorkIntSeconds,
+      completionStatus: 'abandoned',
+      pomodoroSetIndex: state.pomodoroSetIndex
+    };
+
+    var intRecords = state.interruptions.map(function(i) {
+      return {
+        id: i.id,
+        pomodoroId: pomodoroId,
+        type: i.type,
+        startTime: i.startTime,
+        endTime: i.endTime,
+        durationSeconds: i.durationSeconds,
+        category: i.category || '',
+        note: i.note || ''
+      };
+    });
+
+    showLoading(true);
+    serverCall('saveRecord', record)
+      .then(function() {
+        if (intRecords.length > 0) {
+          return serverCall('saveInterruptions', intRecords);
+        }
+      })
+      .then(function() {
+        hide();
+        App.onAbandonRecorded(resetSet);
+      })
+      .catch(function(err) {
+        alert('記録の保存に失敗しました: ' + err);
+      })
+      .finally(function() {
+        showLoading(false);
+      });
+  }
+
+  function addCategory() {
+    var input = document.getElementById('new-category-name');
+    var name = input.value.trim();
+    if (!name) return;
+
+    serverCall('addCategory', name)
+      .then(function(result) {
+        if (result.success) {
+          input.value = '';
+          return serverCall('getCategories');
+        } else {
+          alert(result.message);
+          return null;
+        }
+      })
+      .then(function(cats) {
+        if (cats) {
+          App.getState().categories = cats;
+          populateCategories(cats);
+        }
+      });
+  }
+
+  function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0;
+      var v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  function formatDate(d) {
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+
+  return {
+    show: show,
+    showForAbandon: showForAbandon,
+    hide: hide,
+    submit: submit,
+    submitAbandon: submitAbandon,
+    populateCategories: populateCategories,
+    addCategory: addCategory,
+    generateUUID: generateUUID,
+    formatDate: formatDate
+  };
+})();
+</script>

@@ -1,0 +1,684 @@
+<script>
+// --- Utility: Promise wrapper for google.script.run ---
+function serverCall(functionName) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  return new Promise(function(resolve, reject) {
+    var runner = google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject);
+    runner[functionName].apply(runner, args);
+  });
+}
+
+function showLoading(show) {
+  var el = document.getElementById('loading-overlay');
+  if (show) el.classList.add('visible');
+  else el.classList.remove('visible');
+}
+
+// --- App State & Timer Engine ---
+var App = (function() {
+  var STORAGE_KEY = 'gas_pomodoro_state';
+
+  // Default state
+  var state = {
+    phase: 'idle',          // idle | work | interrupted | recording | abandoning | shortBreak | longBreak | breakDone
+    breakType: null,        // 'shortBreak' | 'longBreak' — remembers which break just ended
+    remainingSeconds: 0,
+    startTimestamp: null,    // wall-clock start time (ms)
+    totalSeconds: 0,        // total duration for current timer
+    pomodoroSetIndex: 1,    // 1-4
+    interruptions: [],      // array of { id, type, startTime, endTime, durationSeconds, category, note }
+    currentInterruption: null, // { id, type, startTimestamp } while interrupted
+    interruptionElapsed: 0, // total ms spent in interruptions (for timer calc)
+    config: {
+      patternName: 'Standard',
+      workMinutes: 25,
+      shortBreakMinutes: 5,
+      longBreakMinutes: 15,
+      pomodorosBeforeLongBreak: 4
+    },
+    configPatterns: [],
+    categories: [],
+    interruptionCategories: []
+  };
+
+  var timerInterval = null;
+
+  // --- localStorage persistence ---
+  function saveState() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) {}
+  }
+
+  function loadState() {
+    try {
+      var saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        var parsed = JSON.parse(saved);
+        Object.keys(parsed).forEach(function(k) {
+          if (k === 'config') {
+            Object.assign(state.config, parsed.config);
+          } else {
+            state[k] = parsed[k];
+          }
+        });
+      }
+    } catch (e) {}
+  }
+
+  function clearState() {
+    state.phase = 'idle';
+    state.breakType = null;
+    state.remainingSeconds = 0;
+    state.startTimestamp = null;
+    state.totalSeconds = 0;
+    state.pomodoroSetIndex = 1;
+    state.interruptions = [];
+    state.currentInterruption = null;
+    state.interruptionElapsed = 0;
+    saveState();
+  }
+
+  // --- Timer Core ---
+  function tick() {
+    var now = Date.now();
+
+    if (state.phase === 'interrupted') {
+      // Show interruption elapsed time (count up)
+      var intStart = state.currentInterruption.startTimestamp;
+      var intElapsed = Math.floor((now - intStart) / 1000);
+      updateInterruptionTimerDisplay(intElapsed);
+      return;
+    }
+
+    // Wall-clock calculation for work/break timer
+    var elapsed = now - state.startTimestamp - state.interruptionElapsed;
+    var elapsedSeconds = Math.floor(elapsed / 1000);
+    state.remainingSeconds = Math.max(0, state.totalSeconds - elapsedSeconds);
+
+    updateDisplay();
+    saveState();
+
+    if (state.remainingSeconds <= 0) {
+      onTimerComplete();
+    }
+  }
+
+  function startTimer(phase, durationMinutes) {
+    state.phase = phase;
+    state.totalSeconds = durationMinutes * 60;
+    state.remainingSeconds = state.totalSeconds;
+    state.startTimestamp = Date.now();
+    state.interruptionElapsed = 0;
+
+    if (phase === 'work') {
+      state.interruptions = [];
+      state.currentInterruption = null;
+    }
+
+    saveState();
+    updateDisplay();
+    updateControls();
+    startInterval();
+  }
+
+  function startInterval() {
+    stopInterval();
+    timerInterval = setInterval(tick, 250);
+  }
+
+  function stopInterval() {
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+  }
+
+  // --- Interruption: start/end ---
+  function startInterruption() {
+    if (state.phase !== 'work') return;
+
+    var id = RecordForm.generateUUID();
+    state.currentInterruption = {
+      id: id,
+      startTimestamp: Date.now()
+    };
+    state.phase = 'interrupted';
+
+    // Reset form fields
+    var radios = document.querySelectorAll('input[name="int-type"]');
+    radios.forEach(function(r) { r.checked = r.value === 'nonWork'; });
+    document.getElementById('int-note').value = '';
+    populateInterruptionCategorySelect();
+
+    saveState();
+    updateDisplay();
+    updateControls();
+  }
+
+  function populateInterruptionCategorySelect() {
+    var select = document.getElementById('int-category');
+    select.innerHTML = '<option value="">-- カテゴリ --</option>';
+    state.interruptionCategories.forEach(function(name) {
+      var opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    });
+  }
+
+  function endInterruption() {
+    if (state.phase !== 'interrupted' || !state.currentInterruption) return;
+
+    var now = Date.now();
+    var durationMs = now - state.currentInterruption.startTimestamp;
+    var durationSeconds = Math.round(durationMs / 1000);
+
+    // Read form values
+    var typeRadio = document.querySelector('input[name="int-type"]:checked');
+    var type = typeRadio ? typeRadio.value : 'nonWork';
+    var category = document.getElementById('int-category').value;
+    var note = document.getElementById('int-note').value.trim();
+
+    state.interruptions.push({
+      id: state.currentInterruption.id,
+      type: type,
+      startTime: new Date(state.currentInterruption.startTimestamp).toISOString(),
+      endTime: new Date(now).toISOString(),
+      durationSeconds: durationSeconds,
+      category: category,
+      note: note
+    });
+
+    state.interruptionElapsed += durationMs;
+    state.currentInterruption = null;
+    state.phase = 'work';
+    saveState();
+    updateDisplay();
+    updateControls();
+  }
+
+  function abandon() {
+    // If currently interrupted, finalize that interruption first
+    if (state.phase === 'interrupted' && state.currentInterruption) {
+      var now = Date.now();
+      var durationMs = now - state.currentInterruption.startTimestamp;
+      var typeRadio = document.querySelector('input[name="int-type"]:checked');
+      var intType = typeRadio ? typeRadio.value : 'nonWork';
+      var intCategory = document.getElementById('int-category').value;
+      var intNote = document.getElementById('int-note').value.trim();
+      state.interruptions.push({
+        id: state.currentInterruption.id,
+        type: intType,
+        startTime: new Date(state.currentInterruption.startTimestamp).toISOString(),
+        endTime: new Date(now).toISOString(),
+        durationSeconds: Math.round(durationMs / 1000),
+        category: intCategory,
+        note: intNote
+      });
+      state.interruptionElapsed += durationMs;
+      state.currentInterruption = null;
+    }
+
+    if (state.phase === 'work' || state.phase === 'interrupted') {
+      stopInterval();
+      state.phase = 'abandoning';
+      saveState();
+      updateDisplay();
+      updateControls();
+      RecordForm.showForAbandon();
+    } else if (state.phase === 'shortBreak' || state.phase === 'longBreak') {
+      stopInterval();
+      state.breakType = state.phase;
+      state.phase = 'breakDone';
+      saveState();
+      updateDisplay();
+      updateControls();
+    }
+  }
+
+  function onAbandonRecorded(resetSet) {
+    if (resetSet) {
+      clearState();
+    } else {
+      // Keep pomodoroSetIndex, just go idle
+      state.phase = 'idle';
+      state.breakType = null;
+      state.remainingSeconds = 0;
+      state.startTimestamp = null;
+      state.totalSeconds = 0;
+      state.interruptions = [];
+      state.currentInterruption = null;
+      state.interruptionElapsed = 0;
+      saveState();
+    }
+    updateDisplay();
+    updateControls();
+    refreshHistory();
+    refreshStats();
+  }
+
+  function onTimerComplete() {
+    stopInterval();
+
+    if (state.phase === 'work') {
+      NotificationManager.notify();
+      state.phase = 'recording';
+      saveState();
+      updateDisplay();
+      updateControls();
+      RecordForm.show();
+    } else if (state.phase === 'shortBreak' || state.phase === 'longBreak') {
+      NotificationManager.notify();
+      state.breakType = state.phase;
+      state.phase = 'breakDone';
+      saveState();
+      updateDisplay();
+      updateControls();
+    }
+  }
+
+  function saveBreakRecord() {
+    var now = new Date();
+    var startTime = new Date(state.startTimestamp);
+    var durationSeconds = (state.breakType === 'shortBreak' ? state.config.shortBreakMinutes : state.config.longBreakMinutes) * 60;
+    var record = {
+      id: RecordForm.generateUUID(),
+      date: RecordForm.formatDate(now),
+      startTime: startTime.toISOString(),
+      endTime: now.toISOString(),
+      durationSeconds: durationSeconds,
+      actualDurationSeconds: Math.round((now.getTime() - startTime.getTime()) / 1000),
+      type: state.breakType,
+      description: '',
+      category: '',
+      workInterruptions: 0,
+      nonWorkInterruptions: 0,
+      workInterruptionSeconds: 0,
+      nonWorkInterruptionSeconds: 0,
+      completionStatus: 'completed',
+      pomodoroSetIndex: state.pomodoroSetIndex
+    };
+    return serverCall('saveRecord', record);
+  }
+
+  function continueWork() {
+    if (state.phase !== 'breakDone') return;
+    saveBreakRecord().then(function() {
+      refreshHistory();
+      refreshStats();
+      startTimer('work', state.config.workMinutes);
+    });
+  }
+
+  function endSession() {
+    if (state.phase !== 'breakDone') return;
+    saveBreakRecord().then(function() {
+      clearState();
+      updateDisplay();
+      updateControls();
+      refreshHistory();
+      refreshStats();
+    });
+  }
+
+  // Called after record form submission
+  function onRecordSaved() {
+    var limit = state.config.pomodorosBeforeLongBreak;
+    var isLongBreak = state.pomodoroSetIndex >= limit;
+
+    if (isLongBreak) {
+      state.pomodoroSetIndex = 1;
+      startTimer('longBreak', state.config.longBreakMinutes);
+    } else {
+      state.pomodoroSetIndex++;
+      startTimer('shortBreak', state.config.shortBreakMinutes);
+    }
+  }
+
+  function startWork() {
+    startTimer('work', state.config.workMinutes);
+  }
+
+  function togglePatternPopup() {
+    if (state.phase !== 'idle') return;
+    var popup = document.getElementById('pattern-popup');
+    if (popup.style.display !== 'none') {
+      popup.style.display = 'none';
+      return;
+    }
+
+    popup.innerHTML = '';
+    state.configPatterns.forEach(function(p) {
+      var item = document.createElement('div');
+      item.className = 'pattern-popup-item';
+      if (p.patternName === state.config.patternName) {
+        item.classList.add('selected');
+      }
+      item.textContent = p.patternName + '  ' + p.workMinutes + ' / ' + p.shortBreakMinutes + ' / ' + p.longBreakMinutes;
+      item.onclick = function(e) {
+        e.stopPropagation();
+        selectPattern(p.patternName);
+      };
+      popup.appendChild(item);
+    });
+    popup.style.display = '';
+  }
+
+  function selectPattern(patternName) {
+    var pattern = state.configPatterns.find(function(p) { return p.patternName === patternName; });
+    if (!pattern) return;
+    state.config = pattern;
+    document.getElementById('pattern-popup').style.display = 'none';
+    saveState();
+    updateDisplay();
+    updateDots();
+    updatePatternInfo();
+  }
+
+  // --- UI Update ---
+  function updateDisplay() {
+    var mins = Math.floor(state.remainingSeconds / 60);
+    var secs = state.remainingSeconds % 60;
+
+    document.getElementById('timer-display').textContent =
+      String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+
+    // Phase label
+    var labels = {
+      idle: '準備完了',
+      work: '作業中',
+      interrupted: '中断中',
+      recording: '記録中',
+      abandoning: '中止 - 記録中',
+      shortBreak: '短い休憩',
+      longBreak: '長い休憩',
+      breakDone: '休憩終了'
+    };
+    document.getElementById('phase-label').textContent = labels[state.phase] || '';
+
+    // Timer card data attribute for styling
+    var card = document.getElementById('timer-card');
+    var dataPhase = state.phase;
+    if (dataPhase === 'recording' || dataPhase === 'abandoning') dataPhase = 'work';
+    if (dataPhase === 'breakDone') dataPhase = state.breakType || 'shortBreak';
+    card.setAttribute('data-phase', dataPhase);
+
+    updateDots();
+    updateInterruptionBadge();
+  }
+
+  function updateInterruptionTimerDisplay(elapsedSeconds) {
+    var mins = Math.floor(elapsedSeconds / 60);
+    var secs = elapsedSeconds % 60;
+    var el = document.getElementById('interruption-timer');
+    if (el) {
+      el.textContent = String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+    }
+  }
+
+  function updateDots() {
+    var limit = state.config.pomodorosBeforeLongBreak;
+    var container = document.getElementById('pomodoro-dots');
+    container.innerHTML = '';
+    for (var i = 1; i <= limit; i++) {
+      var dot = document.createElement('div');
+      dot.className = 'pomodoro-dot';
+      if (i < state.pomodoroSetIndex) {
+        dot.classList.add('completed');
+      } else if (i === state.pomodoroSetIndex && (state.phase === 'work' || state.phase === 'interrupted')) {
+        dot.classList.add('current');
+      }
+      container.appendChild(dot);
+    }
+  }
+
+  function updateControls() {
+    var startBtn = document.getElementById('btn-start');
+    var abandonBtn = document.getElementById('btn-abandon');
+    var interruptionControls = document.getElementById('interruption-controls');
+    var interruptedPanel = document.getElementById('interrupted-panel');
+    var breakDonePanel = document.getElementById('break-done-panel');
+
+    var isIdle = state.phase === 'idle';
+    var isWork = state.phase === 'work';
+    var isInterrupted = state.phase === 'interrupted';
+    var isBreakDone = state.phase === 'breakDone';
+    var isAbandoning = state.phase === 'abandoning';
+    var isTimerActive = !isIdle && state.phase !== 'recording' && !isBreakDone && !isAbandoning;
+
+    startBtn.style.display = isIdle ? '' : 'none';
+    abandonBtn.style.display = (isTimerActive && !isInterrupted) ? '' : 'none';
+
+    // Interruption button: visible only during work (not while interrupted)
+    interruptionControls.style.display = isWork ? '' : 'none';
+
+    // Interrupted panel: visible only during interruption
+    interruptedPanel.style.display = isInterrupted ? '' : 'none';
+
+    // Break done panel
+    breakDonePanel.style.display = isBreakDone ? '' : 'none';
+
+    updatePatternInfo();
+  }
+
+  function updateInterruptionBadge() {
+    var count = state.interruptions.length;
+    var badge = document.getElementById('interruption-badge');
+    if (count > 0) {
+      badge.textContent = count + '件の中断';
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  function updatePatternInfo() {
+    var selector = document.getElementById('pattern-selector');
+    if (!selector) return;
+
+    document.getElementById('pattern-name').textContent = state.config.patternName;
+    document.getElementById('pattern-work').textContent = state.config.workMinutes;
+    document.getElementById('pattern-short').textContent = state.config.shortBreakMinutes;
+    document.getElementById('pattern-long').textContent = state.config.longBreakMinutes;
+
+    // Show when idle and multiple patterns exist
+    var visible = state.phase === 'idle' && state.configPatterns.length > 1;
+    selector.style.display = visible ? '' : 'none';
+    if (!visible) {
+      document.getElementById('pattern-popup').style.display = 'none';
+    }
+  }
+
+  function getState() {
+    return state;
+  }
+
+  function getInterruptionCategories() {
+    return state.interruptionCategories;
+  }
+
+  // --- Restore from localStorage on page load ---
+  function restoreTimer() {
+    if (state.phase === 'idle' || state.phase === 'recording' || state.phase === 'breakDone' || state.phase === 'abandoning') return;
+
+    if (state.phase === 'interrupted') {
+      // Restore interrupted state
+      updateDisplay();
+      updateControls();
+      startInterval();
+      return;
+    }
+
+    // Wall-clock recovery
+    var now = Date.now();
+    var elapsed = now - state.startTimestamp - state.interruptionElapsed;
+    var elapsedSeconds = Math.floor(elapsed / 1000);
+    state.remainingSeconds = Math.max(0, state.totalSeconds - elapsedSeconds);
+
+    if (state.remainingSeconds <= 0) {
+      onTimerComplete();
+    } else {
+      updateDisplay();
+      updateControls();
+      startInterval();
+    }
+  }
+
+  // --- Init ---
+  function init() {
+    loadState();
+    showLoading(true);
+
+    Promise.all([
+      serverCall('getAllTimerConfigs'),
+      serverCall('getCategories'),
+      serverCall('getInterruptionCategories'),
+      serverCall('getTodayStats'),
+      serverCall('getRecentRecords', 10),
+      serverCall('getSpreadsheetUrl')
+    ]).then(function(results) {
+      state.configPatterns = results[0];
+      // Use saved pattern name from localStorage, or fall back to first pattern
+      var savedName = state.config.patternName;
+      var match = state.configPatterns.find(function(p) { return p.patternName === savedName; });
+      if (match) {
+        state.config = match;
+      } else {
+        state.config = state.configPatterns[0];
+      }
+      state.categories = results[1];
+      state.interruptionCategories = results[2].map(function(c) { return c.name; });
+      RecordForm.populateCategories(results[1]);
+      displayStats(results[3]);
+      displayHistory(results[4]);
+      setSpreadsheetLink(results[5]);
+
+      if (state.phase === 'recording') {
+        RecordForm.show();
+      }
+      if (state.phase === 'abandoning') {
+        RecordForm.showForAbandon();
+      }
+      restoreTimer();
+      updateDisplay();
+      updateControls();
+    }).catch(function(err) {
+      console.error('Init failed:', err);
+      updateDisplay();
+      updateControls();
+    }).finally(function() {
+      showLoading(false);
+    });
+  }
+
+  return {
+    init: init,
+    startWork: startWork,
+    abandon: abandon,
+    startInterruption: startInterruption,
+    endInterruption: endInterruption,
+    onRecordSaved: onRecordSaved,
+    onAbandonRecorded: onAbandonRecorded,
+    continueWork: continueWork,
+    endSession: endSession,
+    togglePatternPopup: togglePatternPopup,
+    getState: getState,
+    getInterruptionCategories: getInterruptionCategories
+  };
+})();
+
+// --- Stats & History Display ---
+function formatDuration(totalSeconds) {
+  var totalMins = Math.floor(totalSeconds / 60);
+  var hours = Math.floor(totalMins / 60);
+  var mins = totalMins % 60;
+  if (hours > 0) return hours + '時間' + mins + '分';
+  return mins + '分';
+}
+
+function displayStats(stats) {
+  var s = stats || { completedPomodoros: 0, abandonedPomodoros: 0, totalWorkSeconds: 0, totalBreakSeconds: 0, totalWorkInterruptionSeconds: 0, totalNonWorkInterruptionSeconds: 0 };
+  document.getElementById('stats-pomodoros').textContent = s.completedPomodoros.toString();
+  var abandonedEl = document.getElementById('stats-abandoned');
+  abandonedEl.textContent = s.abandonedPomodoros > 0 ? ' / ' + s.abandonedPomodoros : '';
+  document.getElementById('stats-work-time').textContent = formatDuration(s.totalWorkSeconds);
+  document.getElementById('stats-break-time').textContent = formatDuration(s.totalBreakSeconds);
+  document.getElementById('stats-work-int-time').textContent = formatDuration(s.totalWorkInterruptionSeconds);
+  document.getElementById('stats-nonwork-int-time').textContent = formatDuration(s.totalNonWorkInterruptionSeconds);
+}
+
+function displayHistory(records) {
+  var list = document.getElementById('history-list');
+  list.innerHTML = '';
+
+  if (!records || records.length === 0) {
+    list.innerHTML = '<li class="history-empty">まだ記録がありません</li>';
+    return;
+  }
+
+  records.forEach(function(r) {
+    if (r.type !== 'work') return;
+    var li = document.createElement('li');
+    li.className = 'history-item';
+
+    var dot = document.createElement('span');
+    dot.className = 'history-type ' + r.type;
+
+    var desc = document.createElement('span');
+    desc.className = 'history-desc';
+    desc.textContent = r.description || r.category || '(無題)';
+
+    var meta = document.createElement('span');
+    meta.className = 'history-meta';
+    var parts = [];
+    try {
+      var d = new Date(r.startTime);
+      parts.push(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
+    } catch (e) {}
+    if (r.workInterruptions + r.nonWorkInterruptions > 0) {
+      parts.push('中断' + (r.workInterruptions + r.nonWorkInterruptions));
+    }
+    meta.textContent = parts.join(' / ');
+
+    li.appendChild(dot);
+    li.appendChild(desc);
+    li.appendChild(meta);
+    list.appendChild(li);
+  });
+
+  if (list.children.length === 0) {
+    list.innerHTML = '<li class="history-empty">まだ記録がありません</li>';
+  }
+}
+
+function setSpreadsheetLink(url) {
+  var link = document.getElementById('spreadsheet-link');
+  if (link && url) {
+    link.href = url;
+    link.style.display = '';
+  }
+}
+
+function refreshHistory() {
+  serverCall('getRecentRecords', 10).then(displayHistory);
+}
+
+function refreshStats() {
+  serverCall('getTodayStats').then(displayStats);
+}
+
+// --- Boot ---
+document.addEventListener('DOMContentLoaded', App.init);
+
+// Close pattern popup when clicking outside
+document.addEventListener('click', function(e) {
+  var selector = document.getElementById('pattern-selector');
+  var popup = document.getElementById('pattern-popup');
+  if (popup && selector && !selector.contains(e.target)) {
+    popup.style.display = 'none';
+  }
+});
+</script>

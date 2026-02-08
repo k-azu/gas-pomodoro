@@ -1,0 +1,14 @@
+{
+  "name": "gas-pomodoro",
+  "version": "1.0.0",
+  "description": "Pomodoro Timer powered by Google Apps Script + Spreadsheet",
+  "scripts": {
+    "push": "clasp push",
+    "open": "clasp open --webapp",
+    "login": "clasp login"
+  },
+  "devDependencies": {
+    "@google/clasp": "^2.4.2",
+    "@types/google-apps-script": "^1.0.83"
+  }
+}
