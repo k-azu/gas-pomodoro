@@ -118,7 +118,10 @@ function getTodayStats(): TodayStats {
   if (lastRow <= 1) return stats;
 
   const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  const data = sheet.getRange(2, 1, lastRow - 1, 15).getValues();
+  const TAIL_ROWS = 100;
+  const startRow = Math.max(2, lastRow - TAIL_ROWS + 1);
+  const numRows = lastRow - startRow + 1;
+  const data = sheet.getRange(startRow, 1, numRows, 15).getValues();
 
   data.forEach((row) => {
     const dateVal = row[1];
