@@ -5,10 +5,19 @@
   "scripts": {
     "push": "clasp push",
     "open": "clasp open --webapp",
-    "login": "clasp login"
+    "login": "clasp login",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write src/**/*.ts",
+    "format:check": "prettier --check src/**/*.ts"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@google/clasp": "^2.4.2",
-    "@types/google-apps-script": "^1.0.83"
+    "@types/google-apps-script": "^1.0.83",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.1",
+    "typescript-eslint": "^8.54.0"
   }
 }

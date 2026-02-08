@@ -1,156 +1,255 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍅</text></svg>">
-  <?!= include('Stylesheet'); ?>
-</head>
-<body>
-  <div class="app">
-
-    <!-- Header -->
-    <div class="header">
-      <h1>Pomodoro Timer</h1>
-    </div>
-
-    <!-- Timer Card -->
-    <div id="timer-card" class="timer-card" data-phase="idle">
-      <div id="phase-label" class="phase-label">準備完了</div>
-      <div id="pomodoro-dots" class="pomodoro-dots"></div>
-      <div id="timer-display" class="timer-display">25:00</div>
-      <div id="pattern-selector" class="pattern-selector" style="display:none">
-        <select id="pattern-select" class="pattern-select" onchange="App.onPatternChange(this.value)">
-        </select>
+  <head>
+    <meta charset="UTF-8" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍅</text></svg>"
+    />
+    <?!= include('Stylesheet'); ?>
+  </head>
+  <body>
+    <div class="app">
+      <!-- Header -->
+      <div class="header">
+        <h1>Pomodoro Timer</h1>
       </div>
 
-      <div id="interruption-badge" class="interruption-badge" style="display:none"></div>
+      <!-- Timer Card -->
+      <div id="timer-card" class="timer-card" data-phase="idle">
+        <div id="phase-label" class="phase-label">準備完了</div>
+        <div id="pomodoro-dots" class="pomodoro-dots"></div>
+        <div id="timer-display" class="timer-display">25:00</div>
+        <div
+          id="pattern-selector"
+          class="pattern-selector"
+          style="display: none"
+        >
+          <select
+            id="pattern-select"
+            class="pattern-select"
+            onchange="App.onPatternChange(this.value)"
+          ></select>
+        </div>
 
-      <div class="timer-controls">
-        <button id="btn-start" class="btn btn-primary" onclick="App.startWork()">開始</button>
-      </div>
+        <div
+          id="interruption-badge"
+          class="interruption-badge"
+          style="display: none"
+        ></div>
 
-      <!-- Interruption start button (shown during work) -->
-      <div id="interruption-controls" class="interruption-controls" style="display:none">
-        <button class="btn btn-warning" onclick="App.startInterruption()">中断</button>
-      </div>
+        <div class="timer-controls">
+          <button
+            id="btn-start"
+            class="btn btn-primary"
+            onclick="App.startWork()"
+          >
+            開始
+          </button>
+        </div>
 
-      <!-- Interrupted panel (shown during interruption) -->
-      <div id="interrupted-panel" class="interrupted-panel" style="display:none">
-        <div class="interrupted-timer-label">中断経過時間</div>
-        <div id="interruption-timer" class="interruption-timer">00:00</div>
-        <div class="interrupted-form">
-          <div class="interrupted-form-row">
-            <label class="radio-label"><input type="radio" name="int-type" value="nonWork" checked> 作業に含めない</label>
-            <label class="radio-label"><input type="radio" name="int-type" value="work"> 作業に含める</label>
+        <!-- Interruption start button (shown during work) -->
+        <div
+          id="interruption-controls"
+          class="interruption-controls"
+          style="display: none"
+        >
+          <button class="btn btn-warning" onclick="App.startInterruption()">
+            中断
+          </button>
+        </div>
+
+        <!-- Interrupted panel (shown during interruption) -->
+        <div
+          id="interrupted-panel"
+          class="interrupted-panel"
+          style="display: none"
+        >
+          <div class="interrupted-timer-label">中断経過時間</div>
+          <div id="interruption-timer" class="interruption-timer">00:00</div>
+          <div class="interrupted-form">
+            <div class="interrupted-form-row">
+              <label class="radio-label"
+                ><input type="radio" name="int-type" value="nonWork" checked />
+                作業に含めない</label
+              >
+              <label class="radio-label"
+                ><input type="radio" name="int-type" value="work" />
+                作業に含める</label
+              >
+            </div>
+            <select id="int-category" class="interrupted-form-select">
+              <option value="">-- カテゴリ --</option>
+            </select>
+            <textarea
+              id="int-note"
+              class="interrupted-form-input"
+              placeholder="メモ"
+              rows="2"
+            ></textarea>
           </div>
-          <select id="int-category" class="interrupted-form-select">
-            <option value="">-- カテゴリ --</option>
+          <button class="btn btn-primary" onclick="App.endInterruption()">
+            記録して作業に戻る
+          </button>
+        </div>
+
+        <!-- Break abort button (shown during break) -->
+        <div
+          id="break-abort-controls"
+          class="timer-controls"
+          style="display: none"
+        >
+          <button class="btn btn-secondary" onclick="App.skipBreak()">
+            休憩をスキップ
+          </button>
+        </div>
+
+        <!-- Break done panel (shown after break ends) -->
+        <div
+          id="break-done-panel"
+          class="break-done-panel"
+          style="display: none"
+        >
+          <div class="break-done-message">休憩が終わりました</div>
+          <div class="break-done-actions">
+            <button class="btn btn-primary" onclick="App.continueWork()">
+              次のポモドーロへ
+            </button>
+            <button class="btn btn-secondary" onclick="App.endSession()">
+              作業を終了
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Record Form -->
+      <div id="record-form-card" class="record-form-card">
+        <h3 id="record-form-title">作業記録</h3>
+        <div class="form-group">
+          <label for="record-description">作業内容</label>
+          <textarea
+            id="record-description"
+            placeholder="何に取り組みましたか？"
+          ></textarea>
+        </div>
+        <div class="form-group">
+          <label for="record-category">カテゴリ</label>
+          <select id="record-category">
+            <option value="">-- 選択 --</option>
           </select>
-          <textarea id="int-note" class="interrupted-form-input" placeholder="メモ" rows="2"></textarea>
+          <div class="category-add-row">
+            <input
+              id="new-category-name"
+              type="text"
+              placeholder="新しいカテゴリ"
+            />
+            <button onclick="RecordForm.addCategory()">追加</button>
+          </div>
         </div>
-        <button class="btn btn-primary" onclick="App.endInterruption()">記録して作業に戻る</button>
+
+        <!-- Interruption details (rendered dynamically) -->
+        <div
+          id="interruption-list"
+          class="interruption-list"
+          style="display: none"
+        ></div>
+
+        <!-- Work actions (shown during work) -->
+        <div
+          id="record-form-actions-work"
+          class="form-actions"
+          style="display: none"
+        >
+          <button class="btn btn-danger" onclick="App.abandon()">中止</button>
+        </div>
+
+        <!-- Normal (completed) actions -->
+        <div
+          id="record-form-actions-normal"
+          class="form-actions"
+          style="display: none"
+        >
+          <button class="btn btn-primary" onclick="RecordForm.submit()">
+            記録して休憩へ
+          </button>
+        </div>
+
+        <!-- Abandon actions -->
+        <div
+          id="record-form-actions-abandon"
+          class="form-actions"
+          style="display: none"
+        >
+          <button
+            class="btn btn-primary"
+            onclick="RecordForm.submitAbandon(false)"
+          >
+            セットを続ける
+          </button>
+          <button
+            class="btn btn-secondary"
+            onclick="RecordForm.submitAbandon(true)"
+          >
+            作業を終了
+          </button>
+        </div>
       </div>
 
-      <!-- Break abort button (shown during break) -->
-      <div id="break-abort-controls" class="timer-controls" style="display:none">
-        <button class="btn btn-secondary" onclick="App.skipBreak()">休憩をスキップ</button>
+      <!-- Today Stats -->
+      <div id="today-stats-card" class="stats-card">
+        <h3>今日の集計</h3>
+        <div class="stats-grid">
+          <div class="stats-item">
+            <div class="stats-value">
+              <span id="stats-pomodoros">0</span
+              ><span id="stats-abandoned" class="stats-abandoned"></span>
+            </div>
+            <div class="stats-label">完了</div>
+          </div>
+          <div class="stats-item">
+            <div class="stats-value" id="stats-work-time">0分</div>
+            <div class="stats-label">作業</div>
+          </div>
+          <div class="stats-item">
+            <div class="stats-value" id="stats-break-time">0分</div>
+            <div class="stats-label">休憩</div>
+          </div>
+          <div class="stats-item">
+            <div class="stats-value" id="stats-work-int-time">0分</div>
+            <div class="stats-label">中断(作業)</div>
+          </div>
+          <div class="stats-item">
+            <div class="stats-value" id="stats-nonwork-int-time">0分</div>
+            <div class="stats-label">中断(他)</div>
+          </div>
+        </div>
       </div>
 
-      <!-- Break done panel (shown after break ends) -->
-      <div id="break-done-panel" class="break-done-panel" style="display:none">
-        <div class="break-done-message">休憩が終わりました</div>
-        <div class="break-done-actions">
-          <button class="btn btn-primary" onclick="App.continueWork()">次のポモドーロへ</button>
-          <button class="btn btn-secondary" onclick="App.endSession()">作業を終了</button>
+      <!-- History -->
+      <div class="history-card">
+        <div class="history-header">
+          <h3>今日の記録</h3>
+          <a
+            id="spreadsheet-link"
+            href="#"
+            target="_blank"
+            class="spreadsheet-link"
+            style="display: none"
+            >詳細</a
+          >
         </div>
+        <ul id="history-list" class="history-list">
+          <li class="history-empty">まだ記録がありません</li>
+        </ul>
       </div>
     </div>
 
-    <!-- Record Form -->
-    <div id="record-form-card" class="record-form-card">
-      <h3 id="record-form-title">作業記録</h3>
-      <div class="form-group">
-        <label for="record-description">作業内容</label>
-        <textarea id="record-description" placeholder="何に取り組みましたか？"></textarea>
-      </div>
-      <div class="form-group">
-        <label for="record-category">カテゴリ</label>
-        <select id="record-category">
-          <option value="">-- 選択 --</option>
-        </select>
-        <div class="category-add-row">
-          <input id="new-category-name" type="text" placeholder="新しいカテゴリ">
-          <button onclick="RecordForm.addCategory()">追加</button>
-        </div>
-      </div>
-
-      <!-- Interruption details (rendered dynamically) -->
-      <div id="interruption-list" class="interruption-list" style="display:none"></div>
-
-      <!-- Work actions (shown during work) -->
-      <div id="record-form-actions-work" class="form-actions" style="display:none">
-        <button class="btn btn-danger" onclick="App.abandon()">中止</button>
-      </div>
-
-      <!-- Normal (completed) actions -->
-      <div id="record-form-actions-normal" class="form-actions" style="display:none">
-        <button class="btn btn-primary" onclick="RecordForm.submit()">記録して休憩へ</button>
-      </div>
-
-      <!-- Abandon actions -->
-      <div id="record-form-actions-abandon" class="form-actions" style="display:none">
-        <button class="btn btn-primary" onclick="RecordForm.submitAbandon(false)">セットを続ける</button>
-        <button class="btn btn-secondary" onclick="RecordForm.submitAbandon(true)">作業を終了</button>
-      </div>
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+      <div class="spinner"></div>
     </div>
 
-    <!-- Today Stats -->
-    <div id="today-stats-card" class="stats-card">
-      <h3>今日の集計</h3>
-      <div class="stats-grid">
-        <div class="stats-item">
-          <div class="stats-value"><span id="stats-pomodoros">0</span><span id="stats-abandoned" class="stats-abandoned"></span></div>
-          <div class="stats-label">完了</div>
-        </div>
-        <div class="stats-item">
-          <div class="stats-value" id="stats-work-time">0分</div>
-          <div class="stats-label">作業</div>
-        </div>
-        <div class="stats-item">
-          <div class="stats-value" id="stats-break-time">0分</div>
-          <div class="stats-label">休憩</div>
-        </div>
-        <div class="stats-item">
-          <div class="stats-value" id="stats-work-int-time">0分</div>
-          <div class="stats-label">中断(作業)</div>
-        </div>
-        <div class="stats-item">
-          <div class="stats-value" id="stats-nonwork-int-time">0分</div>
-          <div class="stats-label">中断(他)</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- History -->
-    <div class="history-card">
-      <div class="history-header">
-        <h3>今日の記録</h3>
-        <a id="spreadsheet-link" href="#" target="_blank" class="spreadsheet-link" style="display:none">詳細</a>
-      </div>
-      <ul id="history-list" class="history-list">
-        <li class="history-empty">まだ記録がありません</li>
-      </ul>
-    </div>
-
-  </div>
-
-  <!-- Loading Overlay -->
-  <div id="loading-overlay" class="loading-overlay">
-    <div class="spinner"></div>
-  </div>
-
-  <?!= include('Notification'); ?>
-  <?!= include('RecordForm'); ?>
-  <?!= include('JavaScript'); ?>
-</body>
+    <?!= include('Notification'); ?> <?!= include('RecordForm'); ?> <?!=
+    include('JavaScript'); ?>
+  </body>
 </html>

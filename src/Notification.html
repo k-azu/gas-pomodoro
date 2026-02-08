@@ -1,37 +1,40 @@
 <script>
-var NotificationManager = (function() {
-  function notify(title, body) {
-    playSound();
-    setTimeout(function() {
-      alert(title + '\n' + body);
-    }, 500);
-  }
-
-  function playSound() {
-    try {
-      var ctx = new (window.AudioContext || window.webkitAudioContext)();
-
-      // Play a pleasant two-tone notification
-      [0, 0.15, 0.3].forEach(function(delay) {
-        var osc = ctx.createOscillator();
-        var gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.frequency.value = delay < 0.2 ? 880 : 1046.5;
-        osc.type = 'sine';
-        gain.gain.setValueAtTime(0.3, ctx.currentTime + delay);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + delay + 0.15);
-        osc.start(ctx.currentTime + delay);
-        osc.stop(ctx.currentTime + delay + 0.15);
-      });
-    } catch (e) {
-      // Web Audio API not available
+  var NotificationManager = (function () {
+    function notify(title, body) {
+      playSound();
+      setTimeout(function () {
+        alert(title + "\n" + body);
+      }, 500);
     }
-  }
 
-  return {
-    notify: notify,
-    playSound: playSound
-  };
-})();
+    function playSound() {
+      try {
+        var ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Play a pleasant two-tone notification
+        [0, 0.15, 0.3].forEach(function (delay) {
+          var osc = ctx.createOscillator();
+          var gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.value = delay < 0.2 ? 880 : 1046.5;
+          osc.type = "sine";
+          gain.gain.setValueAtTime(0.3, ctx.currentTime + delay);
+          gain.gain.exponentialRampToValueAtTime(
+            0.01,
+            ctx.currentTime + delay + 0.15,
+          );
+          osc.start(ctx.currentTime + delay);
+          osc.stop(ctx.currentTime + delay + 0.15);
+        });
+      } catch (e) {
+        // Web Audio API not available
+      }
+    }
+
+    return {
+      notify: notify,
+      playSound: playSound,
+    };
+  })();
 </script>
