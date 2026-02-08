@@ -75,6 +75,7 @@ var App = (function() {
     state.startTimestamp = null;
     state.totalSeconds = 0;
     state.pomodoroSetIndex = 1;
+
     state.interruptions = [];
     state.currentInterruption = null;
     state.interruptionElapsed = 0;
@@ -114,8 +115,12 @@ var App = (function() {
     state.interruptionElapsed = 0;
 
     if (phase === 'work') {
+  
       state.interruptions = [];
       state.currentInterruption = null;
+      // Clear form for new pomodoro
+      document.getElementById('record-description').value = '';
+      document.getElementById('record-category').selectedIndex = 0;
     }
 
     saveState();
@@ -224,19 +229,22 @@ var App = (function() {
 
     if (state.phase === 'work' || state.phase === 'interrupted') {
       stopInterval();
+
       state.phase = 'abandoning';
       saveState();
       updateDisplay();
       updateControls();
-      RecordForm.showForAbandon();
-    } else if (state.phase === 'shortBreak' || state.phase === 'longBreak') {
-      stopInterval();
-      state.breakType = state.phase;
-      state.phase = 'breakDone';
-      saveState();
-      updateDisplay();
-      updateControls();
     }
+  }
+
+  function skipBreak() {
+    if (state.phase !== 'shortBreak' && state.phase !== 'longBreak') return;
+    stopInterval();
+    state.breakType = state.phase;
+    state.phase = 'breakDone';
+    saveState();
+    updateDisplay();
+    updateControls();
   }
 
   function onAbandonRecorded(resetSet) {
@@ -249,6 +257,7 @@ var App = (function() {
       state.remainingSeconds = 0;
       state.startTimestamp = null;
       state.totalSeconds = 0;
+  
       state.interruptions = [];
       state.currentInterruption = null;
       state.interruptionElapsed = 0;
@@ -265,11 +274,11 @@ var App = (function() {
 
     if (state.phase === 'work') {
       NotificationManager.notify();
+
       state.phase = 'recording';
       saveState();
       updateDisplay();
       updateControls();
-      RecordForm.show();
     } else if (state.phase === 'shortBreak' || state.phase === 'longBreak') {
       NotificationManager.notify();
       state.breakType = state.phase;
@@ -437,29 +446,43 @@ var App = (function() {
 
   function updateControls() {
     var startBtn = document.getElementById('btn-start');
-    var abandonBtn = document.getElementById('btn-abandon');
     var interruptionControls = document.getElementById('interruption-controls');
     var interruptedPanel = document.getElementById('interrupted-panel');
+    var breakAbortControls = document.getElementById('break-abort-controls');
     var breakDonePanel = document.getElementById('break-done-panel');
 
     var isIdle = state.phase === 'idle';
     var isWork = state.phase === 'work';
     var isInterrupted = state.phase === 'interrupted';
+    var isRecording = state.phase === 'recording';
     var isBreakDone = state.phase === 'breakDone';
     var isAbandoning = state.phase === 'abandoning';
-    var isTimerActive = !isIdle && state.phase !== 'recording' && !isBreakDone && !isAbandoning;
+    var isBreak = state.phase === 'shortBreak' || state.phase === 'longBreak';
 
+    // Timer card buttons
     startBtn.style.display = isIdle ? '' : 'none';
-    abandonBtn.style.display = (isTimerActive && !isInterrupted) ? '' : 'none';
-
-    // Interruption button: visible only during work (not while interrupted)
     interruptionControls.style.display = isWork ? '' : 'none';
-
-    // Interrupted panel: visible only during interruption
     interruptedPanel.style.display = isInterrupted ? '' : 'none';
-
-    // Break done panel
+    breakAbortControls.style.display = isBreak ? '' : 'none';
     breakDonePanel.style.display = isBreakDone ? '' : 'none';
+
+    // Record form visibility & actions
+    var formCard = document.getElementById('record-form-card');
+    var actionsWork = document.getElementById('record-form-actions-work');
+    var actionsNormal = document.getElementById('record-form-actions-normal');
+    var actionsAbandon = document.getElementById('record-form-actions-abandon');
+    var formTitle = document.getElementById('record-form-title');
+
+    var showForm = isWork || isInterrupted || isRecording || isAbandoning;
+    formCard.style.display = showForm ? 'block' : 'none';
+    actionsWork.style.display = isWork ? '' : 'none';
+    actionsNormal.style.display = isRecording ? '' : 'none';
+    actionsAbandon.style.display = isAbandoning ? '' : 'none';
+    formTitle.textContent = isAbandoning ? '中止 - 作業記録' : '作業記録';
+
+    if (showForm) {
+      RecordForm.renderInterruptionList();
+    }
 
     updatePatternInfo();
   }
@@ -538,7 +561,8 @@ var App = (function() {
       serverCall('getInterruptionCategories'),
       serverCall('getTodayStats'),
       serverCall('getRecentRecords', 10),
-      serverCall('getSpreadsheetUrl')
+      serverCall('getSpreadsheetUrl'),
+      serverCall('getTodayInterruptions')
     ]).then(function(results) {
       state.configPatterns = results[0];
       // Use saved pattern name from localStorage, or fall back to first pattern
@@ -553,15 +577,9 @@ var App = (function() {
       state.interruptionCategories = results[2].map(function(c) { return c.name; });
       RecordForm.populateCategories(results[1]);
       displayStats(results[3]);
-      displayHistory(results[4]);
+      displayHistory(results[4], results[6]);
       setSpreadsheetLink(results[5]);
 
-      if (state.phase === 'recording') {
-        RecordForm.show();
-      }
-      if (state.phase === 'abandoning') {
-        RecordForm.showForAbandon();
-      }
       restoreTimer();
       updateDisplay();
       updateControls();
@@ -578,6 +596,7 @@ var App = (function() {
     init: init,
     startWork: startWork,
     abandon: abandon,
+    skipBreak: skipBreak,
     startInterruption: startInterruption,
     endInterruption: endInterruption,
     onRecordSaved: onRecordSaved,
@@ -610,7 +629,7 @@ function displayStats(stats) {
   document.getElementById('stats-nonwork-int-time').textContent = formatDuration(s.totalNonWorkInterruptionSeconds);
 }
 
-function displayHistory(records) {
+function displayHistory(records, interruptions) {
   var list = document.getElementById('history-list');
   list.innerHTML = '';
 
@@ -619,33 +638,100 @@ function displayHistory(records) {
     return;
   }
 
+  // Build category color map
+  var state = App.getState();
+  var colorMap = {};
+  if (state.categories) {
+    state.categories.forEach(function(c) { colorMap[c.name] = c.color; });
+  }
+
+  // Group interruptions by pomodoroId
+  var intMap = {};
+  if (interruptions) {
+    interruptions.forEach(function(i) {
+      if (!intMap[i.pomodoroId]) intMap[i.pomodoroId] = [];
+      intMap[i.pomodoroId].push(i);
+    });
+  }
+
   records.forEach(function(r) {
     if (r.type !== 'work') return;
     var li = document.createElement('li');
     li.className = 'history-item';
 
-    var dot = document.createElement('span');
-    dot.className = 'history-type ' + r.type;
+    var row = document.createElement('div');
+    row.className = 'history-item-row';
 
+    // Category dot with color
+    var dot = document.createElement('span');
+    dot.className = 'history-type';
+    var catColor = r.category && colorMap[r.category];
+    dot.style.background = catColor || 'var(--text-secondary)';
+
+    // Category name
+    var cat = document.createElement('span');
+    cat.className = 'history-category';
+    cat.textContent = r.category || '';
+    if (catColor) cat.style.color = catColor;
+
+    // Description (first line only)
     var desc = document.createElement('span');
     desc.className = 'history-desc';
-    desc.textContent = r.description || r.category || '(無題)';
+    var firstLine = (r.description || '').split('\n')[0].trim();
+    desc.textContent = firstLine || '(無題)';
 
+    // Meta: start time + duration/interruptions
     var meta = document.createElement('span');
     meta.className = 'history-meta';
-    var parts = [];
+    var metaParts = [];
     try {
       var d = new Date(r.startTime);
-      parts.push(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
+      metaParts.push(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
     } catch (e) {}
-    if (r.workInterruptions + r.nonWorkInterruptions > 0) {
-      parts.push('中断' + (r.workInterruptions + r.nonWorkInterruptions));
-    }
-    meta.textContent = parts.join(' / ');
+    var durMin = Math.floor(r.actualDurationSeconds / 60);
+    var intCount = r.workInterruptions + r.nonWorkInterruptions;
+    metaParts.push(durMin + '分' + (intCount > 0 ? '/' + intCount + '中断' : ''));
+    meta.textContent = metaParts.join(' ');
 
-    li.appendChild(dot);
-    li.appendChild(desc);
-    li.appendChild(meta);
+    row.appendChild(dot);
+    row.appendChild(cat);
+    row.appendChild(desc);
+    row.appendChild(meta);
+    li.appendChild(row);
+
+    // Interruption detail (toggled)
+    var recordInts = intMap[r.id];
+    if (recordInts && recordInts.length > 0) {
+      li.classList.add('history-item-expandable');
+
+      var detail = document.createElement('div');
+      detail.className = 'history-detail';
+
+      recordInts.forEach(function(int) {
+        var intRow = document.createElement('div');
+        intRow.className = 'history-detail-row';
+
+        var typeLabel = int.type === 'work' ? '作業' : '非作業';
+        var intMins = Math.floor(int.durationSeconds / 60);
+        var intSecs = int.durationSeconds % 60;
+        var durStr = intMins > 0
+          ? intMins + '分' + (intSecs > 0 ? intSecs + '秒' : '')
+          : intSecs + '秒';
+
+        var parts = [typeLabel, durStr];
+        if (int.category) parts.push(int.category);
+        if (int.note) parts.push(int.note.split('\n')[0]);
+        intRow.textContent = parts.join(' - ');
+        detail.appendChild(intRow);
+      });
+
+      li.appendChild(detail);
+
+      row.addEventListener('click', function() {
+        li.classList.toggle('expanded');
+      });
+    }
+
     list.appendChild(li);
   });
 
@@ -663,7 +749,12 @@ function setSpreadsheetLink(url) {
 }
 
 function refreshHistory() {
-  serverCall('getRecentRecords', 10).then(displayHistory);
+  Promise.all([
+    serverCall('getRecentRecords', 10),
+    serverCall('getTodayInterruptions')
+  ]).then(function(results) {
+    displayHistory(results[0], results[1]);
+  });
 }
 
 function refreshStats() {

@@ -1,30 +1,9 @@
 <script>
 var RecordForm = (function() {
-  var currentMode = 'recording'; // 'recording' | 'abandoning'
 
-  function show() {
-    currentMode = 'recording';
-    document.getElementById('record-form-card').classList.add('visible');
-    document.getElementById('record-form-actions-normal').style.display = '';
-    document.getElementById('record-form-actions-abandon').style.display = 'none';
-    document.getElementById('record-form-title').textContent = '作業記録';
-    renderInterruptionList();
-    document.getElementById('record-description').focus();
-  }
-
-  function showForAbandon() {
-    currentMode = 'abandoning';
-    document.getElementById('record-form-card').classList.add('visible');
-    document.getElementById('record-form-actions-normal').style.display = 'none';
-    document.getElementById('record-form-actions-abandon').style.display = '';
-    document.getElementById('record-form-title').textContent = '中止 - 作業記録';
-    renderInterruptionList();
-    document.getElementById('record-description').focus();
-  }
-
-  function hide() {
-    document.getElementById('record-form-card').classList.remove('visible');
+  function clearForm() {
     document.getElementById('record-description').value = '';
+    document.getElementById('record-category').selectedIndex = 0;
   }
 
   function populateCategories(categories) {
@@ -84,48 +63,12 @@ var RecordForm = (function() {
     var category = document.getElementById('record-category').value;
 
     var state = App.getState();
-    var now = new Date();
+    var endTime = new Date();
     var startTime = new Date(state.startTimestamp);
-    var actualSeconds = Math.round((now.getTime() - startTime.getTime()) / 1000);
+    var actualSeconds = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
 
-    var workCount = state.interruptions.filter(function(i) { return i.type === 'work'; }).length;
-    var nonWorkCount = state.interruptions.filter(function(i) { return i.type === 'nonWork'; }).length;
-    var workIntSeconds = state.interruptions.filter(function(i) { return i.type === 'work'; }).reduce(function(sum, i) { return sum + i.durationSeconds; }, 0);
-    var nonWorkIntSeconds = state.interruptions.filter(function(i) { return i.type === 'nonWork'; }).reduce(function(sum, i) { return sum + i.durationSeconds; }, 0);
-
-    var pomodoroId = generateUUID();
-
-    var record = {
-      id: pomodoroId,
-      date: formatDate(now),
-      startTime: startTime.toISOString(),
-      endTime: now.toISOString(),
-      durationSeconds: state.config.workMinutes * 60,
-      actualDurationSeconds: actualSeconds,
-      type: 'work',
-      description: description,
-      category: category,
-      workInterruptions: workCount,
-      nonWorkInterruptions: nonWorkCount,
-      workInterruptionSeconds: workIntSeconds,
-      nonWorkInterruptionSeconds: nonWorkIntSeconds,
-      completionStatus: 'completed',
-      pomodoroSetIndex: state.pomodoroSetIndex
-    };
-
-    // Build interruption records with user-entered category/note
-    var intRecords = state.interruptions.map(function(i) {
-      return {
-        id: i.id,
-        pomodoroId: pomodoroId,
-        type: i.type,
-        startTime: i.startTime,
-        endTime: i.endTime,
-        durationSeconds: i.durationSeconds,
-        category: i.category || '',
-        note: i.note || ''
-      };
-    });
+    var record = buildRecord(state, description, category, startTime, endTime, actualSeconds, 'completed');
+    var intRecords = buildInterruptionRecords(state, record.id);
 
     showLoading(true);
     serverCall('saveRecord', record)
@@ -135,7 +78,7 @@ var RecordForm = (function() {
         }
       })
       .then(function() {
-        hide();
+        clearForm();
         App.onRecordSaved();
         refreshHistory();
         refreshStats();
@@ -153,22 +96,43 @@ var RecordForm = (function() {
     var category = document.getElementById('record-category').value;
 
     var state = App.getState();
-    var now = new Date();
+    var endTime = new Date();
     var startTime = new Date(state.startTimestamp);
-    var actualSeconds = Math.round((now.getTime() - startTime.getTime()) / 1000);
+    var actualSeconds = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
 
+    var record = buildRecord(state, description, category, startTime, endTime, actualSeconds, 'abandoned');
+    var intRecords = buildInterruptionRecords(state, record.id);
+
+    showLoading(true);
+    serverCall('saveRecord', record)
+      .then(function() {
+        if (intRecords.length > 0) {
+          return serverCall('saveInterruptions', intRecords);
+        }
+      })
+      .then(function() {
+        clearForm();
+        App.onAbandonRecorded(resetSet);
+      })
+      .catch(function(err) {
+        alert('記録の保存に失敗しました: ' + err);
+      })
+      .finally(function() {
+        showLoading(false);
+      });
+  }
+
+  function buildRecord(state, description, category, startTime, endTime, actualSeconds, completionStatus) {
     var workCount = state.interruptions.filter(function(i) { return i.type === 'work'; }).length;
     var nonWorkCount = state.interruptions.filter(function(i) { return i.type === 'nonWork'; }).length;
     var workIntSeconds = state.interruptions.filter(function(i) { return i.type === 'work'; }).reduce(function(sum, i) { return sum + i.durationSeconds; }, 0);
     var nonWorkIntSeconds = state.interruptions.filter(function(i) { return i.type === 'nonWork'; }).reduce(function(sum, i) { return sum + i.durationSeconds; }, 0);
 
-    var pomodoroId = generateUUID();
-
-    var record = {
-      id: pomodoroId,
-      date: formatDate(now),
+    return {
+      id: generateUUID(),
+      date: formatDate(endTime),
       startTime: startTime.toISOString(),
-      endTime: now.toISOString(),
+      endTime: endTime.toISOString(),
       durationSeconds: state.config.workMinutes * 60,
       actualDurationSeconds: actualSeconds,
       type: 'work',
@@ -178,11 +142,13 @@ var RecordForm = (function() {
       nonWorkInterruptions: nonWorkCount,
       workInterruptionSeconds: workIntSeconds,
       nonWorkInterruptionSeconds: nonWorkIntSeconds,
-      completionStatus: 'abandoned',
+      completionStatus: completionStatus,
       pomodoroSetIndex: state.pomodoroSetIndex
     };
+  }
 
-    var intRecords = state.interruptions.map(function(i) {
+  function buildInterruptionRecords(state, pomodoroId) {
+    return state.interruptions.map(function(i) {
       return {
         id: i.id,
         pomodoroId: pomodoroId,
@@ -194,24 +160,6 @@ var RecordForm = (function() {
         note: i.note || ''
       };
     });
-
-    showLoading(true);
-    serverCall('saveRecord', record)
-      .then(function() {
-        if (intRecords.length > 0) {
-          return serverCall('saveInterruptions', intRecords);
-        }
-      })
-      .then(function() {
-        hide();
-        App.onAbandonRecorded(resetSet);
-      })
-      .catch(function(err) {
-        alert('記録の保存に失敗しました: ' + err);
-      })
-      .finally(function() {
-        showLoading(false);
-      });
   }
 
   function addCategory() {
@@ -253,11 +201,10 @@ var RecordForm = (function() {
   }
 
   return {
-    show: show,
-    showForAbandon: showForAbandon,
-    hide: hide,
     submit: submit,
     submitAbandon: submitAbandon,
+    clearForm: clearForm,
+    renderInterruptionList: renderInterruptionList,
     populateCategories: populateCategories,
     addCategory: addCategory,
     generateUUID: generateUUID,

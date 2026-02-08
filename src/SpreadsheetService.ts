@@ -153,3 +153,32 @@ function getTodayStats(): TodayStats {
 
   return stats;
 }
+
+function getTodayInterruptions(): InterruptionRecord[] {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Interruptions')!;
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return [];
+
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const TAIL_ROWS = 200;
+  const startRow = Math.max(2, lastRow - TAIL_ROWS + 1);
+  const numRows = lastRow - startRow + 1;
+  const data = sheet.getRange(startRow, 1, numRows, 8).getValues();
+
+  return data
+    .filter((row) => {
+      const startTime = String(row[3]);
+      return startTime.indexOf(today) === 0;
+    })
+    .map((row) => ({
+      id: String(row[0]),
+      pomodoroId: String(row[1]),
+      type: String(row[2]),
+      startTime: String(row[3]),
+      endTime: String(row[4]),
+      durationSeconds: Number(row[5]),
+      category: String(row[6]),
+      note: String(row[7])
+    }));
+}

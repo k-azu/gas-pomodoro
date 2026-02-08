@@ -2,6 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍅</text></svg>">
   <?!= include('Stylesheet'); ?>
 </head>
 <body>
@@ -29,7 +30,6 @@
 
       <div class="timer-controls">
         <button id="btn-start" class="btn btn-primary" onclick="App.startWork()">開始</button>
-        <button id="btn-abandon" class="btn btn-danger" onclick="App.abandon()" style="display:none">中止</button>
       </div>
 
       <!-- Interruption start button (shown during work) -->
@@ -49,9 +49,14 @@
           <select id="int-category" class="interrupted-form-select">
             <option value="">-- カテゴリ --</option>
           </select>
-          <input id="int-note" type="text" class="interrupted-form-input" placeholder="メモ">
+          <textarea id="int-note" class="interrupted-form-input" placeholder="メモ" rows="2"></textarea>
         </div>
         <button class="btn btn-primary" onclick="App.endInterruption()">記録して作業に戻る</button>
+      </div>
+
+      <!-- Break abort button (shown during break) -->
+      <div id="break-abort-controls" class="timer-controls" style="display:none">
+        <button class="btn btn-secondary" onclick="App.skipBreak()">休憩をスキップ</button>
       </div>
 
       <!-- Break done panel (shown after break ends) -->
@@ -85,8 +90,13 @@
       <!-- Interruption details (rendered dynamically) -->
       <div id="interruption-list" class="interruption-list" style="display:none"></div>
 
+      <!-- Work actions (shown during work) -->
+      <div id="record-form-actions-work" class="form-actions" style="display:none">
+        <button class="btn btn-danger" onclick="App.abandon()">中止</button>
+      </div>
+
       <!-- Normal (completed) actions -->
-      <div id="record-form-actions-normal" class="form-actions">
+      <div id="record-form-actions-normal" class="form-actions" style="display:none">
         <button class="btn btn-primary" onclick="RecordForm.submit()">記録して休憩へ</button>
       </div>
 
