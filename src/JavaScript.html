@@ -166,10 +166,10 @@ var App = (function() {
   function populateInterruptionCategorySelect() {
     var select = document.getElementById('int-category');
     select.innerHTML = '<option value="">-- カテゴリ --</option>';
-    state.interruptionCategories.forEach(function(name) {
+    state.interruptionCategories.forEach(function(c) {
       var opt = document.createElement('option');
-      opt.value = name;
-      opt.textContent = name;
+      opt.value = c.name;
+      opt.textContent = c.name;
       select.appendChild(opt);
     });
   }
@@ -351,40 +351,13 @@ var App = (function() {
     startTimer('work', state.config.workMinutes);
   }
 
-  function togglePatternPopup() {
-    if (state.phase !== 'idle') return;
-    var popup = document.getElementById('pattern-popup');
-    if (popup.style.display !== 'none') {
-      popup.style.display = 'none';
-      return;
-    }
-
-    popup.innerHTML = '';
-    state.configPatterns.forEach(function(p) {
-      var item = document.createElement('div');
-      item.className = 'pattern-popup-item';
-      if (p.patternName === state.config.patternName) {
-        item.classList.add('selected');
-      }
-      item.textContent = p.patternName + '  ' + p.workMinutes + ' / ' + p.shortBreakMinutes + ' / ' + p.longBreakMinutes;
-      item.onclick = function(e) {
-        e.stopPropagation();
-        selectPattern(p.patternName);
-      };
-      popup.appendChild(item);
-    });
-    popup.style.display = '';
-  }
-
-  function selectPattern(patternName) {
+  function onPatternChange(patternName) {
     var pattern = state.configPatterns.find(function(p) { return p.patternName === patternName; });
     if (!pattern) return;
     state.config = pattern;
-    document.getElementById('pattern-popup').style.display = 'none';
     saveState();
     updateDisplay();
     updateDots();
-    updatePatternInfo();
   }
 
   // --- UI Update ---
@@ -498,21 +471,29 @@ var App = (function() {
     }
   }
 
+  function populatePatternSelect() {
+    var select = document.getElementById('pattern-select');
+    select.innerHTML = '';
+    state.configPatterns.forEach(function(p) {
+      var opt = document.createElement('option');
+      opt.value = p.patternName;
+      opt.textContent = p.patternName + '  (' + p.workMinutes + '/' + p.shortBreakMinutes + '/' + p.longBreakMinutes + ')';
+      if (p.patternName === state.config.patternName) opt.selected = true;
+      select.appendChild(opt);
+    });
+  }
+
   function updatePatternInfo() {
     var selector = document.getElementById('pattern-selector');
     if (!selector) return;
 
-    document.getElementById('pattern-name').textContent = state.config.patternName;
-    document.getElementById('pattern-work').textContent = state.config.workMinutes;
-    document.getElementById('pattern-short').textContent = state.config.shortBreakMinutes;
-    document.getElementById('pattern-long').textContent = state.config.longBreakMinutes;
-
     // Show when idle and multiple patterns exist
     var visible = state.phase === 'idle' && state.configPatterns.length > 1;
     selector.style.display = visible ? '' : 'none';
-    if (!visible) {
-      document.getElementById('pattern-popup').style.display = 'none';
-    }
+
+    var select = document.getElementById('pattern-select');
+    select.disabled = state.phase !== 'idle';
+    select.value = state.config.patternName;
   }
 
   function getState() {
@@ -574,7 +555,8 @@ var App = (function() {
         state.config = state.configPatterns[0];
       }
       state.categories = results[1];
-      state.interruptionCategories = results[2].map(function(c) { return c.name; });
+      state.interruptionCategories = results[2];
+      populatePatternSelect();
       RecordForm.populateCategories(results[1]);
       displayStats(results[3]);
       displayHistory(results[4], results[6]);
@@ -603,7 +585,7 @@ var App = (function() {
     onAbandonRecorded: onAbandonRecorded,
     continueWork: continueWork,
     endSession: endSession,
-    togglePatternPopup: togglePatternPopup,
+    onPatternChange: onPatternChange,
     getState: getState,
     getInterruptionCategories: getInterruptionCategories
   };
@@ -718,10 +700,18 @@ function displayHistory(records, interruptions) {
           ? intMins + '分' + (intSecs > 0 ? intSecs + '秒' : '')
           : intSecs + '秒';
 
-        var parts = [typeLabel, durStr];
-        if (int.category) parts.push(int.category);
-        if (int.note) parts.push(int.note.split('\n')[0]);
-        intRow.textContent = parts.join(' - ');
+        intRow.textContent = typeLabel + ' - ' + durStr;
+        if (int.category) {
+          var intCatSpan = document.createElement('span');
+          intCatSpan.textContent = ' - ' + int.category;
+          var intCatObj = state.interruptionCategories.find(function(c) { return c.name === int.category; });
+          if (intCatObj && intCatObj.color) intCatSpan.style.color = intCatObj.color;
+          intRow.appendChild(intCatSpan);
+        }
+        if (int.note) {
+          var noteSpan = document.createTextNode(' - ' + int.note.split('\n')[0]);
+          intRow.appendChild(noteSpan);
+        }
         detail.appendChild(intRow);
       });
 
@@ -763,13 +753,4 @@ function refreshStats() {
 
 // --- Boot ---
 document.addEventListener('DOMContentLoaded', App.init);
-
-// Close pattern popup when clicking outside
-document.addEventListener('click', function(e) {
-  var selector = document.getElementById('pattern-selector');
-  var popup = document.getElementById('pattern-popup');
-  if (popup && selector && !selector.contains(e.target)) {
-    popup.style.display = 'none';
-  }
-});
 </script>

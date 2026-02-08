@@ -43,17 +43,34 @@ var RecordForm = (function() {
 
       var header = document.createElement('div');
       header.className = 'interruption-item-header';
-      header.textContent = typeLabel + '中断 (' + durStr + ')';
 
-      var detail = document.createElement('div');
-      detail.className = 'interruption-item-detail';
-      var parts = [];
-      if (int.category) parts.push(int.category);
-      if (int.note) parts.push(int.note);
-      detail.textContent = parts.join(' - ') || '';
+      var lines = int.note ? int.note.split('\n') : [];
+      var title = lines[0] ? lines[0].trim() : '';
+      var body = lines.slice(1).join('\n').trim();
+
+      // Header: タイトル - 非作業中断(3分) カテゴリ
+      var headerParts = [];
+      if (title) headerParts.push(title);
+      headerParts.push(typeLabel + '中断(' + durStr + ')');
+      header.textContent = headerParts.join(' - ');
+
+      if (int.category) {
+        var catSpan = document.createElement('span');
+        catSpan.className = 'interruption-item-category';
+        catSpan.textContent = ' ' + int.category;
+        var intCatColor = getInterruptionCategoryColor(int.category);
+        if (intCatColor) catSpan.style.color = intCatColor;
+        header.appendChild(catSpan);
+      }
 
       item.appendChild(header);
-      if (parts.length > 0) item.appendChild(detail);
+
+      if (body) {
+        var noteEl = document.createElement('div');
+        noteEl.className = 'interruption-item-note';
+        noteEl.textContent = body;
+        item.appendChild(noteEl);
+      }
       container.appendChild(item);
     });
   }
@@ -183,6 +200,12 @@ var RecordForm = (function() {
           populateCategories(cats);
         }
       });
+  }
+
+  function getInterruptionCategoryColor(name) {
+    var cats = App.getState().interruptionCategories;
+    var cat = cats.find(function(c) { return c.name === name; });
+    return cat ? cat.color : '';
   }
 
   function generateUUID() {

@@ -39,73 +39,21 @@
     font-weight: 700;
   }
 
-  /* Pattern Info (clickable, inside timer card) */
-  .pattern-info {
-    cursor: pointer;
+  /* Pattern Selector */
+  .pattern-selector {
     margin-top: 4px;
     margin-bottom: 12px;
-    padding: 6px 16px;
+  }
+
+  .pattern-select {
+    padding: 6px 12px;
     border: 1px solid var(--border);
     border-radius: 6px;
-    display: inline-block;
-    transition: background 0.2s;
-  }
-
-  .pattern-info:hover {
-    background: var(--bg);
-  }
-
-  .pattern-info:active {
-    transform: scale(0.97);
-  }
-
-  .pattern-name {
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    margin-right: 6px;
-  }
-
-  .pattern-times {
     font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--text);
-  }
-
-  .pattern-selector {
-    position: relative;
-    display: inline-block;
-  }
-
-  .pattern-popup {
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    margin-top: 4px;
+    font-family: inherit;
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
-    min-width: 200px;
-    z-index: 10;
-    overflow: hidden;
-  }
-
-  .pattern-popup-item {
-    padding: 10px 16px;
-    font-size: 0.85rem;
+    color: var(--text);
     cursor: pointer;
-    white-space: nowrap;
-    transition: background 0.15s;
-  }
-
-  .pattern-popup-item:hover {
-    background: var(--bg);
-  }
-
-  .pattern-popup-item.selected {
-    font-weight: 700;
-    color: var(--work-color);
   }
 
   /* Timer Card */
@@ -273,6 +221,8 @@
     border-radius: 6px;
     font-size: 0.85rem;
     font-family: inherit;
+    background: var(--surface);
+    color: var(--text);
     margin-bottom: 8px;
   }
 
@@ -341,14 +291,24 @@
   .interruption-item-header {
     font-size: 0.85rem;
     font-weight: 600;
-    margin-bottom: 6px;
-    color: #e65100;
+    color: var(--text-secondary);
+  }
+
+  .interruption-item-category {
+    font-weight: 600;
   }
 
   .interruption-item-detail {
     font-size: 0.8rem;
     color: var(--text-secondary);
     margin-top: 2px;
+  }
+
+  .interruption-item-note {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 2px;
+    white-space: pre-wrap;
   }
 
   /* Record Form */
@@ -386,6 +346,8 @@
     border-radius: 6px;
     font-size: 0.9rem;
     font-family: inherit;
+    background: var(--surface);
+    color: var(--text);
   }
 
   .form-group textarea { resize: vertical; min-height: 60px; }
