@@ -69,7 +69,8 @@ function getRecentRecords(limit: number = 10): PomodoroRecord[] {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
 
-  const startRow = Math.max(2, lastRow - limit + 1);
+  const TAIL_ROWS = 100;
+  const startRow = Math.max(2, lastRow - TAIL_ROWS + 1);
   const numRows = lastRow - startRow + 1;
   const data = sheet.getRange(startRow, 1, numRows, 15).getValues();
 
