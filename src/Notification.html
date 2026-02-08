@@ -1,7 +1,10 @@
 <script>
 var NotificationManager = (function() {
-  function notify() {
+  function notify(title, body) {
     playSound();
+    setTimeout(function() {
+      alert(title + '\n' + body);
+    }, 500);
   }
 
   function playSound() {

@@ -273,14 +273,14 @@ var App = (function() {
     stopInterval();
 
     if (state.phase === 'work') {
-      NotificationManager.notify();
+      NotificationManager.notify('作業完了', 'ポモドーロが終了しました。記録を入力してください。');
 
       state.phase = 'recording';
       saveState();
       updateDisplay();
       updateControls();
     } else if (state.phase === 'shortBreak' || state.phase === 'longBreak') {
-      NotificationManager.notify();
+      NotificationManager.notify('休憩終了', '休憩が終わりました。次のポモドーロを始めましょう。');
       state.breakType = state.phase;
       state.phase = 'breakDone';
       saveState();
