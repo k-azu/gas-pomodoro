@@ -5,3 +5,4 @@ tsconfig.json
 .git/**
 eslint.config.mjs
 .prettierignore
+scripts/**

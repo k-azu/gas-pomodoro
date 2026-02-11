@@ -118,8 +118,9 @@
         state.interruptions = [];
         state.currentInterruption = null;
         // Clear form for new pomodoro
-        document.getElementById("record-description").value = "";
-        document.getElementById("record-category").selectedIndex = 0;
+        MemoEditor.clearRecord();
+        var recCat = document.getElementById("record-category");
+        if (recCat) recCat.selectedIndex = 0;
       }
 
       saveState();
@@ -156,7 +157,7 @@
       radios.forEach(function (r) {
         r.checked = r.value === "nonWork";
       });
-      document.getElementById("int-note").value = "";
+      MemoEditor.clearInterruption();
       populateInterruptionCategorySelect();
 
       saveState();
@@ -186,7 +187,7 @@
       var typeRadio = document.querySelector('input[name="int-type"]:checked');
       var type = typeRadio ? typeRadio.value : "nonWork";
       var category = document.getElementById("int-category").value;
-      var note = document.getElementById("int-note").value.trim();
+      var note = (MemoEditor.getInterruptionValue() || "").trim();
 
       state.interruptions.push({
         id: state.currentInterruption.id,
@@ -218,7 +219,7 @@
         );
         var intType = typeRadio ? typeRadio.value : "nonWork";
         var intCategory = document.getElementById("int-category").value;
-        var intNote = document.getElementById("int-note").value.trim();
+        var intNote = (MemoEditor.getInterruptionValue() || "").trim();
         state.interruptions.push({
           id: state.currentInterruption.id,
           type: intType,
@@ -449,7 +450,6 @@
       var interruptionControls = document.getElementById(
         "interruption-controls",
       );
-      var interruptedPanel = document.getElementById("interrupted-panel");
       var breakAbortControls = document.getElementById("break-abort-controls");
       var breakDonePanel = document.getElementById("break-done-panel");
 
@@ -464,29 +464,27 @@
       // Timer card buttons
       startBtn.style.display = isIdle ? "" : "none";
       interruptionControls.style.display = isWork ? "" : "none";
-      interruptedPanel.style.display = isInterrupted ? "" : "none";
       breakAbortControls.style.display = isBreak ? "" : "none";
       breakDonePanel.style.display = isBreakDone ? "" : "none";
 
-      // Record form visibility & actions
-      var formCard = document.getElementById("record-form-card");
+      // Record form actions (in right panel record tab)
       var actionsWork = document.getElementById("record-form-actions-work");
       var actionsNormal = document.getElementById("record-form-actions-normal");
       var actionsAbandon = document.getElementById(
         "record-form-actions-abandon",
       );
-      var formTitle = document.getElementById("record-form-title");
 
-      var showForm = isWork || isInterrupted || isRecording || isAbandoning;
-      formCard.style.display = showForm ? "block" : "none";
       actionsWork.style.display = isWork ? "" : "none";
       actionsNormal.style.display = isRecording ? "" : "none";
       actionsAbandon.style.display = isAbandoning ? "" : "none";
-      formTitle.textContent = isAbandoning ? "中止 - 作業記録" : "作業記録";
 
+      var showForm = isWork || isInterrupted || isRecording || isAbandoning;
       if (showForm) {
         RecordForm.renderInterruptionList();
       }
+
+      // Update tab panel
+      TabPanel.update(state.phase);
 
       updatePatternInfo();
     }
@@ -621,6 +619,8 @@
         })
         .finally(function () {
           showLoading(false);
+          TabPanel.init();
+          MemoEditor.init();
         });
     }
 
@@ -755,11 +755,26 @@
       row.appendChild(meta);
       li.appendChild(row);
 
-      // Interruption detail (toggled)
+      // Click handler: open viewer with description
+      (function (record, metaText) {
+        row.addEventListener("click", function () {
+          var description = (record.description || "").trim();
+          if (!description) return;
+          var title = (record.description || "").split("\n")[0].trim() || "(無題)";
+          // Add start time to viewer meta
+          var viewerMeta = metaText;
+          try {
+            var st = new Date(record.startTime);
+            viewerMeta = String(st.getHours()).padStart(2, "0") + ":" +
+              String(st.getMinutes()).padStart(2, "0") + " 開始 - " + metaText;
+          } catch (e) {}
+          TabPanel.showViewer(title, viewerMeta, description, record.id, "record");
+        });
+      })(r, metaParts.join(" "));
+
+      // Interruption detail (always visible inline)
       var recordInts = intMap[r.id];
       if (recordInts && recordInts.length > 0) {
-        li.classList.add("history-item-expandable");
-
         var detail = document.createElement("div");
         detail.className = "history-detail";
 
@@ -792,14 +807,24 @@
             );
             intRow.appendChild(noteSpan);
           }
+
+          // Click handler: open viewer with interruption note
+          (function (interruption, intDurStr) {
+            intRow.addEventListener("click", function (e) {
+              e.stopPropagation();
+              var note = (interruption.note || "").trim();
+              if (!note) return;
+              var noteTitle = note.split("\n")[0].trim();
+              var intMetaText = (interruption.type === "work" ? "作業" : "非作業") + " - " + intDurStr;
+              if (interruption.category) intMetaText += " - " + interruption.category;
+              TabPanel.showViewer(noteTitle, intMetaText, note, interruption.id, "interruption");
+            });
+          })(int, durStr);
+
           detail.appendChild(intRow);
         });
 
         li.appendChild(detail);
-
-        row.addEventListener("click", function () {
-          li.classList.toggle("expanded");
-        });
       }
 
       list.appendChild(li);

@@ -1,0 +1,164 @@
+<script>
+  var MemoEditor = (function () {
+    var MEMO_KEY = "gas_pomodoro_memo";
+    var RECORD_KEY = "gas_pomodoro_record_desc";
+    var INT_KEY = "gas_pomodoro_int_note";
+    var memoEditor = null;
+    var recordEditor = null;
+    var interruptionEditor = null;
+    var viewerEditor = null;
+    var memoDebounce = null;
+    var recordDebounce = null;
+    var intDebounce = null;
+
+    function ls(key) {
+      try { return localStorage.getItem(key) || ""; } catch (e) { return ""; }
+    }
+    function lsSet(key, val) {
+      try { localStorage.setItem(key, val); } catch (e) {}
+    }
+
+    function init() {
+      if (typeof window.mountMemoEditor !== "function") {
+        console.warn("MemoEditor: mountMemoEditor not available");
+        return;
+      }
+
+      // 1. Memo editor (localStorage persisted)
+      var memoContainer = document.getElementById("memo-editor-container");
+      if (memoContainer) {
+        memoEditor = window.mountMemoEditor(memoContainer, {
+          initialValue: ls(MEMO_KEY),
+          onChange: function (md) {
+            if (memoDebounce) clearTimeout(memoDebounce);
+            memoDebounce = setTimeout(function () { lsSet(MEMO_KEY, md); }, 500);
+          },
+          placeholder: "メモを入力...",
+          defaultMode: "wysiwyg",
+          style: { height: "100%" },
+        });
+      }
+
+      // 2. Record description editor (localStorage persisted)
+      var recordContainer = document.getElementById("record-editor-container");
+      if (recordContainer) {
+        recordEditor = window.mountMemoEditor(recordContainer, {
+          initialValue: ls(RECORD_KEY),
+          onChange: function (md) {
+            if (recordDebounce) clearTimeout(recordDebounce);
+            recordDebounce = setTimeout(function () { lsSet(RECORD_KEY, md); }, 500);
+          },
+          placeholder: "何に取り組みましたか？",
+          defaultMode: "wysiwyg",
+          style: { height: "100%" },
+        });
+      }
+
+      // 3. Interruption note editor (localStorage persisted)
+      var intContainer = document.getElementById("int-note-editor-container");
+      if (intContainer) {
+        interruptionEditor = window.mountMemoEditor(intContainer, {
+          initialValue: ls(INT_KEY),
+          onChange: function (md) {
+            if (intDebounce) clearTimeout(intDebounce);
+            intDebounce = setTimeout(function () { lsSet(INT_KEY, md); }, 500);
+          },
+          placeholder: "中断メモ...",
+          defaultMode: "wysiwyg",
+          style: { height: "100%" },
+        });
+      }
+
+      // 4. Viewer editor (read-only view, no localStorage)
+      var viewerContainer = document.getElementById("viewer-editor-container");
+      if (viewerContainer) {
+        viewerEditor = window.mountMemoEditor(viewerContainer, {
+          initialValue: "",
+          placeholder: "",
+          defaultMode: "wysiwyg",
+          style: { height: "100%" },
+        });
+      }
+    }
+
+    // --- Memo ---
+    function getValue() {
+      if (memoEditor) return memoEditor.getValue();
+      return ls(MEMO_KEY);
+    }
+
+    function setValue(markdown) {
+      if (memoEditor) {
+        memoEditor.setValue(markdown);
+        lsSet(MEMO_KEY, markdown);
+      }
+    }
+
+    function clear() {
+      setValue("");
+      lsSet(MEMO_KEY, "");
+    }
+
+    // --- Record description ---
+    function getRecordValue() {
+      if (recordEditor) return recordEditor.getValue();
+      return ls(RECORD_KEY);
+    }
+
+    function setRecordValue(markdown) {
+      if (recordEditor) recordEditor.setValue(markdown);
+      lsSet(RECORD_KEY, markdown);
+    }
+
+    function clearRecord() {
+      if (recordEditor) recordEditor.setValue("");
+      lsSet(RECORD_KEY, "");
+    }
+
+    // --- Interruption note ---
+    function getInterruptionValue() {
+      if (interruptionEditor) return interruptionEditor.getValue();
+      return ls(INT_KEY);
+    }
+
+    function setInterruptionValue(markdown) {
+      if (interruptionEditor) interruptionEditor.setValue(markdown);
+      lsSet(INT_KEY, markdown);
+    }
+
+    function clearInterruption() {
+      if (interruptionEditor) interruptionEditor.setValue("");
+      lsSet(INT_KEY, "");
+    }
+
+    // --- Viewer ---
+    function getViewerValue() {
+      if (viewerEditor) return viewerEditor.getValue();
+      return "";
+    }
+
+    function setViewerValue(markdown) {
+      if (viewerEditor) viewerEditor.setValue(markdown);
+    }
+
+    function clearViewer() {
+      if (viewerEditor) viewerEditor.setValue("");
+    }
+
+    return {
+      init: init,
+      getValue: getValue,
+      setValue: setValue,
+      clear: clear,
+      getRecordValue: getRecordValue,
+      setRecordValue: setRecordValue,
+      clearRecord: clearRecord,
+      getInterruptionValue: getInterruptionValue,
+      setInterruptionValue: setInterruptionValue,
+      clearInterruption: clearInterruption,
+      getViewerValue: getViewerValue,
+      setViewerValue: setViewerValue,
+      clearViewer: clearViewer,
+    };
+  })();
+</script>

@@ -7,8 +7,11 @@
       href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍅</text></svg>"
     />
     <?!= include('Stylesheet'); ?>
+    <?!= include('EditorStyles'); ?>
   </head>
   <body>
+    <div class="app-layout">
+    <div class="app-left">
     <div class="app">
       <!-- Header -->
       <div class="header">
@@ -59,40 +62,6 @@
           </button>
         </div>
 
-        <!-- Interrupted panel (shown during interruption) -->
-        <div
-          id="interrupted-panel"
-          class="interrupted-panel"
-          style="display: none"
-        >
-          <div class="interrupted-timer-label">中断経過時間</div>
-          <div id="interruption-timer" class="interruption-timer">00:00</div>
-          <div class="interrupted-form">
-            <div class="interrupted-form-row">
-              <label class="radio-label"
-                ><input type="radio" name="int-type" value="nonWork" checked />
-                作業に含めない</label
-              >
-              <label class="radio-label"
-                ><input type="radio" name="int-type" value="work" />
-                作業に含める</label
-              >
-            </div>
-            <select id="int-category" class="interrupted-form-select">
-              <option value="">-- カテゴリ --</option>
-            </select>
-            <textarea
-              id="int-note"
-              class="interrupted-form-input"
-              placeholder="メモ"
-              rows="2"
-            ></textarea>
-          </div>
-          <button class="btn btn-primary" onclick="App.endInterruption()">
-            記録して作業に戻る
-          </button>
-        </div>
-
         <!-- Break abort button (shown during break) -->
         <div
           id="break-abort-controls"
@@ -119,79 +88,6 @@
               作業を終了
             </button>
           </div>
-        </div>
-      </div>
-
-      <!-- Record Form -->
-      <div id="record-form-card" class="record-form-card">
-        <h3 id="record-form-title">作業記録</h3>
-        <div class="form-group">
-          <label for="record-description">作業内容</label>
-          <textarea
-            id="record-description"
-            placeholder="何に取り組みましたか？"
-          ></textarea>
-        </div>
-        <div class="form-group">
-          <label for="record-category">カテゴリ</label>
-          <select id="record-category">
-            <option value="">-- 選択 --</option>
-          </select>
-          <div class="category-add-row">
-            <input
-              id="new-category-name"
-              type="text"
-              placeholder="新しいカテゴリ"
-            />
-            <button onclick="RecordForm.addCategory()">追加</button>
-          </div>
-        </div>
-
-        <!-- Interruption details (rendered dynamically) -->
-        <div
-          id="interruption-list"
-          class="interruption-list"
-          style="display: none"
-        ></div>
-
-        <!-- Work actions (shown during work) -->
-        <div
-          id="record-form-actions-work"
-          class="form-actions"
-          style="display: none"
-        >
-          <button class="btn btn-danger" onclick="App.abandon()">中止</button>
-        </div>
-
-        <!-- Normal (completed) actions -->
-        <div
-          id="record-form-actions-normal"
-          class="form-actions"
-          style="display: none"
-        >
-          <button class="btn btn-primary" onclick="RecordForm.submit()">
-            記録して休憩へ
-          </button>
-        </div>
-
-        <!-- Abandon actions -->
-        <div
-          id="record-form-actions-abandon"
-          class="form-actions"
-          style="display: none"
-        >
-          <button
-            class="btn btn-primary"
-            onclick="RecordForm.submitAbandon(false)"
-          >
-            セットを続ける
-          </button>
-          <button
-            class="btn btn-secondary"
-            onclick="RecordForm.submitAbandon(true)"
-          >
-            作業を終了
-          </button>
         </div>
       </div>
 
@@ -243,13 +139,109 @@
         </ul>
       </div>
     </div>
+    </div><!-- .app-left -->
+    <div class="app-right">
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="memo">メモ</button>
+        <button class="tab-btn" data-tab="record" style="display:none">作業記録</button>
+        <button class="tab-btn" data-tab="interruption" style="display:none">中断</button>
+        <button class="tab-btn" data-tab="viewer" style="display:none">ビュー</button>
+        <button class="btn btn-secondary btn-small tab-action-btn"
+                onclick="MemoEditor.clear()" data-tab-action="memo">クリア</button>
+        <button class="btn btn-secondary btn-small tab-action-btn"
+                onclick="TabPanel.hideViewer()" data-tab-action="viewer" style="display:none">閉じる</button>
+      </div>
+
+      <!-- メモタブ -->
+      <div class="tab-content active" data-tab-content="memo">
+        <div id="memo-editor-container" class="editor-full-container"></div>
+      </div>
+
+      <!-- 作業記録タブ -->
+      <div class="tab-content" data-tab-content="record" style="display:none">
+        <div class="record-panel">
+          <div class="record-panel-header">
+            <div class="form-group">
+              <label for="record-category">カテゴリ</label>
+              <select id="record-category">
+                <option value="">-- 選択 --</option>
+              </select>
+              <div class="category-add-row">
+                <input id="new-category-name" type="text" placeholder="新しいカテゴリ" />
+                <button onclick="RecordForm.addCategory()">追加</button>
+              </div>
+            </div>
+          </div>
+          <div id="record-editor-container" class="editor-flex-container"></div>
+          <div class="record-panel-footer">
+            <div id="interruption-list" class="interruption-list" style="display:none"></div>
+            <div id="record-form-actions-work" class="form-actions" style="display:none">
+              <button class="btn btn-danger" onclick="App.abandon()">中止</button>
+            </div>
+            <div id="record-form-actions-normal" class="form-actions" style="display:none">
+              <button class="btn btn-primary" onclick="RecordForm.submit()">記録して休憩へ</button>
+            </div>
+            <div id="record-form-actions-abandon" class="form-actions" style="display:none">
+              <button class="btn btn-primary" onclick="RecordForm.submitAbandon(false)">セットを続ける</button>
+              <button class="btn btn-secondary" onclick="RecordForm.submitAbandon(true)">作業を終了</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ビュータブ -->
+      <div class="tab-content" data-tab-content="viewer" style="display:none">
+        <div class="viewer-panel">
+          <div class="viewer-panel-header">
+            <div class="viewer-header-top">
+              <div>
+                <div id="viewer-title" class="viewer-title"></div>
+                <div id="viewer-meta" class="viewer-meta"></div>
+              </div>
+              <button id="viewer-save-btn" class="btn btn-primary btn-small" onclick="TabPanel.saveViewer()">保存</button>
+            </div>
+          </div>
+          <div id="viewer-editor-container" class="editor-full-container"></div>
+        </div>
+      </div>
+
+      <!-- 中断タブ -->
+      <div class="tab-content" data-tab-content="interruption" style="display:none">
+        <div class="interruption-panel">
+          <div class="interruption-panel-header">
+            <div class="interrupted-timer-label">中断経過時間</div>
+            <div id="interruption-timer" class="interruption-timer">00:00</div>
+            <div class="interrupted-form-row">
+              <label class="radio-label"
+                ><input type="radio" name="int-type" value="nonWork" checked />
+                作業に含めない</label>
+              <label class="radio-label"
+                ><input type="radio" name="int-type" value="work" />
+                作業に含める</label>
+            </div>
+            <select id="int-category" class="interrupted-form-select">
+              <option value="">-- カテゴリ --</option>
+            </select>
+          </div>
+          <div id="int-note-editor-container" class="editor-flex-container"></div>
+          <div class="interruption-panel-footer">
+            <button class="btn btn-primary" onclick="App.endInterruption()">記録して作業に戻る</button>
+          </div>
+        </div>
+      </div>
+    </div><!-- .app-right -->
+    </div><!-- .app-layout -->
 
     <!-- Loading Overlay -->
     <div id="loading-overlay" class="loading-overlay">
       <div class="spinner"></div>
     </div>
 
-    <?!= include('Notification'); ?> <?!= include('RecordForm'); ?> <?!=
-    include('JavaScript'); ?>
+    <?!= include('Notification'); ?>
+    <?!= include('EditorBundle'); ?>
+    <?!= include('TabPanel'); ?>
+    <?!= include('MemoEditor'); ?>
+    <?!= include('RecordForm'); ?>
+    <?!= include('JavaScript'); ?>
   </body>
 </html>

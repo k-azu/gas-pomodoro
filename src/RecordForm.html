@@ -1,7 +1,7 @@
 <script>
   var RecordForm = (function () {
     function clearForm() {
-      document.getElementById("record-description").value = "";
+      MemoEditor.clearRecord();
       document.getElementById("record-category").selectedIndex = 0;
     }
 
@@ -74,9 +74,7 @@
     }
 
     function submit() {
-      var description = document
-        .getElementById("record-description")
-        .value.trim();
+      var description = (MemoEditor.getRecordValue() || "").trim();
       var category = document.getElementById("record-category").value;
 
       var state = App.getState();
@@ -119,9 +117,7 @@
     }
 
     function submitAbandon(resetSet) {
-      var description = document
-        .getElementById("record-description")
-        .value.trim();
+      var description = (MemoEditor.getRecordValue() || "").trim();
       var category = document.getElementById("record-category").value;
 
       var state = App.getState();

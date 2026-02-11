@@ -71,18 +71,73 @@ function saveInterruptions(interruptions: InterruptionRecord[]): {
   return { success: true };
 }
 
+function updateRecordDescription(
+  recordId: string,
+  description: string,
+): { success: boolean } {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("PomodoroLog")!;
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { success: false };
+
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === recordId) {
+      sheet.getRange(i + 2, 8).setValue(description); // column 8 = description
+      return { success: true };
+    }
+  }
+  return { success: false };
+}
+
+function updateInterruptionNote(
+  interruptionId: string,
+  note: string,
+): { success: boolean } {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Interruptions")!;
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { success: false };
+
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === interruptionId) {
+      sheet.getRange(i + 2, 8).setValue(note); // column 8 = note
+      return { success: true };
+    }
+  }
+  return { success: false };
+}
+
 function getRecentRecords(limit: number = 10): PomodoroRecord[] {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("PomodoroLog")!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
 
+  const today = Utilities.formatDate(
+    new Date(),
+    Session.getScriptTimeZone(),
+    "yyyy-MM-dd",
+  );
   const TAIL_ROWS = 100;
   const startRow = Math.max(2, lastRow - TAIL_ROWS + 1);
   const numRows = lastRow - startRow + 1;
   const data = sheet.getRange(startRow, 1, numRows, 15).getValues();
 
   return data
+    .filter((row) => {
+      const raw = row[1];
+      const dateStr =
+        raw instanceof Date
+          ? Utilities.formatDate(
+              raw,
+              Session.getScriptTimeZone(),
+              "yyyy-MM-dd",
+            )
+          : String(raw);
+      return dateStr === today;
+    })
     .map((row) => ({
       id: String(row[0]),
       date: String(row[1]),
@@ -193,8 +248,14 @@ function getTodayInterruptions(): InterruptionRecord[] {
 
   return data
     .filter((row) => {
-      const startTime = String(row[3]);
-      return startTime.indexOf(today) === 0;
+      const raw = row[3];
+      const d = raw instanceof Date ? raw : new Date(String(raw));
+      const dateStr = Utilities.formatDate(
+        d,
+        Session.getScriptTimeZone(),
+        "yyyy-MM-dd",
+      );
+      return dateStr === today;
     })
     .map((row) => ({
       id: String(row[0]),
