@@ -6,7 +6,7 @@
       rel="icon"
       href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍅</text></svg>"
     />
-    <?!= include('EditorStyles'); ?>
+    <link rel="stylesheet" href="https://tiptap-markdown-editor.pages.dev/style.css" />
     <?!= include('Stylesheet'); ?>
   </head>
   <body>
@@ -220,7 +220,7 @@
     </div>
 
     <?!= include('Notification'); ?>
-    <?!= includeEditorBundle(); ?>
+    <script src="https://tiptap-markdown-editor.pages.dev/tiptap-markdown-editor.iife.js"></script>
     <?!= include('TabPanel'); ?>
     <?!= include('MemoEditor'); ?>
     <?!= include('CategoryCombo'); ?>
