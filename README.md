@@ -2,6 +2,8 @@
 
 Google Apps Script + Spreadsheet で動くポモドーロタイマー。
 
+![ホーム画面](docs/pomodoro_home.png)
+
 ## セットアップ
 
 ### 前提条件
@@ -79,22 +81,64 @@ npm run open
 
 `clasp push` はデプロイ済みの Web アプリには自動反映されない。開発中は GAS エディタの「デプロイをテスト」から最新コードで動作確認できる。本番 URL に反映するには新しいデプロイを作成する。
 
-## プロジェクト構成
+## エディタの特殊操作
+
+メモ・作業記録エディタでは、Markdown 記法で特殊ブロックを挿入できる。
+
+### テーブル
+
+行頭にパイプ区切りで入力して Enter:
 
 ```
-src/
-├── appsscript.json        # GAS マニフェスト
-├── Code.ts                # doGet(), include(), getSpreadsheetUrl()
-├── SpreadsheetService.ts  # 記録の読み書き・集計
-├── CategoryService.ts     # カテゴリ CRUD
-├── TimerConfigService.ts  # タイマー設定読込
-├── InitService.ts         # Spreadsheet 初期化 (冪等)
-├── index.html             # メイン HTML テンプレート
-├── Stylesheet.html        # CSS
-├── JavaScript.html        # タイマーエンジン・状態管理
-├── RecordForm.html        # 記録フォーム UI
-└── Notification.html      # 通知音 (Web Audio API)
+| 列1 | 列2 | 列3 |
 ```
+
+- **Tab** — 次のセルに移動（最後のセルで押すと行を追加）
+- **Shift+Tab** — 前のセルに移動
+
+### Callout（注意書き）
+
+行頭に `:::` + タイプ名を入力して Enter:
+
+```
+:::note
+:::tip
+:::important
+:::warning
+:::caution
+```
+
+### Details（折りたたみ）
+
+行頭に入力して Enter:
+
+```
+:::details
+or
+:::summary
+```
+
+### タスクリスト
+
+行頭に入力してスペース:
+
+```
+[ ] 未完了タスク
+[x] 完了タスク
+```
+
+### その他のショートカット
+
+| 操作 | ショートカット |
+|------|----------------|
+| リスト項目のインデント | Tab |
+| リスト項目のアウトデント | Shift+Tab |
+| コードブロック内の全選択 | Ctrl/Cmd+A |
+| リンクを開く | Ctrl/Cmd+クリック |
+
+### 画像
+
+ツールバーボタン、ドラッグ&ドロップ、クリップボードからのペーストで挿入可能。画像は Google Drive に保存される。
 
 ## 技術的な制約
 
