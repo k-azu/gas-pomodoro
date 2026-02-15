@@ -112,12 +112,17 @@
       TabPanel.showViewer(title, meta, int.note || "", null, null, {
         category: int.category || "",
         sheetType: "InterruptionCategories",
+        interruptionType: int.type,
         saveCallback: function (markdown) {
           App.getState().interruptions[index].note = markdown;
           renderInterruptionList();
         },
         categorySaveCallback: function (newCategory) {
           App.getState().interruptions[index].category = newCategory;
+          renderInterruptionList();
+        },
+        typeSaveCallback: function (newType) {
+          App.getState().interruptions[index].type = newType;
           renderInterruptionList();
         },
       });

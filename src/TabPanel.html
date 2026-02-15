@@ -69,6 +69,8 @@
     var viewerSheetType = null;  // "Categories" or "InterruptionCategories"
     var viewerOriginalCategory = ""; // track original category for change detection
     var viewerCombo = null;
+    var viewerOriginalType = null; // "work" or "nonWork", null if not interruption
+    var viewerTypeSaveCallback = null; // optional callback for in-memory type save
 
     function initViewerCombo() {
       if (viewerCombo) return;
@@ -91,8 +93,10 @@
       viewerRecordType = recordType || null;
       viewerSaveCallback = null;
       viewerCategorySaveCallback = null;
+      viewerTypeSaveCallback = null;
       viewerSheetType = null;
       viewerOriginalCategory = "";
+      viewerOriginalType = null;
 
       // Parse opts (6th argument)
       var opts = {};
@@ -102,6 +106,7 @@
         opts = saveCallbackOrOpts;
         viewerSaveCallback = opts.saveCallback || null;
         viewerCategorySaveCallback = opts.categorySaveCallback || null;
+        viewerTypeSaveCallback = opts.typeSaveCallback || null;
       }
 
       // Category setup
@@ -123,6 +128,17 @@
         document.getElementById("viewer-category").parentNode.style.display = "none";
       }
 
+      // Interruption type toggle
+      var typeLabel = document.getElementById("viewer-type-label");
+      var typeCheckbox = document.getElementById("viewer-type-work");
+      if (opts.interruptionType) {
+        viewerOriginalType = opts.interruptionType;
+        typeCheckbox.checked = opts.interruptionType === "work";
+        typeLabel.style.display = "";
+      } else {
+        typeLabel.style.display = "none";
+      }
+
       // Set header content
       document.getElementById("viewer-title").textContent = title || "";
       document.getElementById("viewer-meta").textContent = meta || "";
@@ -138,11 +154,18 @@
       switchTab("viewer");
     }
 
+    function getViewerType() {
+      var typeCheckbox = document.getElementById("viewer-type-work");
+      return typeCheckbox && typeCheckbox.checked ? "work" : "nonWork";
+    }
+
     function saveViewer() {
       var markdown = MemoEditor.getViewerValue();
       var saveBtn = document.getElementById("viewer-save-btn");
       var newCategory = viewerCombo ? viewerCombo.getValue() : "";
       var categoryChanged = viewerSheetType && newCategory !== viewerOriginalCategory;
+      var newType = viewerOriginalType ? getViewerType() : null;
+      var typeChanged = newType && newType !== viewerOriginalType;
 
       // In-memory save (e.g. unsaved interruption notes)
       if (viewerSaveCallback) {
@@ -150,7 +173,11 @@
         if (viewerCategorySaveCallback && categoryChanged) {
           viewerCategorySaveCallback(newCategory);
         }
+        if (viewerTypeSaveCallback && typeChanged) {
+          viewerTypeSaveCallback(newType);
+        }
         viewerOriginalCategory = newCategory;
+        if (typeChanged) viewerOriginalType = newType;
         return;
       }
 
@@ -176,10 +203,15 @@
         if (ensureFn) promises.push(ensureFn(newCategory));
       }
 
+      if (typeChanged) {
+        promises.push(serverCall("updateInterruptionType", viewerRecordId, newType));
+      }
+
       Promise.all(promises)
         .then(function () {
           if (saveBtn) saveBtn.disabled = false;
           viewerOriginalCategory = newCategory;
+          if (typeChanged) viewerOriginalType = newType;
           refreshAll();
         })
         .catch(function (err) {

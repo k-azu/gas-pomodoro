@@ -147,6 +147,25 @@ function updateInterruptionCategory(
   return { success: false };
 }
 
+function updateInterruptionType(
+  interruptionId: string,
+  type: string,
+): { success: boolean } {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Interruptions")!;
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { success: false };
+
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let i = ids.length - 1; i >= 0; i--) {
+    if (String(ids[i][0]) === interruptionId) {
+      sheet.getRange(i + 2, 3).setValue(type); // column 3 = type
+      return { success: true };
+    }
+  }
+  return { success: false };
+}
+
 function getRecentRecords(limit: number = 10): PomodoroRecord[] {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("PomodoroLog")!;

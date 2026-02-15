@@ -913,6 +913,7 @@
               TabPanel.showViewer(noteTitle, intMetaText, note, interruption.id, "interruption", {
                 category: interruption.category || "",
                 sheetType: "InterruptionCategories",
+                interruptionType: interruption.type,
               });
             });
           })(int, durStr);
