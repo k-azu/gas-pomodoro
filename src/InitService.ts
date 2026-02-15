@@ -88,6 +88,39 @@ function initializeSpreadsheet(): void {
     ]);
   }
 
+  // Memos sheet
+  let memosSheet = ss.getSheetByName("Memos");
+  if (!memosSheet) {
+    memosSheet = ss.insertSheet("Memos");
+    memosSheet
+      .getRange("A1:H1")
+      .setValues([
+        [
+          "id",
+          "name",
+          "content",
+          "tags",
+          "createdAt",
+          "updatedAt",
+          "sortOrder",
+          "isActive",
+        ],
+      ]);
+    memosSheet.getRange("A1:H1").setFontWeight("bold");
+    memosSheet.setFrozenRows(1);
+  }
+
+  // MemoTags sheet
+  let memoTagsSheet = ss.getSheetByName("MemoTags");
+  if (!memoTagsSheet) {
+    memoTagsSheet = ss.insertSheet("MemoTags");
+    memoTagsSheet
+      .getRange("A1:D1")
+      .setValues([["name", "color", "sortOrder", "isActive"]]);
+    memoTagsSheet.getRange("A1:D1").setFontWeight("bold");
+    memoTagsSheet.setFrozenRows(1);
+  }
+
   // TimerConfig sheet
   let configSheet = ss.getSheetByName("TimerConfig");
   if (!configSheet) {

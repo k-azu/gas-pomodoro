@@ -1,0 +1,1165 @@
+<script>
+  var MemoSidebar = (function () {
+    var memos = []; // MemoMetadata[]
+    var memoTags = []; // MemoTag[]
+    var activeId = null;
+    var saveDebounce = null;
+    var SAVE_DELAY = 30000; // 30s — localStorage handles instant persistence, server is backup
+    var dirtyMemoId = null; // which memo has unsaved server changes (null = clean)
+    var editedSinceLoad = false; // true if user edited since last loadMemoContent
+    var sidebarBusy = false; // true while create/delete server call in-flight
+    var activeTagFilter = null; // null=all, string=specific tag name
+    var tagFilterDropdownOpen = false;
+    var tagFilterDropdownEl = null;
+
+    function ls(key) {
+      try { return localStorage.getItem(key) || ""; } catch (e) { return ""; }
+    }
+    function lsSet(key, val) {
+      try { localStorage.setItem(key, val); } catch (e) {}
+    }
+    function lsRemove(key) {
+      try { localStorage.removeItem(key); } catch (e) {}
+    }
+
+    function generateUUID() {
+      return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+        var r = (Math.random() * 16) | 0;
+        return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+      });
+    }
+
+    var MEMO_CACHE_PREFIX = "gas_pomodoro_memo_";
+    var DIRTY_PREFIX = "gas_pomodoro_memo_dirty_";
+
+    function markDirty(id) { lsSet(DIRTY_PREFIX + id, "1"); }
+    function clearDirty(id) { lsRemove(DIRTY_PREFIX + id); }
+    function isDirty(id) { return ls(DIRTY_PREFIX + id) === "1"; }
+
+    function cleanOrphanedCache() {
+      try {
+        var validIds = {};
+        memos.forEach(function (m) { validIds[m.id] = true; });
+        var keysToRemove = [];
+        for (var i = 0; i < localStorage.length; i++) {
+          var key = localStorage.key(i);
+          if (key && key.indexOf(MEMO_CACHE_PREFIX) === 0) {
+            var id = key.slice(MEMO_CACHE_PREFIX.length);
+            if (id && id !== "active" && id !== "sidebar_collapsed" && !validIds[id]) {
+              keysToRemove.push(key);
+            }
+          }
+          if (key && key.indexOf(DIRTY_PREFIX) === 0) {
+            var id = key.slice(DIRTY_PREFIX.length);
+            if (id && !validIds[id]) {
+              keysToRemove.push(key);
+            }
+          }
+        }
+        keysToRemove.forEach(function (k) { localStorage.removeItem(k); });
+      } catch (e) {}
+    }
+
+    // =========================================================
+    // Init
+    // =========================================================
+    function init(serverMemos, serverMemoTags) {
+      memos = serverMemos || [];
+      memoTags = serverMemoTags || [];
+
+      // Clean up orphaned localStorage caches
+      cleanOrphanedCache();
+
+      render();
+
+      // Flush to server on tab close / hide
+      window.addEventListener("beforeunload", flushSave);
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "hidden") flushSave();
+      });
+    }
+
+    function initAfterEditorMount() {
+      // Migration: old single memo -> first multi-memo
+      var oldMemo = ls("gas_pomodoro_memo");
+      if (memos.length === 0 && oldMemo) {
+        var migrationId = generateUUID();
+        serverCall("saveMemo", { id: migrationId, name: "メモ", content: oldMemo, tags: [] })
+          .then(function (result) {
+            if (result.success) {
+              lsRemove("gas_pomodoro_memo");
+              lsSet("gas_pomodoro_memo_" + result.id, oldMemo);
+              memos.push({
+                id: result.id,
+                name: "メモ",
+                tags: [],
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                sortOrder: 1,
+                isActive: true,
+              });
+              activeId = result.id;
+              lsSet("gas_pomodoro_memo_active", activeId);
+              render();
+            }
+          })
+          .catch(function (err) {
+            console.error("Memo migration failed:", err);
+          });
+        return;
+      }
+
+      // Normal flow: determine active memo
+      var savedActiveId = ls("gas_pomodoro_memo_active");
+      if (savedActiveId && memos.some(function (m) { return m.id === savedActiveId; })) {
+        activeId = savedActiveId;
+      } else if (memos.length > 0) {
+        activeId = memos[0].id;
+      }
+
+      if (activeId) {
+        lsSet("gas_pomodoro_memo_active", activeId);
+        // Editor already shows cached content — just reconcile with server
+        reconcileWithServer(activeId);
+        render();
+      }
+    }
+
+    // =========================================================
+    // Memo content loading
+    // =========================================================
+
+    function setEditorLoading(on) {
+      var area = document.querySelector(".memo-editor-area");
+      if (!area) return;
+      var overlay = area.querySelector(".memo-editor-loading-overlay");
+      if (on) {
+        if (overlay) return;
+        overlay = document.createElement("div");
+        overlay.className = "memo-editor-loading-overlay";
+        overlay.innerHTML = '<div class="memo-editor-loading-spinner"></div>';
+        area.appendChild(overlay);
+      } else {
+        if (overlay) overlay.remove();
+      }
+    }
+
+    function reconcileWithServer(id) {
+      if (isDirty(id)) {
+        // localStorage has unsync'd edits — push them to server immediately
+        dirtyMemoId = id;
+        syncToServer();
+        return;
+      }
+
+      var cachedContent = ls("gas_pomodoro_memo_" + id);
+      if (cachedContent) {
+        // localStorage has content and is clean — server already in sync, do nothing
+        return;
+      }
+
+      // localStorage is empty — fetch from server (first load or cache cleared)
+      setEditorLoading(true);
+      serverCall("getMemoContent", id)
+        .then(function (result) {
+          if (activeId !== id) return;
+          if (editedSinceLoad) return;
+          if (result && result.content) {
+            lsSet("gas_pomodoro_memo_" + id, result.content);
+            MemoEditor.setValue(result.content);
+          }
+        })
+        .catch(function (err) {
+          console.error("Failed to load memo content:", err);
+        })
+        .finally(function () {
+          if (activeId === id) setEditorLoading(false);
+        });
+    }
+
+    function loadMemoContent(id) {
+      editedSinceLoad = false;
+      setEditorLoading(false); // clear previous loading state
+
+      var cached = ls("gas_pomodoro_memo_" + id);
+      MemoEditor.setValue(cached || "");
+
+      // Reconcile with server (shows loading overlay if fetching)
+      reconcileWithServer(id);
+    }
+
+    // =========================================================
+    // Save current memo
+    // =========================================================
+
+    // Core: write editor content to localStorage and mark dirty if changed.
+    // Returns true if content was actually different.
+    function persistToLocal() {
+      if (!activeId) return false;
+      var content = MemoEditor.getValue();
+      var existing = ls("gas_pomodoro_memo_" + activeId);
+      if (content === existing) return false;
+      lsSet("gas_pomodoro_memo_" + activeId, content);
+      markDirty(activeId);
+      dirtyMemoId = activeId;
+      return true;
+    }
+
+    function saveCurrent() {
+      if (!persistToLocal()) return;
+      editedSinceLoad = true;
+
+      // Debounced server save (30s)
+      if (saveDebounce) clearTimeout(saveDebounce);
+      saveDebounce = setTimeout(function () {
+        saveDebounce = null;
+        syncToServer();
+      }, SAVE_DELAY);
+    }
+
+    function syncToServer() {
+      var id = dirtyMemoId;
+      if (!id) return;
+      dirtyMemoId = null;
+      var content = ls("gas_pomodoro_memo_" + id);
+      serverCall("saveMemoContent", id, content)
+        .then(function () {
+          // Only clear dirty if no new edits happened during the save
+          if (ls("gas_pomodoro_memo_" + id) === content) {
+            clearDirty(id);
+          }
+        })
+        .catch(function (err) {
+          // Re-mark dirty only if no newer edit superseded it
+          if (!dirtyMemoId) dirtyMemoId = id;
+          console.error("Failed to save memo to server:", err);
+        });
+    }
+
+    // =========================================================
+    // Select memo
+    // =========================================================
+    function selectMemo(id) {
+      if (sidebarBusy) return;
+      if (id === activeId) return;
+
+      // Save current before switching
+      if (activeId) {
+        flushSave();
+      }
+
+      activeId = id;
+      lsSet("gas_pomodoro_memo_active", id);
+      loadMemoContent(id);
+      render();
+    }
+
+    function flushSave() {
+      if (saveDebounce) {
+        clearTimeout(saveDebounce);
+        saveDebounce = null;
+      }
+      persistToLocal();
+      // Ensure dirty memo gets synced even if dirtyMemoId was null
+      if (!dirtyMemoId && activeId && isDirty(activeId)) {
+        dirtyMemoId = activeId;
+      }
+      syncToServer();
+    }
+
+    // =========================================================
+    // Create memo
+    // =========================================================
+    function createMemo() {
+      if (sidebarBusy) return;
+      sidebarBusy = true;
+      setSidebarLoading(true);
+
+      // Save current first
+      flushSave();
+
+      var id = generateUUID();
+      var name = "新しいメモ";
+      serverCall("saveMemo", { id: id, name: name, content: "", tags: [] })
+        .then(function (result) {
+          if (result.success) {
+            memos.push({
+              id: result.id,
+              name: name,
+              tags: [],
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              sortOrder: memos.length + 1,
+              isActive: true,
+            });
+            activeId = result.id;
+            lsSet("gas_pomodoro_memo_active", activeId);
+            lsSet("gas_pomodoro_memo_" + activeId, "");
+            MemoEditor.setValue("");
+            render();
+            // Start inline rename
+            setTimeout(function () { startRename(result.id); }, 100);
+          }
+        })
+        .catch(function (err) {
+          console.error("Failed to create memo:", err);
+        })
+        .finally(function () {
+          sidebarBusy = false;
+          setSidebarLoading(false);
+        });
+    }
+
+    function setSidebarLoading(on) {
+      var btn = document.querySelector(".memo-new-btn");
+      if (btn) {
+        if (on) {
+          btn.disabled = true;
+          btn.textContent = "";
+          btn.classList.add("is-loading");
+        } else {
+          btn.disabled = false;
+          btn.textContent = "+";
+          btn.classList.remove("is-loading");
+        }
+      }
+      var list = document.querySelector(".memo-sidebar-list");
+      if (list) {
+        if (on) list.classList.add("is-busy");
+        else list.classList.remove("is-busy");
+      }
+    }
+
+    // =========================================================
+    // Delete memo
+    // =========================================================
+    function deleteMemoDo(id) {
+      if (sidebarBusy) return;
+      var memo = memos.find(function (m) { return m.id === id; });
+      if (!memo) return;
+      if (!confirm("「" + memo.name + "」を削除しますか？")) return;
+
+      sidebarBusy = true;
+      setSidebarLoading(true);
+      serverCall("deleteMemo", id)
+        .then(function (result) {
+          if (result.success) {
+            memos = memos.filter(function (m) { return m.id !== id; });
+            lsRemove("gas_pomodoro_memo_" + id);
+            clearDirty(id);
+            if (activeId === id) {
+              activeId = memos.length > 0 ? memos[0].id : null;
+              if (activeId) {
+                lsSet("gas_pomodoro_memo_active", activeId);
+                loadMemoContent(activeId);
+              } else {
+                lsRemove("gas_pomodoro_memo_active");
+                MemoEditor.setValue("");
+              }
+            }
+            render();
+          }
+        })
+        .catch(function (err) {
+          console.error("Failed to delete memo:", err);
+        })
+        .finally(function () {
+          sidebarBusy = false;
+          setSidebarLoading(false);
+        });
+    }
+
+    // =========================================================
+    // Rename memo (inline)
+    // =========================================================
+    function startRename(id) {
+      if (sidebarBusy) return;
+      var el = document.querySelector('.memo-sidebar-item[data-id="' + id + '"] .memo-item-name');
+      if (!el) return;
+
+      var memo = memos.find(function (m) { return m.id === id; });
+      if (!memo) return;
+
+      var input = document.createElement("input");
+      input.type = "text";
+      input.className = "memo-rename-input";
+      input.value = memo.name;
+
+      function finishRename() {
+        var newName = input.value.trim() || memo.name;
+        if (newName !== memo.name) {
+          memo.name = newName;
+          serverCall("renameMemo", id, newName).catch(function () {});
+        }
+        render();
+      }
+
+      input.addEventListener("blur", finishRename);
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+        if (e.key === "Escape") { input.value = memo.name; input.blur(); }
+      });
+
+      el.textContent = "";
+      el.appendChild(input);
+      input.focus();
+      input.select();
+    }
+
+    function startToolbarRename(nameEl) {
+      if (!activeId) return;
+      var memo = memos.find(function (m) { return m.id === activeId; });
+      if (!memo) return;
+
+      var input = document.createElement("input");
+      input.type = "text";
+      input.className = "memo-toolbar-rename-input";
+      input.value = memo.name;
+
+      function finish() {
+        var newName = input.value.trim() || memo.name;
+        if (newName !== memo.name) {
+          memo.name = newName;
+          serverCall("renameMemo", activeId, newName).catch(function () {});
+        }
+        render();
+      }
+
+      input.addEventListener("blur", finish);
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+        if (e.key === "Escape") { input.value = memo.name; input.blur(); }
+      });
+
+      nameEl.textContent = "";
+      nameEl.onclick = null;
+      nameEl.appendChild(input);
+      input.focus();
+      input.select();
+    }
+
+    // =========================================================
+    // Toggle sidebar collapse
+    // =========================================================
+    function toggleCollapse() {
+      var sidebar = document.getElementById("memo-sidebar");
+      if (!sidebar) return;
+      var collapsed = sidebar.classList.toggle("collapsed");
+      lsSet("gas_pomodoro_memo_sidebar_collapsed", collapsed ? "1" : "");
+    }
+
+    // =========================================================
+    // Filter memos
+    // =========================================================
+    function filterMemos() {
+      applyFilters();
+    }
+
+    // =========================================================
+    // Tag operations
+    // =========================================================
+    function addTagToMemo(id, tag) {
+      var memo = memos.find(function (m) { return m.id === id; });
+      if (!memo) return;
+      if (memo.tags.indexOf(tag) !== -1) return;
+      memo.tags.push(tag);
+      serverCall("updateMemoTags", id, memo.tags).catch(function () {});
+      render();
+      updateToolbar();
+    }
+
+    function removeTagFromMemo(id, tag) {
+      var memo = memos.find(function (m) { return m.id === id; });
+      if (!memo) return;
+      memo.tags = memo.tags.filter(function (t) { return t !== tag; });
+      serverCall("updateMemoTags", id, memo.tags).catch(function () {});
+      render();
+      updateToolbar();
+    }
+
+    function addNewTag(name, color) {
+      var c = color || "#757575";
+      // Check if already exists
+      var existing = memoTags.find(function (t) { return t.name === name; });
+      if (existing) return;
+      memoTags.push({
+        name: name,
+        color: c,
+        sortOrder: memoTags.length + 1,
+        isActive: true,
+      });
+      render();
+      serverCall("addMemoTag", name, c).catch(function () {});
+    }
+
+    function updateMemoTagColorLocal(name, color) {
+      var tag = memoTags.find(function (t) { return t.name === name; });
+      if (tag) tag.color = color;
+      serverCall("updateMemoTagColor", name, color).catch(function () {});
+      render();
+      updateToolbar();
+    }
+
+    // =========================================================
+    // Context menu
+    // =========================================================
+    var contextMenuEl = null;
+
+    function showContextMenu(e, id) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (sidebarBusy) return;
+      hideContextMenu();
+
+      var memo = memos.find(function (m) { return m.id === id; });
+      if (!memo) return;
+
+      contextMenuEl = document.createElement("div");
+      contextMenuEl.className = "memo-context-menu";
+
+      // Rename
+      var renameBtn = document.createElement("div");
+      renameBtn.className = "memo-context-item";
+      renameBtn.textContent = "名前変更";
+      renameBtn.onclick = function () { hideContextMenu(); startRename(id); };
+      contextMenuEl.appendChild(renameBtn);
+
+      // Tags submenu
+      if (memoTags.length > 0) {
+        var tagHeader = document.createElement("div");
+        tagHeader.className = "memo-context-separator";
+        tagHeader.textContent = "タグ";
+        contextMenuEl.appendChild(tagHeader);
+
+        memoTags.forEach(function (tag) {
+          var tagItem = document.createElement("div");
+          tagItem.className = "memo-context-item";
+          var hasTag = memo.tags.indexOf(tag.name) !== -1;
+          var dot = document.createElement("span");
+          dot.className = "memo-tag-dot";
+          dot.style.background = tag.color;
+          tagItem.appendChild(dot);
+          tagItem.appendChild(document.createTextNode((hasTag ? "\u2713 " : "") + tag.name));
+          tagItem.onclick = function () {
+            hideContextMenu();
+            if (hasTag) removeTagFromMemo(id, tag.name);
+            else addTagToMemo(id, tag.name);
+          };
+          contextMenuEl.appendChild(tagItem);
+        });
+      }
+
+      // New tag
+      var newTagBtn = document.createElement("div");
+      newTagBtn.className = "memo-context-item";
+      newTagBtn.textContent = "+ 新しいタグ";
+      newTagBtn.onclick = function () {
+        hideContextMenu();
+        var name = prompt("タグ名:");
+        if (name && name.trim()) {
+          addNewTag(name.trim());
+          addTagToMemo(id, name.trim());
+        }
+      };
+      contextMenuEl.appendChild(newTagBtn);
+
+      // Separator
+      var sep = document.createElement("div");
+      sep.className = "memo-context-separator";
+      contextMenuEl.appendChild(sep);
+
+      // Delete
+      var deleteBtn = document.createElement("div");
+      deleteBtn.className = "memo-context-item memo-context-danger";
+      deleteBtn.textContent = "削除";
+      deleteBtn.onclick = function () { hideContextMenu(); deleteMemoDo(id); };
+      contextMenuEl.appendChild(deleteBtn);
+
+      // Position
+      contextMenuEl.style.left = e.clientX + "px";
+      contextMenuEl.style.top = e.clientY + "px";
+      document.body.appendChild(contextMenuEl);
+
+      // Adjust if off-screen
+      var rect = contextMenuEl.getBoundingClientRect();
+      if (rect.right > window.innerWidth) {
+        contextMenuEl.style.left = (window.innerWidth - rect.width - 8) + "px";
+      }
+      if (rect.bottom > window.innerHeight) {
+        contextMenuEl.style.top = (window.innerHeight - rect.height - 8) + "px";
+      }
+
+      setTimeout(function () {
+        document.addEventListener("click", hideContextMenu, { once: true });
+      }, 0);
+    }
+
+    function hideContextMenu() {
+      if (contextMenuEl) {
+        contextMenuEl.remove();
+        contextMenuEl = null;
+      }
+    }
+
+    // =========================================================
+    // Toolbar (memo name + tags above editor)
+    // =========================================================
+    var tagDropdownOpen = false;
+    var tagDropdownEl = null;
+
+    function updateToolbar() {
+      var toolbar = document.getElementById("memo-editor-toolbar");
+      if (!toolbar) return;
+
+      var memo = activeId ? memos.find(function (m) { return m.id === activeId; }) : null;
+      if (!memo) {
+        toolbar.style.display = "none";
+        return;
+      }
+      toolbar.style.display = "";
+
+      var nameEl = toolbar.querySelector(".memo-toolbar-name");
+      if (nameEl) {
+        nameEl.textContent = memo.name;
+        nameEl.onclick = function () { startToolbarRename(nameEl); };
+      }
+
+      // Tag badges
+      var tagsEl = toolbar.querySelector(".memo-toolbar-tags");
+      if (tagsEl) {
+        tagsEl.innerHTML = "";
+        memo.tags.forEach(function (tagName) {
+          var tag = memoTags.find(function (t) { return t.name === tagName; });
+          var tagColor = tag ? tag.color : "#757575";
+          var badge = document.createElement("span");
+          badge.className = "memo-tag-badge";
+          badge.style.background = tagColor + "22";
+          badge.style.color = tagColor;
+          badge.style.borderColor = tagColor + "44";
+
+          // Color dot (click to change color)
+          var dot = document.createElement("span");
+          dot.className = "memo-tag-badge-dot";
+          dot.style.background = tagColor;
+          dot.title = "色を変更";
+          (function (tn, dotEl) {
+            dotEl.onclick = function (e) {
+              e.stopPropagation();
+              openTagColorPicker(tn, dotEl);
+            };
+          })(tagName, dot);
+          badge.appendChild(dot);
+
+          badge.appendChild(document.createTextNode(tagName));
+
+          var removeX = document.createElement("span");
+          removeX.className = "memo-tag-remove";
+          removeX.textContent = "\u00d7";
+          removeX.onclick = (function (tn) {
+            return function (e) { e.stopPropagation(); removeTagFromMemo(activeId, tn); };
+          })(tagName);
+          badge.appendChild(removeX);
+          tagsEl.appendChild(badge);
+        });
+      }
+
+      // + button handler
+      var addBtn = toolbar.querySelector(".memo-tag-add-btn");
+      if (addBtn) {
+        addBtn.onclick = function (e) {
+          e.stopPropagation();
+          if (tagDropdownOpen) { closeTagDropdown(); return; }
+          openTagDropdown(addBtn);
+        };
+      }
+    }
+
+    // --- Tag color picker ---
+    function openTagColorPicker(tagName, anchorEl) {
+      var picker = document.createElement("input");
+      picker.type = "color";
+      picker.style.position = "absolute";
+      picker.style.opacity = "0";
+      picker.style.pointerEvents = "none";
+      var tag = memoTags.find(function (t) { return t.name === tagName; });
+      picker.value = tag ? tag.color : "#757575";
+      document.body.appendChild(picker);
+      picker.addEventListener("input", function () {
+        updateMemoTagColorLocal(tagName, picker.value);
+      });
+      picker.addEventListener("change", function () {
+        picker.remove();
+      });
+      // Fallback cleanup
+      picker.addEventListener("blur", function () {
+        setTimeout(function () { picker.remove(); }, 200);
+      });
+      picker.click();
+    }
+
+    // --- Tag dropdown (add/toggle tags) ---
+    function openTagDropdown(anchorBtn) {
+      closeTagDropdown();
+      tagDropdownOpen = true;
+
+      var memo = activeId ? memos.find(function (m) { return m.id === activeId; }) : null;
+      if (!memo) return;
+
+      tagDropdownEl = document.createElement("div");
+      tagDropdownEl.className = "memo-tag-dropdown";
+
+      // Search input
+      var searchInput = document.createElement("input");
+      searchInput.type = "text";
+      searchInput.className = "memo-tag-dropdown-search";
+      searchInput.placeholder = "タグを検索 / 作成...";
+      tagDropdownEl.appendChild(searchInput);
+
+      var listEl = document.createElement("div");
+      listEl.className = "memo-tag-dropdown-list";
+      tagDropdownEl.appendChild(listEl);
+
+      // Hidden color picker for new tag creation
+      var newTagColor = "#757575";
+      var newTagColorPicker = document.createElement("input");
+      newTagColorPicker.type = "color";
+      newTagColorPicker.className = "cat-color-hidden";
+      newTagColorPicker.value = newTagColor;
+      tagDropdownEl.appendChild(newTagColorPicker);
+
+      // Hidden color picker for existing tags
+      var editColorPicker = document.createElement("input");
+      editColorPicker.type = "color";
+      editColorPicker.className = "cat-color-hidden";
+      tagDropdownEl.appendChild(editColorPicker);
+      var editColorTarget = null;
+
+      function renderDropdownList(filter) {
+        listEl.innerHTML = "";
+        var q = (filter || "").toLowerCase();
+        var hasExact = false;
+
+        var filtered = memoTags.filter(function (t) {
+          if (!q) return true;
+          var match = t.name.toLowerCase().indexOf(q) !== -1;
+          if (t.name.toLowerCase() === q) hasExact = true;
+          return match;
+        });
+
+        filtered.forEach(function (tag) {
+          var item = document.createElement("div");
+          item.className = "memo-tag-dropdown-item";
+
+          var dot = document.createElement("span");
+          dot.className = "memo-tag-dropdown-dot";
+          dot.style.background = tag.color;
+          dot.title = "色を変更";
+          // Click dot -> color picker
+          (function (t, d) {
+            dot.addEventListener("mousedown", function (e) {
+              e.preventDefault();
+              e.stopPropagation();
+              editColorTarget = t.name;
+              editColorPicker.value = t.color;
+              editColorPicker.click();
+            });
+          })(tag, dot);
+
+          var hasTag = memo.tags.indexOf(tag.name) !== -1;
+          var check = document.createElement("span");
+          check.className = "memo-tag-dropdown-check";
+          check.textContent = hasTag ? "\u2713" : "";
+
+          var label = document.createElement("span");
+          label.className = "memo-tag-dropdown-label";
+          label.textContent = tag.name;
+
+          item.appendChild(dot);
+          item.appendChild(label);
+          item.appendChild(check);
+
+          (function (tagName, isOn) {
+            item.addEventListener("mousedown", function (e) {
+              // Don't close on dot click
+              if (e.target === dot) return;
+              e.preventDefault();
+              if (isOn) removeTagFromMemo(activeId, tagName);
+              else addTagToMemo(activeId, tagName);
+              // Re-fetch memo ref (may have changed)
+              memo = memos.find(function (m) { return m.id === activeId; });
+              renderDropdownList(searchInput.value.trim());
+            });
+          })(tag.name, hasTag);
+
+          listEl.appendChild(item);
+        });
+
+        // "Create new" row
+        if (q && !hasExact) {
+          var createRow = document.createElement("div");
+          createRow.className = "memo-tag-dropdown-create";
+
+          var createDot = document.createElement("span");
+          createDot.className = "memo-tag-dropdown-dot";
+          createDot.style.background = newTagColor;
+          createDot.title = "色を選択";
+          createDot.addEventListener("mousedown", function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            newTagColorPicker.click();
+          });
+
+          var createLabel = document.createElement("span");
+          createLabel.textContent = "+ \"" + filter + "\" を作成";
+
+          createRow.appendChild(createDot);
+          createRow.appendChild(createLabel);
+          createRow.addEventListener("mousedown", function (e) {
+            if (e.target === createDot) return;
+            e.preventDefault();
+            addNewTag(filter, newTagColor);
+            addTagToMemo(activeId, filter);
+            memo = memos.find(function (m) { return m.id === activeId; });
+            searchInput.value = "";
+            renderDropdownList("");
+          });
+
+          listEl.appendChild(createRow);
+        }
+      }
+
+      searchInput.addEventListener("input", function () {
+        renderDropdownList(searchInput.value.trim());
+      });
+
+      newTagColorPicker.addEventListener("input", function () {
+        newTagColor = newTagColorPicker.value;
+        // Update the create row dot
+        var createDot = listEl.querySelector(".memo-tag-dropdown-create .memo-tag-dropdown-dot");
+        if (createDot) createDot.style.background = newTagColor;
+      });
+
+      editColorPicker.addEventListener("input", function () {
+        if (!editColorTarget) return;
+        updateMemoTagColorLocal(editColorTarget, editColorPicker.value);
+        renderDropdownList(searchInput.value.trim());
+      });
+
+      renderDropdownList("");
+
+      // Position below button using fixed positioning to escape overflow:hidden
+      var btnRect = anchorBtn.getBoundingClientRect();
+      tagDropdownEl.style.position = "fixed";
+      tagDropdownEl.style.top = (btnRect.bottom + 4) + "px";
+      tagDropdownEl.style.right = (window.innerWidth - btnRect.right) + "px";
+      tagDropdownEl.style.left = "auto";
+      document.body.appendChild(tagDropdownEl);
+
+      // Focus search
+      setTimeout(function () { searchInput.focus(); }, 0);
+
+      // Close on outside click
+      setTimeout(function () {
+        document.addEventListener("mousedown", handleDropdownOutsideClick);
+      }, 0);
+    }
+
+    function handleDropdownOutsideClick(e) {
+      if (tagDropdownEl && !tagDropdownEl.contains(e.target)) {
+        closeTagDropdown();
+      }
+    }
+
+    function closeTagDropdown() {
+      tagDropdownOpen = false;
+      if (tagDropdownEl) {
+        tagDropdownEl.remove();
+        tagDropdownEl = null;
+      }
+      document.removeEventListener("mousedown", handleDropdownOutsideClick);
+    }
+
+    // =========================================================
+    // Render sidebar
+    // =========================================================
+    function render() {
+      var sidebar = document.getElementById("memo-sidebar");
+      if (!sidebar) return;
+
+      // Restore collapsed state
+      var isCollapsed = ls("gas_pomodoro_memo_sidebar_collapsed") === "1";
+      if (isCollapsed) sidebar.classList.add("collapsed");
+      else sidebar.classList.remove("collapsed");
+
+      renderTagFilters();
+
+      var listEl = sidebar.querySelector(".memo-sidebar-list");
+      if (!listEl) return;
+      listEl.innerHTML = "";
+
+      if (memos.length === 0) {
+        var empty = document.createElement("div");
+        empty.className = "memo-sidebar-empty";
+        empty.textContent = "メモがありません";
+        listEl.appendChild(empty);
+        updateToolbar();
+        return;
+      }
+
+      // Flat list of all memos
+      memos.forEach(function (m) {
+        listEl.appendChild(createMemoItem(m));
+      });
+
+      applyFilters();
+      updateToolbar();
+    }
+
+    function buildFilterBtn() {
+      var btn = document.createElement("button");
+      btn.type = "button";
+
+      if (activeTagFilter) {
+        var activeTag = memoTags.find(function (t) { return t.name === activeTagFilter; });
+        var tagColor = activeTag ? activeTag.color : "#757575";
+        btn.className = "memo-tag-filter-btn active";
+        btn.style.borderColor = tagColor;
+
+        var dot = document.createElement("span");
+        dot.className = "memo-tag-dot";
+        dot.style.background = tagColor;
+        btn.appendChild(dot);
+
+        btn.appendChild(document.createTextNode(activeTagFilter));
+
+        var clearX = document.createElement("span");
+        clearX.className = "memo-tag-filter-clear";
+        clearX.textContent = "\u00d7";
+        clearX.onclick = function (e) {
+          e.stopPropagation();
+          activeTagFilter = null;
+          closeTagFilterDropdown();
+          render();
+        };
+        btn.appendChild(clearX);
+
+        var arrow = document.createElement("span");
+        arrow.className = "memo-tag-filter-arrow";
+        arrow.textContent = "\u25BC";
+        btn.appendChild(arrow);
+      } else {
+        btn.className = "memo-tag-filter-btn";
+        var label = document.createTextNode("\u30BF\u30B0");
+        btn.appendChild(label);
+        var arrow = document.createElement("span");
+        arrow.className = "memo-tag-filter-arrow";
+        arrow.textContent = "\u25BC";
+        btn.appendChild(arrow);
+      }
+
+      return btn;
+    }
+
+    function renderTagFilters() {
+      var container = document.querySelector(".memo-tag-filters");
+      if (!container) return;
+      container.innerHTML = "";
+
+      // Collect tags that are actually used by at least one memo
+      var usedTags = memoTags.filter(function (tag) {
+        return memos.some(function (m) { return m.tags.indexOf(tag.name) !== -1; });
+      });
+
+      if (usedTags.length === 0) {
+        container.style.display = "none";
+        return;
+      }
+      container.style.display = "";
+
+      var btn = buildFilterBtn();
+      btn.onclick = function (e) {
+        e.stopPropagation();
+        if (tagFilterDropdownOpen) {
+          closeTagFilterDropdown();
+        } else {
+          openTagFilterDropdown(container);
+        }
+      };
+
+      container.appendChild(btn);
+    }
+
+    function openTagFilterDropdown(container) {
+      closeTagFilterDropdown();
+      tagFilterDropdownOpen = true;
+
+      var usedTags = memoTags.filter(function (tag) {
+        return memos.some(function (m) { return m.tags.indexOf(tag.name) !== -1; });
+      });
+
+      tagFilterDropdownEl = document.createElement("div");
+      tagFilterDropdownEl.className = "memo-tag-dropdown";
+      tagFilterDropdownEl.style.position = "absolute";
+      tagFilterDropdownEl.style.left = "0";
+      tagFilterDropdownEl.style.right = "0";
+      tagFilterDropdownEl.style.width = "auto";
+
+      // Search input
+      var searchInput = document.createElement("input");
+      searchInput.type = "text";
+      searchInput.className = "memo-tag-dropdown-search";
+      searchInput.placeholder = "\u30BF\u30B0\u3092\u691C\u7D22...";
+      tagFilterDropdownEl.appendChild(searchInput);
+
+      var listEl = document.createElement("div");
+      listEl.className = "memo-tag-dropdown-list";
+      tagFilterDropdownEl.appendChild(listEl);
+
+      function renderFilterList(filter) {
+        listEl.innerHTML = "";
+        var q = (filter || "").toLowerCase();
+
+        var filtered = usedTags.filter(function (t) {
+          if (!q) return true;
+          return t.name.toLowerCase().indexOf(q) !== -1;
+        });
+
+        filtered.forEach(function (tag) {
+          var item = document.createElement("div");
+          item.className = "memo-tag-dropdown-item";
+
+          var dot = document.createElement("span");
+          dot.className = "memo-tag-dropdown-dot";
+          dot.style.background = tag.color;
+
+          var label = document.createElement("span");
+          label.className = "memo-tag-dropdown-label";
+          label.textContent = tag.name;
+
+          var check = document.createElement("span");
+          check.className = "memo-tag-dropdown-check";
+          check.textContent = activeTagFilter === tag.name ? "\u2713" : "";
+
+          item.appendChild(dot);
+          item.appendChild(label);
+          item.appendChild(check);
+
+          (function (tagName) {
+            item.addEventListener("mousedown", function (e) {
+              e.preventDefault();
+              activeTagFilter = activeTagFilter === tagName ? null : tagName;
+              applyFilters();
+              renderFilterList(searchInput.value.trim());
+              renderTagFilterButton(container);
+            });
+          })(tag.name);
+
+          listEl.appendChild(item);
+        });
+      }
+
+      searchInput.addEventListener("input", function () {
+        renderFilterList(searchInput.value.trim());
+      });
+
+      renderFilterList("");
+
+      container.appendChild(tagFilterDropdownEl);
+
+      setTimeout(function () { searchInput.focus(); }, 0);
+
+      setTimeout(function () {
+        document.addEventListener("mousedown", handleTagFilterOutsideClick);
+      }, 0);
+    }
+
+    function renderTagFilterButton(container) {
+      var oldBtn = container.querySelector(".memo-tag-filter-btn");
+      if (!oldBtn) return;
+      var newBtn = buildFilterBtn();
+      newBtn.onclick = oldBtn.onclick;
+      oldBtn.replaceWith(newBtn);
+    }
+
+    function handleTagFilterOutsideClick(e) {
+      if (tagFilterDropdownEl && !tagFilterDropdownEl.contains(e.target) &&
+          !e.target.closest(".memo-tag-filter-btn")) {
+        closeTagFilterDropdown();
+      }
+    }
+
+    function closeTagFilterDropdown() {
+      tagFilterDropdownOpen = false;
+      if (tagFilterDropdownEl) {
+        tagFilterDropdownEl.remove();
+        tagFilterDropdownEl = null;
+      }
+      document.removeEventListener("mousedown", handleTagFilterOutsideClick);
+    }
+
+    function applyFilters() {
+      var searchInput = document.querySelector(".memo-search-input");
+      var q = (searchInput ? searchInput.value : "").toLowerCase();
+      var items = document.querySelectorAll(".memo-sidebar-item");
+      items.forEach(function (item) {
+        var nameMatch = !q || (item.getAttribute("data-name") || "").toLowerCase().indexOf(q) !== -1;
+        var tagMatch = true;
+        if (activeTagFilter) {
+          var tags = (item.getAttribute("data-tags") || "").split(",");
+          tagMatch = tags.indexOf(activeTagFilter) !== -1;
+        }
+        item.style.display = nameMatch && tagMatch ? "" : "none";
+      });
+    }
+
+    function createMemoItem(memo) {
+      var item = document.createElement("div");
+      item.className = "memo-sidebar-item" + (memo.id === activeId ? " active" : "");
+      item.setAttribute("data-id", memo.id);
+      item.setAttribute("data-name", memo.name);
+      item.setAttribute("data-tags", memo.tags.join(","));
+
+      var nameSpan = document.createElement("span");
+      nameSpan.className = "memo-item-name";
+      nameSpan.textContent = memo.name;
+      item.appendChild(nameSpan);
+
+      // Tag color dots
+      if (memo.tags.length > 0) {
+        var dotsSpan = document.createElement("span");
+        dotsSpan.className = "memo-item-tags";
+        memo.tags.forEach(function (tagName) {
+          var tag = memoTags.find(function (t) { return t.name === tagName; });
+          var dot = document.createElement("span");
+          dot.className = "memo-tag-dot";
+          dot.style.background = tag ? tag.color : "#757575";
+          dotsSpan.appendChild(dot);
+        });
+        item.appendChild(dotsSpan);
+      }
+
+      item.onclick = function () { selectMemo(memo.id); };
+      item.oncontextmenu = function (e) { showContextMenu(e, memo.id); };
+
+      return item;
+    }
+
+    // =========================================================
+    // Public API
+    // =========================================================
+    return {
+      init: init,
+      initAfterEditorMount: initAfterEditorMount,
+      render: render,
+      selectMemo: selectMemo,
+      createMemo: createMemo,
+      deleteMemo: deleteMemoDo,
+      toggleCollapse: toggleCollapse,
+      filterMemos: filterMemos,
+      saveCurrent: saveCurrent,
+      addTagToMemo: addTagToMemo,
+      removeTagFromMemo: removeTagFromMemo,
+      getActiveId: function () { return activeId; },
+    };
+  })();
+</script>

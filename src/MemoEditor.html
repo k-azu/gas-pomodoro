@@ -1,6 +1,5 @@
 <script>
   var MemoEditor = (function () {
-    var MEMO_KEY = "gas_pomodoro_memo";
     var RECORD_KEY = "gas_pomodoro_record_desc";
     var INT_KEY = "gas_pomodoro_int_note";
     var memoEditor = null;
@@ -184,14 +183,14 @@
     // =========================================================
     // Init: pre-resolve Drive URLs, then mount editors
     // =========================================================
-    function init() {
+    function init(memoContent) {
       if (typeof window.mountMemoEditor !== "function") {
         console.warn("MemoEditor: mountMemoEditor not available");
-        return;
+        return Promise.resolve();
       }
 
-      Promise.all([
-        resolveDriveUrls(ls(MEMO_KEY)),
+      return Promise.all([
+        resolveDriveUrls(memoContent || ""),
         resolveDriveUrls(ls(RECORD_KEY)),
         resolveDriveUrls(ls(INT_KEY)),
       ]).then(function (resolved) {
@@ -207,7 +206,9 @@
           initialValue: memoMd,
           onChange: function (md) {
             if (memoDebounce) clearTimeout(memoDebounce);
-            memoDebounce = setTimeout(function () { lsSet(MEMO_KEY, blobUrlsToDrive(md)); }, 500);
+            memoDebounce = setTimeout(function () {
+              if (typeof MemoSidebar !== "undefined") MemoSidebar.saveCurrent();
+            }, 500);
           },
           onImageUpload: handleImageUpload,
           placeholder: "メモを入力...",
@@ -281,20 +282,18 @@
     // --- Memo ---
     function getValue() {
       if (memoEditor) return blobUrlsToDrive(normalizeEmpty(memoEditor.getValue()));
-      return ls(MEMO_KEY);
+      return "";
     }
 
     function setValue(markdown) {
-      if (!memoEditor) return;
-      resolveDriveUrls(markdown).then(function (resolved) {
+      if (!memoEditor) return Promise.resolve();
+      return resolveDriveUrls(markdown).then(function (resolved) {
         memoEditor.setValue(resolved);
-        lsSet(MEMO_KEY, markdown);
       });
     }
 
     function clear() {
       if (memoEditor) memoEditor.setValue("");
-      lsSet(MEMO_KEY, "");
     }
 
     // --- Record description ---

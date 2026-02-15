@@ -674,6 +674,7 @@
           setSpreadsheetLink(data.spreadsheetUrl);
           DateSelector.init();
           DateSelector.loadWeekCounts();
+          MemoSidebar.init(data.memos, data.memoTags);
 
           restoreTimer();
           updateDisplay();
@@ -687,7 +688,14 @@
         .finally(function () {
           showLoading(false);
           TabPanel.init();
-          MemoEditor.init();
+          var memoActiveId = localStorage.getItem("gas_pomodoro_memo_active") || "";
+          var memoInitContent = memoActiveId ? (localStorage.getItem("gas_pomodoro_memo_" + memoActiveId) || "") : "";
+          MemoEditor.init(memoInitContent).then(function () {
+            MemoSidebar.initAfterEditorMount();
+          }).catch(function (err) {
+            console.error("MemoEditor init failed:", err);
+            MemoSidebar.initAfterEditorMount();
+          });
         });
     }
 

@@ -156,7 +156,29 @@
 
       <!-- メモタブ -->
       <div class="tab-content active" data-tab-content="memo">
-        <div id="memo-editor-container" class="editor-full-container"></div>
+        <div class="memo-layout">
+          <div id="memo-sidebar" class="memo-sidebar">
+            <div class="memo-sidebar-header">
+              <input type="text" class="memo-search-input" placeholder="検索..." oninput="MemoSidebar.filterMemos()" />
+              <button class="memo-new-btn" onclick="MemoSidebar.createMemo()" title="新規メモ">+</button>
+            </div>
+            <div class="memo-tag-filters"></div>
+            <div class="memo-sidebar-list"></div>
+          </div>
+          <div class="memo-sidebar-toggle" onclick="MemoSidebar.toggleCollapse()" title="サイドバー切替">
+            <span class="memo-toggle-chevron"></span>
+          </div>
+          <div class="memo-editor-area">
+            <div id="memo-editor-toolbar" class="memo-editor-toolbar" style="display:none">
+              <span class="memo-toolbar-name"></span>
+              <div class="memo-toolbar-tags"></div>
+              <div class="memo-tag-adder">
+                <button class="memo-tag-add-btn" title="タグを追加">+</button>
+              </div>
+            </div>
+            <div id="memo-editor-container" class="editor-full-container"></div>
+          </div>
+        </div>
       </div>
 
       <!-- 作業記録タブ -->
@@ -226,6 +248,7 @@
     <script src="https://tiptap-markdown-editor.pages.dev/tiptap-markdown-editor.iife.js"></script>
     <?!= include('TabPanel'); ?>
     <?!= include('MemoEditor'); ?>
+    <?!= include('MemoSidebar'); ?>
     <?!= include('CategoryCombo'); ?>
     <?!= include('RecordForm'); ?>
     <?!= include('DateSelector'); ?>

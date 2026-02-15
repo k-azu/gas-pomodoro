@@ -25,6 +25,8 @@ function getAllInitData(): {
   recentRecords: PomodoroRecord[];
   spreadsheetUrl: string;
   todayInterruptions: InterruptionRecord[];
+  memos: MemoMetadata[];
+  memoTags: MemoTag[];
 } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tz = Session.getScriptTimeZone();
@@ -187,6 +189,10 @@ function getAllInitData(): {
       }));
   }
 
+  // --- Memos & MemoTags ---
+  const memos = getMemos();
+  const memoTags = getMemoTags();
+
   return {
     timerConfigs,
     categories,
@@ -195,5 +201,7 @@ function getAllInitData(): {
     recentRecords,
     spreadsheetUrl: ss.getUrl(),
     todayInterruptions,
+    memos,
+    memoTags,
   };
 }
