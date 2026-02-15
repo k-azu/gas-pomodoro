@@ -1,0 +1,205 @@
+<script>
+var DateSelector = (function () {
+  var selectedDate = "";
+  var weekStartDate = "";
+  var weekRecordCounts = {};
+
+  var dom = {};
+
+  function getTodayStr() {
+    var d = new Date();
+    return d.getFullYear() + "-" +
+      String(d.getMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getDate()).padStart(2, "0");
+  }
+
+  function getMonday(dateStr) {
+    var d = new Date(dateStr + "T00:00:00");
+    var day = d.getDay();
+    var diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    return formatDateStr(d);
+  }
+
+  function formatDateStr(d) {
+    return d.getFullYear() + "-" +
+      String(d.getMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getDate()).padStart(2, "0");
+  }
+
+  function addDays(dateStr, days) {
+    var d = new Date(dateStr + "T00:00:00");
+    d.setDate(d.getDate() + days);
+    return formatDateStr(d);
+  }
+
+  function formatLabel(dateStr) {
+    var d = new Date(dateStr + "T00:00:00");
+    var weekDays = ["日", "月", "火", "水", "木", "金", "土"];
+    var month = d.getMonth() + 1;
+    var day = d.getDate();
+    var dow = weekDays[d.getDay()];
+    return month + "月" + day + "日(" + dow + ")";
+  }
+
+  function isToday() {
+    return selectedDate === getTodayStr();
+  }
+
+  // Check if selectedDate falls within the displayed week
+  function isSelectedInCurrentWeek() {
+    var weekEnd = addDays(weekStartDate, 6);
+    return selectedDate >= weekStartDate && selectedDate <= weekEnd;
+  }
+
+  function init() {
+    dom.dateLabel = document.getElementById("date-header-label");
+    dom.todayBtn = document.getElementById("date-today-btn");
+    dom.calendarInput = document.getElementById("date-calendar-input");
+    dom.weekStrip = document.getElementById("week-strip");
+
+    selectedDate = getTodayStr();
+    weekStartDate = getMonday(selectedDate);
+
+    // Calendar input change
+    dom.calendarInput.max = getTodayStr();
+    dom.calendarInput.addEventListener("change", function () {
+      if (dom.calendarInput.value) {
+        selectDate(dom.calendarInput.value);
+      }
+    });
+
+    renderDateHeader();
+    renderWeekStrip();
+  }
+
+  function renderDateHeader() {
+    if (isToday()) {
+      dom.dateLabel.textContent = "今日 - " + formatLabel(selectedDate);
+      dom.todayBtn.style.display = "none";
+    } else {
+      dom.dateLabel.textContent = formatLabel(selectedDate);
+      dom.todayBtn.style.display = "";
+    }
+  }
+
+  function renderWeekStrip() {
+    var today = getTodayStr();
+    var weekDays = ["月", "火", "水", "木", "金", "土", "日"];
+    var inCurrentWeek = isSelectedInCurrentWeek();
+    dom.weekStrip.innerHTML = "";
+
+    for (var i = 0; i < 7; i++) {
+      var dateStr = addDays(weekStartDate, i);
+      var d = new Date(dateStr + "T00:00:00");
+      var isFuture = dateStr > today;
+
+      var btn = document.createElement("button");
+      btn.className = "week-day-btn";
+      btn.disabled = isFuture;
+      if (inCurrentWeek && dateStr === selectedDate) btn.classList.add("selected");
+      if (dateStr === today) btn.classList.add("today");
+      if (isFuture) btn.classList.add("future");
+
+      var dowSpan = document.createElement("span");
+      dowSpan.className = "week-day-label";
+      dowSpan.textContent = weekDays[i];
+
+      var numSpan = document.createElement("span");
+      numSpan.className = "week-day-num";
+      numSpan.textContent = String(d.getDate());
+
+      var indicator = document.createElement("span");
+      var count = weekRecordCounts[dateStr] || 0;
+      if (count > 0 && !isFuture) {
+        indicator.className = "week-day-indicator";
+      } else {
+        indicator.className = "week-day-indicator-spacer";
+      }
+
+      btn.appendChild(dowSpan);
+      btn.appendChild(numSpan);
+      btn.appendChild(indicator);
+
+      (function (ds) {
+        btn.addEventListener("click", function () {
+          selectDate(ds);
+        });
+      })(dateStr);
+
+      dom.weekStrip.appendChild(btn);
+    }
+  }
+
+  function selectDate(dateStr) {
+    var today = getTodayStr();
+    if (dateStr > today) return;
+
+    selectedDate = dateStr;
+    weekStartDate = getMonday(dateStr);
+
+    renderDateHeader();
+    renderWeekStrip();
+    loadDateData();
+    loadWeekCounts();
+  }
+
+  function prevWeek() {
+    weekStartDate = addDays(weekStartDate, -7);
+    renderWeekStrip();
+    loadWeekCounts();
+  }
+
+  function nextWeek() {
+    var today = getTodayStr();
+    var newWeekStart = addDays(weekStartDate, 7);
+    if (newWeekStart > today) return;
+    weekStartDate = newWeekStart;
+    renderWeekStrip();
+    loadWeekCounts();
+  }
+
+  function goToToday() {
+    selectDate(getTodayStr());
+  }
+
+  function loadDateData() {
+    if (isToday()) {
+      serverCall("getRefreshData").then(function (data) {
+        displayStats(data.todayStats);
+        displayHistory(data.recentRecords, data.todayInterruptions);
+      });
+    } else {
+      serverCall("getDataForDate", selectedDate).then(function (data) {
+        displayStats(data.todayStats);
+        displayHistory(data.recentRecords, data.todayInterruptions);
+      });
+    }
+  }
+
+  function loadWeekCounts() {
+    serverCall("getWeekRecordCounts", weekStartDate).then(function (counts) {
+      weekRecordCounts = counts || {};
+      renderWeekStrip();
+    });
+  }
+
+  function onRecordSaved() {
+    if (isToday()) {
+      loadDateData();
+    }
+    loadWeekCounts();
+  }
+
+  return {
+    init: init,
+    selectDate: selectDate,
+    prevWeek: prevWeek,
+    nextWeek: nextWeek,
+    goToToday: goToToday,
+    onRecordSaved: onRecordSaved,
+    isToday: isToday,
+    loadWeekCounts: loadWeekCounts,
+  };
+})();
+</script>

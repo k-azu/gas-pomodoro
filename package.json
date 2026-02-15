@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Pomodoro Timer powered by Google Apps Script + Spreadsheet",
   "scripts": {
-    "editor:build": "cd \"${MD_GITLAB_DIR:-../md-gitlab}\" && pnpm gas:build",
+    "editor:build": "cd \"${EDITOR_DIR:-../tiptap-markdown-editor}\" && pnpm build:iife",
     "editor:copy": "node scripts/copy-editor-bundle.js",
     "editor:update": "npm run editor:build && npm run editor:copy",
     "deploy": "npm run editor:update && npm run push",

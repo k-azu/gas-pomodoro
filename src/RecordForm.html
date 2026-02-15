@@ -1,19 +1,29 @@
 <script>
   var RecordForm = (function () {
+    var recordCombo = null;
+
+    function initCombo() {
+      if (recordCombo) return;
+      recordCombo = CategoryCombo.create({
+        inputId: "record-category",
+        categories: [],
+        sheetType: "Categories",
+        onSelect: function () {},
+      });
+    }
+
     function clearForm() {
       MemoEditor.clearRecord();
-      document.getElementById("record-category").selectedIndex = 0;
+      if (recordCombo) {
+        recordCombo.setValue("");
+      } else {
+        document.getElementById("record-category").value = "";
+      }
     }
 
     function populateCategories(categories) {
-      var select = document.getElementById("record-category");
-      select.innerHTML = '<option value="">-- 選択 --</option>';
-      categories.forEach(function (cat) {
-        var opt = document.createElement("option");
-        opt.value = cat.name;
-        opt.textContent = cat.name;
-        select.appendChild(opt);
-      });
+      initCombo();
+      recordCombo.setCategories(categories);
     }
 
     function renderInterruptionList() {
@@ -29,103 +39,125 @@
 
       container.style.display = "";
 
-      interruptions.forEach(function (int) {
-        var item = document.createElement("div");
-        item.className = "interruption-item";
+      // Summary line
+      var totalSecs = interruptions.reduce(function (s, i) {
+        return s + i.durationSeconds;
+      }, 0);
+      var totalMins = Math.floor(totalSecs / 60);
+      var totalRemSecs = totalSecs % 60;
+      var totalStr =
+        totalMins > 0
+          ? totalMins + "分" + (totalRemSecs > 0 ? totalRemSecs + "秒" : "")
+          : totalRemSecs + "秒";
+
+      var summary = document.createElement("div");
+      summary.className = "interruption-summary";
+      summary.textContent =
+        "中断 " + interruptions.length + "回 (計" + totalStr + ")";
+      container.appendChild(summary);
+
+      // Compact clickable list
+      var list = document.createElement("div");
+      list.className = "interruption-compact-list";
+
+      interruptions.forEach(function (int, index) {
+        var row = document.createElement("div");
+        row.className = "interruption-compact-item";
+        row.onclick = function () {
+          openInterruptionInViewer(index);
+        };
 
         var typeLabel = int.type === "work" ? "作業" : "非作業";
         var mins = Math.floor(int.durationSeconds / 60);
         var secs = int.durationSeconds % 60;
-        var durStr =
-          mins > 0 ? mins + "分" + (secs > 0 ? secs + "秒" : "") : secs + "秒";
-
-        var header = document.createElement("div");
-        header.className = "interruption-item-header";
+        var durStr = String(mins).padStart(2, "0") + ":" + String(secs).padStart(2, "0");
 
         var lines = int.note ? int.note.split("\n") : [];
         var title = lines[0] ? lines[0].trim() : "";
-        var body = lines.slice(1).join("\n").trim();
 
-        // Header: タイトル - 非作業中断(3分) カテゴリ
-        var headerParts = [];
-        if (title) headerParts.push(title);
-        headerParts.push(typeLabel + "中断(" + durStr + ")");
-        header.textContent = headerParts.join(" - ");
+        var parts = [];
+        parts.push(typeLabel);
+        parts.push(durStr);
+        if (int.category) parts.push(int.category);
+        if (title) parts.push(title);
+
+        row.textContent = parts.join(" · ");
 
         if (int.category) {
-          var catSpan = document.createElement("span");
-          catSpan.className = "interruption-item-category";
-          catSpan.textContent = " " + int.category;
           var intCatColor = getInterruptionCategoryColor(int.category);
-          if (intCatColor) catSpan.style.color = intCatColor;
-          header.appendChild(catSpan);
+          if (intCatColor) row.style.borderLeftColor = intCatColor;
         }
 
-        item.appendChild(header);
+        list.appendChild(row);
+      });
 
-        if (body) {
-          var noteEl = document.createElement("div");
-          noteEl.className = "interruption-item-note";
-          noteEl.textContent = body;
-          item.appendChild(noteEl);
-        }
-        container.appendChild(item);
+      container.appendChild(list);
+    }
+
+    function openInterruptionInViewer(index) {
+      var int = App.getState().interruptions[index];
+      if (!int) return;
+
+      var typeLabel = int.type === "work" ? "作業に含める" : "作業に含めない";
+      var mins = Math.floor(int.durationSeconds / 60);
+      var secs = int.durationSeconds % 60;
+      var durStr =
+        mins > 0 ? mins + "分" + (secs > 0 ? secs + "秒" : "") : secs + "秒";
+
+      var title = "中断 #" + (index + 1);
+      var metaParts = [typeLabel, durStr];
+      if (int.category) metaParts.push(int.category);
+      var meta = metaParts.join(" · ");
+
+      TabPanel.showViewer(title, meta, int.note || "", null, null, {
+        category: int.category || "",
+        sheetType: "InterruptionCategories",
+        saveCallback: function (markdown) {
+          App.getState().interruptions[index].note = markdown;
+          renderInterruptionList();
+        },
+        categorySaveCallback: function (newCategory) {
+          App.getState().interruptions[index].category = newCategory;
+          renderInterruptionList();
+        },
       });
     }
 
-    function submit() {
-      var description = (MemoEditor.getRecordValue() || "").trim();
-      var category = document.getElementById("record-category").value;
-
-      var state = App.getState();
-      var endTime = new Date();
-      var startTime = new Date(state.startTimestamp);
-      var actualSeconds = Math.round(
-        (endTime.getTime() - startTime.getTime()) / 1000,
-      );
-
-      var record = buildRecord(
-        state,
-        description,
-        category,
-        startTime,
-        endTime,
-        actualSeconds,
-        "completed",
-      );
-      var intRecords = buildInterruptionRecords(state, record.id);
-
-      showLoading(true);
-      serverCall("saveRecord", record)
-        .then(function () {
-          if (intRecords.length > 0) {
-            return serverCall("saveInterruptions", intRecords);
-          }
-        })
-        .then(function () {
-          clearForm();
-          App.onRecordSaved();
-          refreshHistory();
-          refreshStats();
-        })
-        .catch(function (err) {
-          alert("記録の保存に失敗しました: " + err);
-        })
-        .finally(function () {
-          showLoading(false);
-        });
+    function ensureCategory(category) {
+      if (!category) return Promise.resolve();
+      var exists = App.getState().categories.some(function (c) {
+        return c.name === category;
+      });
+      if (exists) return Promise.resolve();
+      var color = recordCombo ? recordCombo.getColor() : "#757575";
+      return serverCall("addCategory", category, color).then(function (result) {
+        if (result.success) {
+          return serverCall("getCategories").then(function (cats) {
+            if (cats) {
+              App.getState().categories = cats;
+              populateCategories(cats);
+            }
+          });
+        }
+      });
     }
 
-    function submitAbandon(resetSet) {
-      var description = (MemoEditor.getRecordValue() || "").trim();
-      var category = document.getElementById("record-category").value;
-
+    // action: "break" | "nextWork" | "endSession"
+    function submitAndDo(action) {
       var state = App.getState();
+      if (state.phase !== "work") return;
+
       var endTime = new Date();
+      var description = (MemoEditor.getRecordValue() || "").trim();
+      var category = recordCombo ? recordCombo.getValue() : document.getElementById("record-category").value.trim();
       var startTime = new Date(state.startTimestamp);
       var actualSeconds = Math.round(
         (endTime.getTime() - startTime.getTime()) / 1000,
       );
+
+      // Auto-determine completionStatus based on elapsed vs target
+      var completionStatus =
+        state.elapsedSeconds >= state.totalSeconds ? "completed" : "abandoned";
 
       var record = buildRecord(
         state,
@@ -134,12 +166,15 @@
         startTime,
         endTime,
         actualSeconds,
-        "abandoned",
+        completionStatus,
       );
       var intRecords = buildInterruptionRecords(state, record.id);
 
       showLoading(true);
-      serverCall("saveRecord", record)
+      ensureCategory(category)
+        .then(function () {
+          return serverCall("saveRecord", record);
+        })
         .then(function () {
           if (intRecords.length > 0) {
             return serverCall("saveInterruptions", intRecords);
@@ -147,7 +182,14 @@
         })
         .then(function () {
           clearForm();
-          App.onAbandonRecorded(resetSet);
+          if (action === "break") {
+            App.onRecordSaved();
+          } else if (action === "nextWork") {
+            App.startNextWork();
+          } else {
+            App.endWorkSession();
+          }
+          refreshAll();
         })
         .catch(function (err) {
           alert("記録の保存に失敗しました: " + err);
@@ -221,29 +263,6 @@
       });
     }
 
-    function addCategory() {
-      var input = document.getElementById("new-category-name");
-      var name = input.value.trim();
-      if (!name) return;
-
-      serverCall("addCategory", name)
-        .then(function (result) {
-          if (result.success) {
-            input.value = "";
-            return serverCall("getCategories");
-          } else {
-            alert(result.message);
-            return null;
-          }
-        })
-        .then(function (cats) {
-          if (cats) {
-            App.getState().categories = cats;
-            populateCategories(cats);
-          }
-        });
-    }
-
     function getInterruptionCategoryColor(name) {
       var cats = App.getState().interruptionCategories;
       var cat = cats.find(function (c) {
@@ -271,12 +290,12 @@
     }
 
     return {
-      submit: submit,
-      submitAbandon: submitAbandon,
+      submitAndDo: submitAndDo,
       clearForm: clearForm,
       renderInterruptionList: renderInterruptionList,
+      openInterruptionInViewer: openInterruptionInViewer,
       populateCategories: populateCategories,
-      addCategory: addCategory,
+      ensureCategory: ensureCategory,
       generateUUID: generateUUID,
       formatDate: formatDate,
     };

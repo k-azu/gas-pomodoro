@@ -81,9 +81,16 @@
       }
     }
 
+    // Return "" if the value is only whitespace/&nbsp;, otherwise return as-is
+    function normalizeEmpty(val) {
+      if (!val) return "";
+      if (!val.replace(/&nbsp;/g, "").replace(/[\s\u00a0]/g, "")) return "";
+      return val;
+    }
+
     // --- Memo ---
     function getValue() {
-      if (memoEditor) return memoEditor.getValue();
+      if (memoEditor) return normalizeEmpty(memoEditor.getValue());
       return ls(MEMO_KEY);
     }
 
@@ -101,7 +108,7 @@
 
     // --- Record description ---
     function getRecordValue() {
-      if (recordEditor) return recordEditor.getValue();
+      if (recordEditor) return normalizeEmpty(recordEditor.getValue());
       return ls(RECORD_KEY);
     }
 
@@ -117,7 +124,7 @@
 
     // --- Interruption note ---
     function getInterruptionValue() {
-      if (interruptionEditor) return interruptionEditor.getValue();
+      if (interruptionEditor) return normalizeEmpty(interruptionEditor.getValue());
       return ls(INT_KEY);
     }
 
@@ -133,7 +140,7 @@
 
     // --- Viewer ---
     function getViewerValue() {
-      if (viewerEditor) return viewerEditor.getValue();
+      if (viewerEditor) return normalizeEmpty(viewerEditor.getValue());
       return "";
     }
 

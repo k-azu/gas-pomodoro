@@ -1,0 +1,241 @@
+<script>
+  var CategoryCombo = (function () {
+    function create(opts) {
+      // opts: { inputId, categories, sheetType, onSelect }
+      var inputEl = document.getElementById(opts.inputId);
+      var categories = opts.categories || [];
+      var sheetType = opts.sheetType || "Categories";
+      var onSelect = opts.onSelect || function () {};
+      var newColor = "#757575";
+      var open = false;
+
+      // Wrap input in .cat-combo container
+      var wrapper = document.createElement("div");
+      wrapper.className = "cat-combo";
+      inputEl.parentNode.insertBefore(wrapper, inputEl);
+
+      // Color dot
+      var dot = document.createElement("div");
+      dot.className = "cat-combo-dot";
+      dot.style.background = "#757575";
+      dot.title = "色を変更";
+      wrapper.appendChild(dot);
+
+      // Move input into wrapper
+      wrapper.appendChild(inputEl);
+
+      // Hidden color picker
+      var colorPicker = document.createElement("input");
+      colorPicker.type = "color";
+      colorPicker.className = "cat-color-hidden";
+      colorPicker.value = "#757575";
+      wrapper.appendChild(colorPicker);
+
+      // Dropdown list
+      var list = document.createElement("div");
+      list.className = "cat-combo-list";
+      list.style.display = "none";
+      wrapper.appendChild(list);
+
+      // Per-item color picker (hidden, reused)
+      var itemColorPicker = document.createElement("input");
+      itemColorPicker.type = "color";
+      itemColorPicker.className = "cat-color-hidden";
+      wrapper.appendChild(itemColorPicker);
+
+      var itemColorTarget = null; // category name being edited
+
+      function findCategory(name) {
+        for (var i = 0; i < categories.length; i++) {
+          if (categories[i].name === name) return categories[i];
+        }
+        return null;
+      }
+
+      function updateDot() {
+        var val = inputEl.value.trim();
+        var cat = findCategory(val);
+        if (cat) {
+          dot.style.background = cat.color;
+        } else if (val) {
+          dot.style.background = newColor;
+        } else {
+          dot.style.background = "#757575";
+        }
+      }
+
+      function renderList(filter) {
+        list.innerHTML = "";
+        var lowerFilter = (filter || "").toLowerCase();
+        var hasExact = false;
+
+        var filtered = categories.filter(function (c) {
+          if (!lowerFilter) return true;
+          var match = c.name.toLowerCase().indexOf(lowerFilter) !== -1;
+          if (c.name.toLowerCase() === lowerFilter) hasExact = true;
+          return match;
+        });
+
+        filtered.forEach(function (cat) {
+          var item = document.createElement("div");
+          item.className = "cat-combo-item";
+
+          var itemDot = document.createElement("div");
+          itemDot.className = "cat-combo-item-dot";
+          itemDot.style.background = cat.color;
+          itemDot.title = "色を変更";
+
+          var label = document.createElement("span");
+          label.className = "cat-combo-item-label";
+          label.textContent = cat.name;
+
+          // Click on dot → open color picker for this item
+          (function (c, d) {
+            itemDot.addEventListener("mousedown", function (e) {
+              e.preventDefault();
+              e.stopPropagation();
+              itemColorTarget = c.name;
+              itemColorPicker.value = c.color;
+              itemColorPicker.click();
+            });
+          })(cat, itemDot);
+
+          // Click on name → select
+          (function (c) {
+            label.addEventListener("mousedown", function (e) {
+              e.preventDefault();
+              inputEl.value = c.name;
+              updateDot();
+              closeList();
+              onSelect(c.name, c.color);
+            });
+          })(cat);
+
+          item.appendChild(itemDot);
+          item.appendChild(label);
+          list.appendChild(item);
+        });
+
+        // "Create new" row if input doesn't match any existing
+        if (lowerFilter && !hasExact) {
+          var createRow = document.createElement("div");
+          createRow.className = "cat-combo-create";
+          createRow.textContent = '+ "' + filter + '" を作成';
+          createRow.addEventListener("mousedown", function (e) {
+            e.preventDefault();
+            closeList();
+            onSelect(filter, newColor);
+          });
+          list.appendChild(createRow);
+        }
+      }
+
+      function openList() {
+        if (open) return;
+        open = true;
+        renderList(inputEl.value.trim());
+        list.style.display = "";
+      }
+
+      function closeList() {
+        open = false;
+        list.style.display = "none";
+      }
+
+      // Events: focus → open
+      inputEl.addEventListener("focus", function () {
+        openList();
+      });
+
+      // Events: input → filter
+      inputEl.addEventListener("input", function () {
+        renderList(inputEl.value.trim());
+        updateDot();
+        if (!open) openList();
+      });
+
+      // Events: blur → close with delay
+      inputEl.addEventListener("blur", function () {
+        setTimeout(function () {
+          closeList();
+        }, 200);
+      });
+
+      // Events: Escape → close
+      inputEl.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") {
+          closeList();
+          inputEl.blur();
+        }
+      });
+
+      // Main dot click → color picker for current value
+      dot.addEventListener("click", function () {
+        var val = inputEl.value.trim();
+        var cat = findCategory(val);
+        if (cat) {
+          colorPicker.value = cat.color;
+        } else {
+          colorPicker.value = newColor;
+        }
+        colorPicker.click();
+      });
+
+      // Main color picker change
+      colorPicker.addEventListener("input", function () {
+        var color = colorPicker.value;
+        var val = inputEl.value.trim();
+        var cat = findCategory(val);
+        if (cat) {
+          cat.color = color;
+          dot.style.background = color;
+          renderList(val);
+          // Save to server
+          serverCall("updateCategoryColor", val, color, sheetType);
+        } else {
+          newColor = color;
+          dot.style.background = color;
+        }
+      });
+
+      // Item color picker change
+      itemColorPicker.addEventListener("input", function () {
+        if (!itemColorTarget) return;
+        var color = itemColorPicker.value;
+        var cat = findCategory(itemColorTarget);
+        if (cat) {
+          cat.color = color;
+          renderList(inputEl.value.trim());
+          updateDot();
+          // Save to server
+          serverCall("updateCategoryColor", itemColorTarget, color, sheetType);
+        }
+      });
+
+      // Public API
+      return {
+        getValue: function () {
+          return inputEl.value.trim();
+        },
+        setValue: function (val) {
+          inputEl.value = val;
+          updateDot();
+        },
+        getColor: function () {
+          var val = inputEl.value.trim();
+          var cat = findCategory(val);
+          return cat ? cat.color : newColor;
+        },
+        setCategories: function (cats) {
+          categories = cats || [];
+          updateDot();
+        },
+        setSheetType: function (type) {
+          sheetType = type;
+        },
+      };
+    }
+
+    return { create: create };
+  })();
+</script>

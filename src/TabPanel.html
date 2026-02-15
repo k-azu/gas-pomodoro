@@ -8,8 +8,6 @@
       idle: { memo: true, record: false, interruption: false },
       work: { memo: true, record: true, interruption: false },
       interrupted: { memo: true, record: true, interruption: true },
-      recording: { memo: true, record: true, interruption: false },
-      abandoning: { memo: true, record: true, interruption: false },
       shortBreak: { memo: true, record: false, interruption: false },
       longBreak: { memo: true, record: false, interruption: false },
       breakDone: { memo: true, record: false, interruption: false },
@@ -20,8 +18,6 @@
       idle: "memo",
       work: "record",
       interrupted: "interruption",
-      recording: "record",
-      abandoning: "record",
       shortBreak: "memo",
       longBreak: "memo",
       breakDone: "memo",
@@ -62,27 +58,70 @@
         targetContent.classList.add("active");
       }
 
-      // Update action buttons visibility
-      var actionButtons = document.querySelectorAll(".tab-action-btn");
-      actionButtons.forEach(function (btn) {
-        var forTab = btn.getAttribute("data-tab-action");
-        btn.style.display = forTab === tabId ? "" : "none";
-      });
-
       activeTab = tabId;
     }
 
     var viewerOpen = false;
     var viewerRecordId = null;   // record or interruption ID
     var viewerRecordType = null; // "record" or "interruption"
+    var viewerSaveCallback = null; // optional callback for in-memory save
+    var viewerCategorySaveCallback = null; // optional callback for in-memory category save
+    var viewerSheetType = null;  // "Categories" or "InterruptionCategories"
+    var viewerOriginalCategory = ""; // track original category for change detection
+    var viewerCombo = null;
 
-    function showViewer(title, meta, markdown, recordId, recordType) {
+    function initViewerCombo() {
+      if (viewerCombo) return;
+      viewerCombo = CategoryCombo.create({
+        inputId: "viewer-category",
+        categories: [],
+        sheetType: "Categories",
+        onSelect: function () {},
+      });
+    }
+
+    function showViewer(title, meta, markdown, recordId, recordType, saveCallbackOrOpts) {
+      initViewerCombo();
+
       // Show viewer tab button
       var viewerBtn = document.querySelector('.tab-btn[data-tab="viewer"]');
       if (viewerBtn) viewerBtn.style.display = "";
       viewerOpen = true;
       viewerRecordId = recordId || null;
       viewerRecordType = recordType || null;
+      viewerSaveCallback = null;
+      viewerCategorySaveCallback = null;
+      viewerSheetType = null;
+      viewerOriginalCategory = "";
+
+      // Parse opts (6th argument)
+      var opts = {};
+      if (typeof saveCallbackOrOpts === "function") {
+        viewerSaveCallback = saveCallbackOrOpts;
+      } else if (saveCallbackOrOpts && typeof saveCallbackOrOpts === "object") {
+        opts = saveCallbackOrOpts;
+        viewerSaveCallback = opts.saveCallback || null;
+        viewerCategorySaveCallback = opts.categorySaveCallback || null;
+      }
+
+      // Category setup
+      var category = opts.category || "";
+      viewerSheetType = opts.sheetType || null;
+      viewerOriginalCategory = category;
+
+      if (viewerSheetType) {
+        var state = App.getState();
+        var cats = viewerSheetType === "InterruptionCategories"
+          ? state.interruptionCategories
+          : state.categories;
+        viewerCombo.setSheetType(viewerSheetType);
+        viewerCombo.setCategories(cats);
+        viewerCombo.setValue(category);
+        document.getElementById("viewer-category").parentNode.style.display = "";
+      } else {
+        viewerCombo.setValue("");
+        document.getElementById("viewer-category").parentNode.style.display = "none";
+      }
 
       // Set header content
       document.getElementById("viewer-title").textContent = title || "";
@@ -90,7 +129,7 @@
 
       // Show/hide save button based on whether we have a record to save to
       var saveBtn = document.getElementById("viewer-save-btn");
-      if (saveBtn) saveBtn.style.display = viewerRecordId ? "" : "none";
+      if (saveBtn) saveBtn.style.display = (viewerRecordId || viewerSaveCallback) ? "" : "none";
 
       // Set editor content
       MemoEditor.setViewerValue(markdown || "");
@@ -100,19 +139,48 @@
     }
 
     function saveViewer() {
-      if (!viewerRecordId) return;
       var markdown = MemoEditor.getViewerValue();
       var saveBtn = document.getElementById("viewer-save-btn");
+      var newCategory = viewerCombo ? viewerCombo.getValue() : "";
+      var categoryChanged = viewerSheetType && newCategory !== viewerOriginalCategory;
+
+      // In-memory save (e.g. unsaved interruption notes)
+      if (viewerSaveCallback) {
+        viewerSaveCallback(markdown);
+        if (viewerCategorySaveCallback && categoryChanged) {
+          viewerCategorySaveCallback(newCategory);
+        }
+        viewerOriginalCategory = newCategory;
+        return;
+      }
+
+      if (!viewerRecordId) return;
       if (saveBtn) saveBtn.disabled = true;
 
       var fn = viewerRecordType === "interruption"
         ? "updateInterruptionNote"
         : "updateRecordDescription";
 
-      serverCall(fn, viewerRecordId, markdown)
+      var promises = [serverCall(fn, viewerRecordId, markdown)];
+
+      if (categoryChanged) {
+        var catFn = viewerRecordType === "interruption"
+          ? "updateInterruptionCategory"
+          : "updateRecordCategory";
+        promises.push(serverCall(catFn, viewerRecordId, newCategory));
+
+        // Ensure category exists
+        var ensureFn = viewerSheetType === "InterruptionCategories"
+          ? App.ensureInterruptionCategory
+          : RecordForm.ensureCategory;
+        if (ensureFn) promises.push(ensureFn(newCategory));
+      }
+
+      Promise.all(promises)
         .then(function () {
           if (saveBtn) saveBtn.disabled = false;
-          refreshHistory();
+          viewerOriginalCategory = newCategory;
+          refreshAll();
         })
         .catch(function (err) {
           if (saveBtn) saveBtn.disabled = false;

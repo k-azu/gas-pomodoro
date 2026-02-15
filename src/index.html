@@ -6,8 +6,8 @@
       rel="icon"
       href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍅</text></svg>"
     />
-    <?!= include('Stylesheet'); ?>
     <?!= include('EditorStyles'); ?>
+    <?!= include('Stylesheet'); ?>
   </head>
   <body>
     <div class="app-layout">
@@ -22,7 +22,8 @@
       <div id="timer-card" class="timer-card" data-phase="idle">
         <div id="phase-label" class="phase-label">準備完了</div>
         <div id="pomodoro-dots" class="pomodoro-dots"></div>
-        <div id="timer-display" class="timer-display">25:00</div>
+        <div id="timer-display" class="timer-display">00:00</div>
+        <div id="work-progress" class="work-progress" style="display:none"></div>
         <div
           id="pattern-selector"
           class="pattern-selector"
@@ -51,26 +52,14 @@
           </button>
         </div>
 
-        <!-- Interruption start button (shown during work) -->
-        <div
-          id="interruption-controls"
-          class="interruption-controls"
-          style="display: none"
-        >
-          <button class="btn btn-warning" onclick="App.startInterruption()">
-            中断
-          </button>
+        <!-- Work controls: interrupt (shown during work) -->
+        <div id="work-controls" class="timer-controls" style="display: none">
+          <button class="btn btn-warning" onclick="App.startInterruption()">中断</button>
         </div>
 
-        <!-- Break abort button (shown during break) -->
-        <div
-          id="break-abort-controls"
-          class="timer-controls"
-          style="display: none"
-        >
-          <button class="btn btn-secondary" onclick="App.skipBreak()">
-            休憩をスキップ
-          </button>
+        <!-- Break controls (shown during break) -->
+        <div id="break-controls" class="timer-controls" style="display: none">
+          <button class="btn btn-primary" onclick="App.completeBreak()">休憩を終了</button>
         </div>
 
         <!-- Break done panel (shown after break ends) -->
@@ -82,7 +71,7 @@
           <div class="break-done-message">休憩が終わりました</div>
           <div class="break-done-actions">
             <button class="btn btn-primary" onclick="App.continueWork()">
-              次のポモドーロへ
+              次のタイマーへ
             </button>
             <button class="btn btn-secondary" onclick="App.endSession()">
               作業を終了
@@ -91,9 +80,26 @@
         </div>
       </div>
 
-      <!-- Today Stats -->
+      <!-- Date Selector -->
+      <div class="date-selector">
+        <div class="date-header">
+          <span id="date-header-label" class="date-header-label">今日</span>
+          <button id="date-today-btn" class="date-today-btn" onclick="DateSelector.goToToday()" style="display:none">今日</button>
+          <span class="date-calendar-wrapper">
+            <button class="date-nav-btn date-calendar-btn" title="カレンダー">&#128197;</button>
+            <input type="date" id="date-calendar-input" class="date-calendar-input" />
+          </span>
+        </div>
+        <div class="week-strip-container">
+          <button class="date-nav-btn week-nav-btn" onclick="DateSelector.prevWeek()" title="前の週">&lsaquo;</button>
+          <div id="week-strip" class="week-strip"></div>
+          <button class="date-nav-btn week-nav-btn" onclick="DateSelector.nextWeek()" title="次の週">&rsaquo;</button>
+        </div>
+      </div>
+
+      <!-- Stats -->
       <div id="today-stats-card" class="stats-card">
-        <h3>今日の集計</h3>
+        <h3>集計</h3>
         <div class="stats-grid">
           <div class="stats-item">
             <div class="stats-value">
@@ -124,7 +130,7 @@
       <!-- History -->
       <div class="history-card">
         <div class="history-header">
-          <h3>今日の記録</h3>
+          <h3>記録</h3>
           <a
             id="spreadsheet-link"
             href="#"
@@ -146,10 +152,6 @@
         <button class="tab-btn" data-tab="record" style="display:none">作業記録</button>
         <button class="tab-btn" data-tab="interruption" style="display:none">中断</button>
         <button class="tab-btn" data-tab="viewer" style="display:none">ビュー</button>
-        <button class="btn btn-secondary btn-small tab-action-btn"
-                onclick="MemoEditor.clear()" data-tab-action="memo">クリア</button>
-        <button class="btn btn-secondary btn-small tab-action-btn"
-                onclick="TabPanel.hideViewer()" data-tab-action="viewer" style="display:none">閉じる</button>
       </div>
 
       <!-- メモタブ -->
@@ -160,30 +162,16 @@
       <!-- 作業記録タブ -->
       <div class="tab-content" data-tab-content="record" style="display:none">
         <div class="record-panel">
-          <div class="record-panel-header">
-            <div class="form-group">
-              <label for="record-category">カテゴリ</label>
-              <select id="record-category">
-                <option value="">-- 選択 --</option>
-              </select>
-              <div class="category-add-row">
-                <input id="new-category-name" type="text" placeholder="新しいカテゴリ" />
-                <button onclick="RecordForm.addCategory()">追加</button>
-              </div>
-            </div>
+          <div class="panel-toolbar">
+            <input id="record-category" type="text" placeholder="カテゴリ" autocomplete="off" />
           </div>
           <div id="record-editor-container" class="editor-flex-container"></div>
-          <div class="record-panel-footer">
+          <div class="panel-footer">
             <div id="interruption-list" class="interruption-list" style="display:none"></div>
-            <div id="record-form-actions-work" class="form-actions" style="display:none">
-              <button class="btn btn-danger" onclick="App.abandon()">中止</button>
-            </div>
-            <div id="record-form-actions-normal" class="form-actions" style="display:none">
-              <button class="btn btn-primary" onclick="RecordForm.submit()">記録して休憩へ</button>
-            </div>
-            <div id="record-form-actions-abandon" class="form-actions" style="display:none">
-              <button class="btn btn-primary" onclick="RecordForm.submitAbandon(false)">セットを続ける</button>
-              <button class="btn btn-secondary" onclick="RecordForm.submitAbandon(true)">作業を終了</button>
+            <div id="record-form-actions" class="form-actions" style="display:none">
+              <button class="btn btn-primary" onclick="RecordForm.submitAndDo('break')">休憩へ</button>
+              <button class="btn btn-secondary" onclick="RecordForm.submitAndDo('nextWork')">次のタイマー</button>
+              <button class="btn btn-secondary" onclick="RecordForm.submitAndDo('endSession')">終了</button>
             </div>
           </div>
         </div>
@@ -192,40 +180,34 @@
       <!-- ビュータブ -->
       <div class="tab-content" data-tab-content="viewer" style="display:none">
         <div class="viewer-panel">
-          <div class="viewer-panel-header">
-            <div class="viewer-header-top">
-              <div>
-                <div id="viewer-title" class="viewer-title"></div>
-                <div id="viewer-meta" class="viewer-meta"></div>
-              </div>
-              <button id="viewer-save-btn" class="btn btn-primary btn-small" onclick="TabPanel.saveViewer()">保存</button>
+          <div class="panel-toolbar viewer-toolbar">
+            <div class="viewer-toolbar-info">
+              <div id="viewer-title" class="viewer-title"></div>
+              <div id="viewer-meta" class="viewer-meta"></div>
             </div>
+            <input id="viewer-category" type="text" placeholder="カテゴリ" autocomplete="off" />
           </div>
           <div id="viewer-editor-container" class="editor-full-container"></div>
+          <div class="panel-footer">
+            <button id="viewer-save-btn" class="btn btn-primary" onclick="TabPanel.saveViewer()">保存</button>
+            <button class="btn btn-secondary" onclick="TabPanel.hideViewer()">閉じる</button>
+          </div>
         </div>
       </div>
 
       <!-- 中断タブ -->
       <div class="tab-content" data-tab-content="interruption" style="display:none">
         <div class="interruption-panel">
-          <div class="interruption-panel-header">
-            <div class="interrupted-timer-label">中断経過時間</div>
-            <div id="interruption-timer" class="interruption-timer">00:00</div>
-            <div class="interrupted-form-row">
-              <label class="radio-label"
-                ><input type="radio" name="int-type" value="nonWork" checked />
-                作業に含めない</label>
-              <label class="radio-label"
-                ><input type="radio" name="int-type" value="work" />
-                作業に含める</label>
-            </div>
-            <select id="int-category" class="interrupted-form-select">
-              <option value="">-- カテゴリ --</option>
-            </select>
+          <div class="panel-toolbar">
+            <label class="checkbox-label"
+              ><input type="checkbox" id="int-type-work" checked />
+              作業に含める</label>
+            <input id="int-category" type="text" placeholder="カテゴリ" autocomplete="off" />
           </div>
           <div id="int-note-editor-container" class="editor-flex-container"></div>
-          <div class="interruption-panel-footer">
+          <div class="panel-footer">
             <button class="btn btn-primary" onclick="App.endInterruption()">記録して作業に戻る</button>
+            <button class="btn btn-secondary" onclick="App.discardInterruption()">中断を破棄</button>
           </div>
         </div>
       </div>
@@ -238,10 +220,12 @@
     </div>
 
     <?!= include('Notification'); ?>
-    <?!= include('EditorBundle'); ?>
+    <?!= includeEditorBundle(); ?>
     <?!= include('TabPanel'); ?>
     <?!= include('MemoEditor'); ?>
+    <?!= include('CategoryCombo'); ?>
     <?!= include('RecordForm'); ?>
+    <?!= include('DateSelector'); ?>
     <?!= include('JavaScript'); ?>
   </body>
 </html>

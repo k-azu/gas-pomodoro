@@ -6,7 +6,20 @@ interface TimerConfig {
   pomodorosBeforeLongBreak: number;
 }
 
+const TIMER_CONFIGS_CACHE_KEY = "timer_configs_v1";
+const TIMER_CONFIG_CACHE_TTL = 300; // 5 minutes
+
 function getAllTimerConfigs(): TimerConfig[] {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get(TIMER_CONFIGS_CACHE_KEY);
+  if (cached) {
+    try {
+      return JSON.parse(cached) as TimerConfig[];
+    } catch (_e) {
+      // fall through
+    }
+  }
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("TimerConfig")!;
   const lastRow = sheet.getLastRow();
@@ -24,13 +37,16 @@ function getAllTimerConfigs(): TimerConfig[] {
   }
 
   const data = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
-  return data.map((row) => ({
+  const result = data.map((row) => ({
     patternName: String(row[0]),
     workMinutes: Number(row[1]),
     shortBreakMinutes: Number(row[2]),
     longBreakMinutes: Number(row[3]),
     pomodorosBeforeLongBreak: Number(row[4]),
   }));
+
+  cache.put(TIMER_CONFIGS_CACHE_KEY, JSON.stringify(result), TIMER_CONFIG_CACHE_TTL);
+  return result;
 }
 
 function getTimerConfig(): TimerConfig {
