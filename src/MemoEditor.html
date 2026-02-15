@@ -18,70 +18,247 @@
       try { localStorage.setItem(key, val); } catch (e) {}
     }
 
+    // =========================================================
+    // Drive image proxy: IndexedDB cache + pre-resolve
+    // =========================================================
+    // Markdown persists Drive file URLs (https://drive.google.com/file/d/{ID}/view).
+    // Display uses blob URLs created from cached / fetched image data.
+    var DRIVE_FILE_RE = /drive\.google\.com\/file\/d\/([^/]+)\/view/;
+    var DRIVE_URL_GLOBAL_RE = /https:\/\/drive\.google\.com\/file\/d\/([^/\s)"]+)\/view/g;
+    var blobToDriveUrl = {}; // blobUrl -> driveFileUrl
+    var fileIdToBlobUrl = {}; // fileId -> blobUrl
+
+    function driveFileUrl(fileId) {
+      return "https://drive.google.com/file/d/" + fileId + "/view";
+    }
+
+    // Replace blob URLs with Drive URLs in markdown for persistence
+    function blobUrlsToDrive(md) {
+      for (var blobUrl in blobToDriveUrl) {
+        md = md.split(blobUrl).join(blobToDriveUrl[blobUrl]);
+      }
+      return md;
+    }
+
+    // --- IndexedDB cache ---
+    var DB_NAME = "gas_pomodoro_images";
+    var DB_VERSION = 1;
+    var STORE_NAME = "images";
+    var _dbInstance = null;
+
+    function openImageDB() {
+      if (_dbInstance) return Promise.resolve(_dbInstance);
+      return new Promise(function (resolve, reject) {
+        var req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = function () {
+          req.result.createObjectStore(STORE_NAME);
+        };
+        req.onsuccess = function () { _dbInstance = req.result; resolve(_dbInstance); };
+        req.onerror = function () { reject(req.error); };
+      });
+    }
+
+    function getCachedImage(fileId) {
+      return openImageDB().then(function (db) {
+        return new Promise(function (resolve, reject) {
+          var tx = db.transaction(STORE_NAME, "readonly");
+          var req = tx.objectStore(STORE_NAME).get(fileId);
+          req.onsuccess = function () { resolve(req.result || null); };
+          req.onerror = function () { reject(req.error); };
+        });
+      });
+    }
+
+    function setCachedImage(fileId, blob) {
+      return openImageDB().then(function (db) {
+        return new Promise(function (resolve, reject) {
+          var tx = db.transaction(STORE_NAME, "readwrite");
+          tx.objectStore(STORE_NAME).put(blob, fileId);
+          tx.oncomplete = function () { resolve(); };
+          tx.onerror = function () { reject(tx.error); };
+        });
+      });
+    }
+
+    // --- Resolve helpers ---
+    function base64ToBlob(base64, mimeType) {
+      var byteChars = atob(base64);
+      var bytes = new Uint8Array(byteChars.length);
+      for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+      return new Blob([bytes], { type: mimeType });
+    }
+
+    function registerBlobUrl(fileId, blobUrl) {
+      fileIdToBlobUrl[fileId] = blobUrl;
+      blobToDriveUrl[blobUrl] = driveFileUrl(fileId);
+      return blobUrl;
+    }
+
+    function resolveFileId(fileId) {
+      if (fileIdToBlobUrl[fileId]) return Promise.resolve(fileIdToBlobUrl[fileId]);
+      return getCachedImage(fileId).then(function (cached) {
+        if (cached) {
+          return registerBlobUrl(fileId, URL.createObjectURL(cached));
+        }
+        return serverCall("getImageBase64", fileId).then(function (result) {
+          var blob = base64ToBlob(result.base64, result.mimeType);
+          setCachedImage(fileId, blob);
+          return registerBlobUrl(fileId, URL.createObjectURL(blob));
+        });
+      }).catch(function (err) {
+        console.error("画像の解決に失敗:", fileId, err);
+        return driveFileUrl(fileId);
+      });
+    }
+
+    // Replace all Drive thumbnail URLs in markdown with blob URLs
+    function resolveDriveUrls(md) {
+      if (!md) return Promise.resolve(md);
+      var ids = {};
+      var match;
+      DRIVE_URL_GLOBAL_RE.lastIndex = 0;
+      while ((match = DRIVE_URL_GLOBAL_RE.exec(md)) !== null) {
+        ids[match[1]] = match[0];
+      }
+      var keys = Object.keys(ids);
+      if (keys.length === 0) return Promise.resolve(md);
+      return Promise.all(keys.map(function (fileId) {
+        return resolveFileId(fileId).then(function (blobUrl) {
+          return { driveUrl: ids[fileId], blobUrl: blobUrl };
+        });
+      })).then(function (results) {
+        results.forEach(function (r) {
+          md = md.split(r.driveUrl).join(r.blobUrl);
+        });
+        return md;
+      });
+    }
+
+    // =========================================================
+    // Image upload
+    // =========================================================
+    function handleImageUpload(file) {
+      var mimeType = file.type || "image/jpeg";
+      var ext = {"image/jpeg":"jpg","image/png":"png","image/gif":"gif","image/webp":"webp"}[mimeType] || "jpg";
+      var now = new Date();
+      var ts = now.getFullYear()
+        + ("0"+(now.getMonth()+1)).slice(-2)
+        + ("0"+now.getDate()).slice(-2)
+        + "_"
+        + ("0"+now.getHours()).slice(-2)
+        + ("0"+now.getMinutes()).slice(-2)
+        + ("0"+now.getSeconds()).slice(-2);
+      var uploadName = "pomodoro_" + ts + "." + ext;
+      var displayBlob = new Blob([file], { type: mimeType });
+      var blobUrl = URL.createObjectURL(displayBlob);
+      return new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function () {
+          var base64 = reader.result.split(",")[1];
+          serverCall("uploadImage", base64, uploadName, mimeType)
+            .then(function (result) {
+              registerBlobUrl(result.fileId, blobUrl);
+              setCachedImage(result.fileId, displayBlob);
+              resolve(blobUrl);
+            })
+            .catch(reject);
+        };
+        reader.onerror = function () { reject(new Error("ファイルの読み込みに失敗しました")); };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // =========================================================
+    // Init: pre-resolve Drive URLs, then mount editors
+    // =========================================================
     function init() {
       if (typeof window.mountMemoEditor !== "function") {
         console.warn("MemoEditor: mountMemoEditor not available");
         return;
       }
 
-      // 1. Memo editor (localStorage persisted)
+      Promise.all([
+        resolveDriveUrls(ls(MEMO_KEY)),
+        resolveDriveUrls(ls(RECORD_KEY)),
+        resolveDriveUrls(ls(INT_KEY)),
+      ]).then(function (resolved) {
+        mountEditors(resolved[0], resolved[1], resolved[2]);
+      });
+    }
+
+    function mountEditors(memoMd, recordMd, intMd) {
+      // 1. Memo editor
       var memoContainer = document.getElementById("memo-editor-container");
       if (memoContainer) {
         memoEditor = window.mountMemoEditor(memoContainer, {
-          initialValue: ls(MEMO_KEY),
+          initialValue: memoMd,
           onChange: function (md) {
             if (memoDebounce) clearTimeout(memoDebounce);
-            memoDebounce = setTimeout(function () { lsSet(MEMO_KEY, md); }, 500);
+            memoDebounce = setTimeout(function () { lsSet(MEMO_KEY, blobUrlsToDrive(md)); }, 500);
           },
+          onImageUpload: handleImageUpload,
           placeholder: "メモを入力...",
           defaultMode: "wysiwyg",
           style: { height: "100%" },
         });
       }
 
-      // 2. Record description editor (localStorage persisted)
+      // 2. Record description editor
       var recordContainer = document.getElementById("record-editor-container");
       if (recordContainer) {
         recordEditor = window.mountMemoEditor(recordContainer, {
-          initialValue: ls(RECORD_KEY),
+          initialValue: recordMd,
           onChange: function (md) {
             if (recordDebounce) clearTimeout(recordDebounce);
-            recordDebounce = setTimeout(function () { lsSet(RECORD_KEY, md); }, 500);
+            recordDebounce = setTimeout(function () { lsSet(RECORD_KEY, blobUrlsToDrive(md)); }, 500);
           },
+          onImageUpload: handleImageUpload,
           placeholder: "何に取り組みましたか？",
           defaultMode: "wysiwyg",
           style: { height: "100%" },
         });
       }
 
-      // 3. Interruption note editor (localStorage persisted)
+      // 3. Interruption note editor
       var intContainer = document.getElementById("int-note-editor-container");
       if (intContainer) {
         interruptionEditor = window.mountMemoEditor(intContainer, {
-          initialValue: ls(INT_KEY),
+          initialValue: intMd,
           onChange: function (md) {
             if (intDebounce) clearTimeout(intDebounce);
-            intDebounce = setTimeout(function () { lsSet(INT_KEY, md); }, 500);
+            intDebounce = setTimeout(function () { lsSet(INT_KEY, blobUrlsToDrive(md)); }, 500);
           },
+          onImageUpload: handleImageUpload,
           placeholder: "中断メモ...",
           defaultMode: "wysiwyg",
           style: { height: "100%" },
         });
       }
 
-      // 4. Viewer editor (read-only view, no localStorage)
+      // 4. Viewer editor
       var viewerContainer = document.getElementById("viewer-editor-container");
       if (viewerContainer) {
         viewerEditor = window.mountMemoEditor(viewerContainer, {
           initialValue: "",
+          onImageUpload: handleImageUpload,
           placeholder: "",
           defaultMode: "wysiwyg",
           style: { height: "100%" },
         });
       }
+
+      // Open original Drive image on double-click
+      document.addEventListener("dblclick", function (e) {
+        var img = e.target;
+        if (img.tagName !== "IMG") return;
+        var dUrl = blobToDriveUrl[img.src];
+        if (dUrl) window.open(dUrl, "_blank");
+      });
     }
 
-    // Return "" if the value is only whitespace/&nbsp;, otherwise return as-is
+    // =========================================================
+    // Public API
+    // =========================================================
     function normalizeEmpty(val) {
       if (!val) return "";
       if (!val.replace(/&nbsp;/g, "").replace(/[\s\u00a0]/g, "")) return "";
@@ -90,31 +267,35 @@
 
     // --- Memo ---
     function getValue() {
-      if (memoEditor) return normalizeEmpty(memoEditor.getValue());
+      if (memoEditor) return blobUrlsToDrive(normalizeEmpty(memoEditor.getValue()));
       return ls(MEMO_KEY);
     }
 
     function setValue(markdown) {
-      if (memoEditor) {
-        memoEditor.setValue(markdown);
+      if (!memoEditor) return;
+      resolveDriveUrls(markdown).then(function (resolved) {
+        memoEditor.setValue(resolved);
         lsSet(MEMO_KEY, markdown);
-      }
+      });
     }
 
     function clear() {
-      setValue("");
+      if (memoEditor) memoEditor.setValue("");
       lsSet(MEMO_KEY, "");
     }
 
     // --- Record description ---
     function getRecordValue() {
-      if (recordEditor) return normalizeEmpty(recordEditor.getValue());
+      if (recordEditor) return blobUrlsToDrive(normalizeEmpty(recordEditor.getValue()));
       return ls(RECORD_KEY);
     }
 
     function setRecordValue(markdown) {
-      if (recordEditor) recordEditor.setValue(markdown);
-      lsSet(RECORD_KEY, markdown);
+      if (!recordEditor) { lsSet(RECORD_KEY, markdown); return; }
+      resolveDriveUrls(markdown).then(function (resolved) {
+        recordEditor.setValue(resolved);
+        lsSet(RECORD_KEY, markdown);
+      });
     }
 
     function clearRecord() {
@@ -124,13 +305,16 @@
 
     // --- Interruption note ---
     function getInterruptionValue() {
-      if (interruptionEditor) return normalizeEmpty(interruptionEditor.getValue());
+      if (interruptionEditor) return blobUrlsToDrive(normalizeEmpty(interruptionEditor.getValue()));
       return ls(INT_KEY);
     }
 
     function setInterruptionValue(markdown) {
-      if (interruptionEditor) interruptionEditor.setValue(markdown);
-      lsSet(INT_KEY, markdown);
+      if (!interruptionEditor) { lsSet(INT_KEY, markdown); return; }
+      resolveDriveUrls(markdown).then(function (resolved) {
+        interruptionEditor.setValue(resolved);
+        lsSet(INT_KEY, markdown);
+      });
     }
 
     function clearInterruption() {
@@ -140,12 +324,15 @@
 
     // --- Viewer ---
     function getViewerValue() {
-      if (viewerEditor) return normalizeEmpty(viewerEditor.getValue());
+      if (viewerEditor) return blobUrlsToDrive(normalizeEmpty(viewerEditor.getValue()));
       return "";
     }
 
     function setViewerValue(markdown) {
-      if (viewerEditor) viewerEditor.setValue(markdown);
+      if (!viewerEditor) return;
+      resolveDriveUrls(markdown).then(function (resolved) {
+        viewerEditor.setValue(resolved);
+      });
     }
 
     function clearViewer() {
