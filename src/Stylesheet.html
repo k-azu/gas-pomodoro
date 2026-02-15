@@ -609,15 +609,25 @@
     color: var(--text);
   }
 
-  .date-calendar-btn {
-    font-size: 1rem;
-    pointer-events: none;
-  }
-
   .date-calendar-wrapper {
     position: relative;
     display: inline-flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
+    padding: 4px 8px;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .date-calendar-wrapper:hover {
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  .date-calendar-wrapper svg {
+    pointer-events: none;
   }
 
   .date-calendar-input {
@@ -627,8 +637,17 @@
     width: 100%;
     height: 100%;
     opacity: 0;
+  }
+
+  .date-calendar-input::-webkit-calendar-picker-indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
     cursor: pointer;
-    z-index: 1;
   }
 
   .week-strip-container {
