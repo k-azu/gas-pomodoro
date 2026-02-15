@@ -137,12 +137,12 @@
     // =========================================================
     // Image upload
     // =========================================================
-    var MAX_CLIENT_BYTES = 5 * 1024 * 1024; // 5 MB (same as server limit)
+    var MAX_CLIENT_BYTES = 10 * 1024 * 1024; // 10 MB (same as server limit)
 
     function handleImageUpload(file) {
       if (file.size > MAX_CLIENT_BYTES) {
         var sizeMB = (file.size / 1024 / 1024).toFixed(1);
-        alert("画像サイズが上限(5MB)を超えています: " + sizeMB + "MB");
+        alert("画像サイズが上限(10MB)を超えています: " + sizeMB + "MB");
         return Promise.reject(new Error("画像サイズが上限を超えています"));
       }
       var mimeType = file.type || "image/jpeg";

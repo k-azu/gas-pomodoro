@@ -5,7 +5,7 @@ const ALLOWED_IMAGE_MIMES: string[] = [
   "image/webp",
 ];
 const IMAGE_FOLDER_NAME = "PomodoroImages";
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 function getOrCreateImageFolder(): GoogleAppsScript.Drive.Folder {
   const folders = DriveApp.getFoldersByName(IMAGE_FOLDER_NAME);
@@ -27,7 +27,7 @@ function uploadImage(
   const decoded = Utilities.base64Decode(base64Data);
   if (decoded.length > MAX_IMAGE_BYTES) {
     throw new Error(
-      "画像サイズが上限(5MB)を超えています: " +
+      "画像サイズが上限(10MB)を超えています: " +
         Math.round(decoded.length / 1024 / 1024) +
         "MB",
     );
