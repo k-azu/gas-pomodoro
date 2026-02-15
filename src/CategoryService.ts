@@ -133,7 +133,8 @@ function updateCategoryColor(
       : "Categories";
   const sheet = ss.getSheetByName(sheetName)!;
   const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return { success: false, message: "カテゴリが見つかりません" };
+  if (lastRow <= 1)
+    return { success: false, message: "カテゴリが見つかりません" };
 
   const data = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
   for (let i = 0; i < data.length; i++) {

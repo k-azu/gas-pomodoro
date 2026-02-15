@@ -45,7 +45,11 @@ function getAllTimerConfigs(): TimerConfig[] {
     pomodorosBeforeLongBreak: Number(row[4]),
   }));
 
-  cache.put(TIMER_CONFIGS_CACHE_KEY, JSON.stringify(result), TIMER_CONFIG_CACHE_TTL);
+  cache.put(
+    TIMER_CONFIGS_CACHE_KEY,
+    JSON.stringify(result),
+    TIMER_CONFIG_CACHE_TTL,
+  );
   return result;
 }
 

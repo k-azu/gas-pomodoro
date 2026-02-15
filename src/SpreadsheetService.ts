@@ -168,11 +168,7 @@ function getRecentRecords(limit: number = 10): PomodoroRecord[] {
       const raw = row[1];
       const dateStr =
         raw instanceof Date
-          ? Utilities.formatDate(
-              raw,
-              Session.getScriptTimeZone(),
-              "yyyy-MM-dd",
-            )
+          ? Utilities.formatDate(raw, Session.getScriptTimeZone(), "yyyy-MM-dd")
           : String(raw);
       return dateStr === today;
     })
