@@ -9,6 +9,8 @@
     var memoDebounce = null;
     var recordDebounce = null;
     var intDebounce = null;
+    var memoScrollCache = {}; // documentId -> scrollTop
+    var currentMemoDocId = null;
 
     function ls(key) {
       try { return localStorage.getItem(key) || ""; } catch (e) { return ""; }
@@ -288,7 +290,44 @@
     function setValue(markdown) {
       if (!memoEditor) return Promise.resolve();
       return resolveDriveUrls(markdown).then(function (resolved) {
+        if (memoEditor.getValue() === resolved) return;
         memoEditor.setValue(resolved);
+        restoreMemoScroll(currentMemoDocId);
+      });
+    }
+
+    function setEditable(editable) {
+      if (memoEditor && memoEditor.setEditable) memoEditor.setEditable(editable);
+    }
+
+    function getMemoScrollEl() {
+      var container = document.getElementById("memo-editor-container");
+      if (!container) return null;
+      return container.querySelector(".mdg-editor-content") || null;
+    }
+
+    function saveMemoScroll() {
+      if (!currentMemoDocId) return;
+      var el = getMemoScrollEl();
+      if (el) memoScrollCache[currentMemoDocId] = el.scrollTop;
+    }
+
+    function restoreMemoScroll(docId) {
+      var pos = memoScrollCache[docId];
+      if (pos == null) return;
+      setTimeout(function () {
+        var el = getMemoScrollEl();
+        if (el) el.scrollTop = pos;
+      }, 0);
+    }
+
+    function switchDocument(id, markdown) {
+      if (!memoEditor || !memoEditor.switchDocument) return Promise.resolve();
+      saveMemoScroll();
+      currentMemoDocId = id;
+      return resolveDriveUrls(markdown).then(function (resolved) {
+        memoEditor.switchDocument(id, resolved);
+        restoreMemoScroll(id);
       });
     }
 
@@ -355,6 +394,8 @@
       init: init,
       getValue: getValue,
       setValue: setValue,
+      setEditable: setEditable,
+      switchDocument: switchDocument,
       clear: clear,
       getRecordValue: getRecordValue,
       setRecordValue: setRecordValue,

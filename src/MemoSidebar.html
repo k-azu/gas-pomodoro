@@ -5,12 +5,13 @@
     var activeId = null;
     var saveDebounce = null;
     var SAVE_DELAY = 30000; // 30s — localStorage handles instant persistence, server is backup
-    var dirtyMemoId = null; // which memo has unsaved server changes (null = clean)
-    var editedSinceLoad = false; // true if user edited since last loadMemoContent
     var sidebarBusy = false; // true while create/delete server call in-flight
     var activeTagFilter = null; // null=all, string=specific tag name
     var tagFilterDropdownOpen = false;
     var tagFilterDropdownEl = null;
+    var dragState = null; // { id, el, clone, placeholder, listEl, startY, offsetY, currentIndex }
+    var pendingOrder = null; // 保存待ちの最新ID配列
+    var savingOrder = false; // サーバー送信中フラグ
 
     function ls(key) {
       try { return localStorage.getItem(key) || ""; } catch (e) { return ""; }
@@ -30,29 +31,35 @@
     }
 
     var MEMO_CACHE_PREFIX = "gas_pomodoro_memo_";
-    var DIRTY_PREFIX = "gas_pomodoro_memo_dirty_";
+    var TS_PREFIX = "gas_pomodoro_memo_ts_";
+    var SYNCED_PREFIX = "gas_pomodoro_memo_synced_";
 
-    function markDirty(id) { lsSet(DIRTY_PREFIX + id, "1"); }
-    function clearDirty(id) { lsRemove(DIRTY_PREFIX + id); }
-    function isDirty(id) { return ls(DIRTY_PREFIX + id) === "1"; }
+    function setLocalTs(id, ts) { lsSet(TS_PREFIX + id, ts); }
+    function getLocalTs(id) { return ls(TS_PREFIX + id); }
+    function setSynced(id, ts) { lsSet(SYNCED_PREFIX + id, ts); }
+    function getSynced(id) { return ls(SYNCED_PREFIX + id); }
+    function hasUnsyncedEdits(id) {
+      var localTs = getLocalTs(id);
+      var syncedTs = getSynced(id);
+      return !!(localTs && syncedTs && localTs > syncedTs);
+    }
 
     function cleanOrphanedCache() {
       try {
         var validIds = {};
         memos.forEach(function (m) { validIds[m.id] = true; });
         var keysToRemove = [];
+        var prefixes = [MEMO_CACHE_PREFIX, TS_PREFIX, SYNCED_PREFIX];
         for (var i = 0; i < localStorage.length; i++) {
           var key = localStorage.key(i);
-          if (key && key.indexOf(MEMO_CACHE_PREFIX) === 0) {
-            var id = key.slice(MEMO_CACHE_PREFIX.length);
-            if (id && id !== "active" && id !== "sidebar_collapsed" && !validIds[id]) {
-              keysToRemove.push(key);
-            }
-          }
-          if (key && key.indexOf(DIRTY_PREFIX) === 0) {
-            var id = key.slice(DIRTY_PREFIX.length);
-            if (id && !validIds[id]) {
-              keysToRemove.push(key);
+          if (!key) continue;
+          for (var p = 0; p < prefixes.length; p++) {
+            if (key.indexOf(prefixes[p]) === 0) {
+              var id = key.slice(prefixes[p].length);
+              if (id && id !== "active" && id !== "sidebar_collapsed" && !validIds[id]) {
+                keysToRemove.push(key);
+              }
+              break;
             }
           }
         }
@@ -119,8 +126,7 @@
 
       if (activeId) {
         lsSet("gas_pomodoro_memo_active", activeId);
-        // Editor already shows cached content — just reconcile with server
-        reconcileWithServer(activeId);
+        loadMemoContent(activeId);
         render();
       }
     }
@@ -144,55 +150,90 @@
       }
     }
 
-    function reconcileWithServer(id) {
-      if (isDirty(id)) {
-        // localStorage has unsync'd edits — push them to server immediately
-        dirtyMemoId = id;
-        syncToServer();
-        return;
+    function loadMemoContent(id) {
+      var cached = ls("gas_pomodoro_memo_" + id);
+
+      if (cached) {
+        // Cache exists: show immediately in readOnly mode (preserves per-doc undo history)
+        MemoEditor.switchDocument(id, cached);
+        MemoEditor.setEditable(false);
+      } else {
+        // No cache: show loading overlay
+        MemoEditor.switchDocument(id, "");
+        setEditorLoading(true);
       }
 
-      var cachedContent = ls("gas_pomodoro_memo_" + id);
-      if (cachedContent) {
-        // localStorage has content and is clean — server already in sync, do nothing
-        return;
-      }
-
-      // localStorage is empty — fetch from server (first load or cache cleared)
-      setEditorLoading(true);
       serverCall("getMemoContent", id)
         .then(function (result) {
           if (activeId !== id) return;
-          if (editedSinceLoad) return;
-          if (result && result.content) {
-            lsSet("gas_pomodoro_memo_" + id, result.content);
-            MemoEditor.setValue(result.content);
+
+          var serverContent = (result && result.content) || "";
+          var serverTs = (result && result.updatedAt) || "";
+          var localContent = ls("gas_pomodoro_memo_" + id);
+          var localTs = getLocalTs(id);
+          var syncedTs = getSynced(id);
+
+          var hasLocalEdits = !!(localTs && syncedTs && localTs > syncedTs);
+          var serverIsNewer = !!(serverTs && serverTs !== syncedTs);
+
+          if (!syncedTs) {
+            // First load or migration: no synced timestamp yet
+            if (localTs && localContent) {
+              // Has local edits from before migration — push local content
+              MemoEditor.setValue(localContent);
+              setSynced(id, localTs);
+              syncToServer(id);
+            } else {
+              // Use server content
+              MemoEditor.setValue(serverContent);
+              lsSet("gas_pomodoro_memo_" + id, serverContent);
+              if (serverTs) setSynced(id, serverTs);
+            }
+          } else if (hasLocalEdits && serverIsNewer) {
+            // Conflict: both local and server have changed
+            if (confirm("このメモは別の場所で更新されています。\nサーバーの内容を読み込みますか？\n\nOK → サーバーの内容で上書き\nキャンセル → 現在の内容を保持")) {
+              // User chose server version
+              MemoEditor.setValue(serverContent);
+              lsSet("gas_pomodoro_memo_" + id, serverContent);
+              setLocalTs(id, serverTs);
+              setSynced(id, serverTs);
+            } else {
+              // User chose to keep local version — push to server
+              MemoEditor.setValue(localContent);
+              syncToServer(id);
+            }
+          } else if (hasLocalEdits && !serverIsNewer) {
+            // Only local has changed — push to server
+            MemoEditor.setValue(localContent);
+            syncToServer(id);
+          } else {
+            // Server is newer or both unchanged — use server content
+            MemoEditor.setValue(serverContent);
+            lsSet("gas_pomodoro_memo_" + id, serverContent);
+            if (serverTs) {
+              setLocalTs(id, serverTs);
+              setSynced(id, serverTs);
+            }
           }
         })
         .catch(function (err) {
           console.error("Failed to load memo content:", err);
+          // If no cache was shown, show empty fallback
+          if (!cached) MemoEditor.setValue("");
         })
         .finally(function () {
-          if (activeId === id) setEditorLoading(false);
+          if (activeId === id) {
+            MemoEditor.setEditable(true);
+            setEditorLoading(false);
+          }
         });
-    }
-
-    function loadMemoContent(id) {
-      editedSinceLoad = false;
-      setEditorLoading(false); // clear previous loading state
-
-      var cached = ls("gas_pomodoro_memo_" + id);
-      MemoEditor.setValue(cached || "");
-
-      // Reconcile with server (shows loading overlay if fetching)
-      reconcileWithServer(id);
     }
 
     // =========================================================
     // Save current memo
     // =========================================================
 
-    // Core: write editor content to localStorage and mark dirty if changed.
+    // Core: write editor content to localStorage and set localTs if changed.
     // Returns true if content was actually different.
     function persistToLocal() {
       if (!activeId) return false;
@@ -200,38 +241,33 @@
       var existing = ls("gas_pomodoro_memo_" + activeId);
       if (content === existing) return false;
       lsSet("gas_pomodoro_memo_" + activeId, content);
-      markDirty(activeId);
-      dirtyMemoId = activeId;
+      setLocalTs(activeId, new Date().toISOString());
       return true;
     }
 
     function saveCurrent() {
       if (!persistToLocal()) return;
-      editedSinceLoad = true;
 
       // Debounced server save (30s)
       if (saveDebounce) clearTimeout(saveDebounce);
       saveDebounce = setTimeout(function () {
         saveDebounce = null;
-        syncToServer();
+        if (activeId && hasUnsyncedEdits(activeId)) {
+          syncToServer(activeId);
+        }
       }, SAVE_DELAY);
     }
 
-    function syncToServer() {
-      var id = dirtyMemoId;
+    function syncToServer(id) {
       if (!id) return;
-      dirtyMemoId = null;
+      var capturedTs = getLocalTs(id);
+      if (!capturedTs) return;
       var content = ls("gas_pomodoro_memo_" + id);
-      serverCall("saveMemoContent", id, content)
+      serverCall("saveMemoContent", id, content, capturedTs)
         .then(function () {
-          // Only clear dirty if no new edits happened during the save
-          if (ls("gas_pomodoro_memo_" + id) === content) {
-            clearDirty(id);
-          }
+          setSynced(id, capturedTs);
         })
         .catch(function (err) {
-          // Re-mark dirty only if no newer edit superseded it
-          if (!dirtyMemoId) dirtyMemoId = id;
           console.error("Failed to save memo to server:", err);
         });
     }
@@ -260,11 +296,9 @@
         saveDebounce = null;
       }
       persistToLocal();
-      // Ensure dirty memo gets synced even if dirtyMemoId was null
-      if (!dirtyMemoId && activeId && isDirty(activeId)) {
-        dirtyMemoId = activeId;
+      if (activeId && hasUnsyncedEdits(activeId)) {
+        syncToServer(activeId);
       }
-      syncToServer();
     }
 
     // =========================================================
@@ -283,19 +317,22 @@
       serverCall("saveMemo", { id: id, name: name, content: "", tags: [] })
         .then(function (result) {
           if (result.success) {
+            var now = new Date().toISOString();
             memos.push({
               id: result.id,
               name: name,
               tags: [],
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
+              createdAt: now,
+              updatedAt: now,
               sortOrder: memos.length + 1,
               isActive: true,
             });
             activeId = result.id;
             lsSet("gas_pomodoro_memo_active", activeId);
             lsSet("gas_pomodoro_memo_" + activeId, "");
-            MemoEditor.setValue("");
+            setLocalTs(activeId, now);
+            setSynced(activeId, now);
+            MemoEditor.switchDocument(result.id, "");
             render();
             // Start inline rename
             setTimeout(function () { startRename(result.id); }, 100);
@@ -346,7 +383,8 @@
           if (result.success) {
             memos = memos.filter(function (m) { return m.id !== id; });
             lsRemove("gas_pomodoro_memo_" + id);
-            clearDirty(id);
+            lsRemove(TS_PREFIX + id);
+            lsRemove(SYNCED_PREFIX + id);
             if (activeId === id) {
               activeId = memos.length > 0 ? memos[0].id : null;
               if (activeId) {
@@ -524,30 +562,41 @@
       renameBtn.onclick = function () { hideContextMenu(); startRename(id); };
       contextMenuEl.appendChild(renameBtn);
 
-      // Tags submenu
-      if (memoTags.length > 0) {
-        var tagHeader = document.createElement("div");
-        tagHeader.className = "memo-context-separator";
-        tagHeader.textContent = "タグ";
-        contextMenuEl.appendChild(tagHeader);
+      // Delete
+      var deleteBtn = document.createElement("div");
+      deleteBtn.className = "memo-context-item memo-context-danger";
+      deleteBtn.textContent = "削除";
+      deleteBtn.onclick = function () { hideContextMenu(); deleteMemoDo(id); };
+      contextMenuEl.appendChild(deleteBtn);
 
-        memoTags.forEach(function (tag) {
-          var tagItem = document.createElement("div");
-          tagItem.className = "memo-context-item";
-          var hasTag = memo.tags.indexOf(tag.name) !== -1;
-          var dot = document.createElement("span");
-          dot.className = "memo-tag-dot";
-          dot.style.background = tag.color;
-          tagItem.appendChild(dot);
-          tagItem.appendChild(document.createTextNode((hasTag ? "\u2713 " : "") + tag.name));
-          tagItem.onclick = function () {
-            hideContextMenu();
-            if (hasTag) removeTagFromMemo(id, tag.name);
-            else addTagToMemo(id, tag.name);
-          };
-          contextMenuEl.appendChild(tagItem);
-        });
-      }
+      // Tags
+      var tagHeader = document.createElement("div");
+      tagHeader.className = "memo-context-separator";
+      tagHeader.textContent = "タグ";
+      contextMenuEl.appendChild(tagHeader);
+
+      memoTags.forEach(function (tag) {
+        var tagItem = document.createElement("div");
+        tagItem.className = "memo-context-item";
+        var hasTag = memo.tags.indexOf(tag.name) !== -1;
+        var dot = document.createElement("span");
+        dot.className = "memo-tag-dot";
+        dot.style.background = tag.color;
+        tagItem.appendChild(dot);
+        tagItem.appendChild(document.createTextNode(tag.name));
+        if (hasTag) {
+          var chk = document.createElement("span");
+          chk.className = "memo-context-check";
+          chk.innerHTML = checkSvg(12);
+          tagItem.appendChild(chk);
+        }
+        tagItem.onclick = function () {
+          hideContextMenu();
+          if (hasTag) removeTagFromMemo(id, tag.name);
+          else addTagToMemo(id, tag.name);
+        };
+        contextMenuEl.appendChild(tagItem);
+      });
 
       // New tag
       var newTagBtn = document.createElement("div");
@@ -562,18 +611,6 @@
         }
       };
       contextMenuEl.appendChild(newTagBtn);
-
-      // Separator
-      var sep = document.createElement("div");
-      sep.className = "memo-context-separator";
-      contextMenuEl.appendChild(sep);
-
-      // Delete
-      var deleteBtn = document.createElement("div");
-      deleteBtn.className = "memo-context-item memo-context-danger";
-      deleteBtn.textContent = "削除";
-      deleteBtn.onclick = function () { hideContextMenu(); deleteMemoDo(id); };
-      contextMenuEl.appendChild(deleteBtn);
 
       // Position
       contextMenuEl.style.left = e.clientX + "px";
@@ -604,8 +641,40 @@
     // =========================================================
     // Toolbar (memo name + tags above editor)
     // =========================================================
-    var tagDropdownOpen = false;
-    var tagDropdownEl = null;
+    var tagPicker = null;
+
+    function initTagPicker() {
+      if (tagPicker) return;
+      tagPicker = ItemPicker.create({
+        containerId: "memo-tag-picker-area",
+        mode: "multi",
+        items: memoTags,
+        selected: [],
+        placeholder: "\u30BF\u30B0\u3092\u691C\u7D22 / \u4F5C\u6210...",
+        onAdd: function (name) {
+          if (!activeId) return;
+          // Ensure tag exists in memoTags
+          var existing = memoTags.find(function (t) { return t.name === name; });
+          if (!existing) {
+            addNewTag(name, "#757575");
+            tagPicker.setItems(memoTags);
+          }
+          addTagToMemo(activeId, name);
+        },
+        onRemove: function (name) {
+          if (!activeId) return;
+          removeTagFromMemo(activeId, name);
+        },
+        onCreateItem: function (name, color) {
+          addNewTag(name, color);
+          tagPicker.setItems(memoTags);
+        },
+        onColorChange: function (name, color) {
+          updateMemoTagColorLocal(name, color);
+          tagPicker.setItems(memoTags);
+        },
+      });
+    }
 
     function updateToolbar() {
       var toolbar = document.getElementById("memo-editor-toolbar");
@@ -624,259 +693,10 @@
         nameEl.onclick = function () { startToolbarRename(nameEl); };
       }
 
-      // Tag badges
-      var tagsEl = toolbar.querySelector(".memo-toolbar-tags");
-      if (tagsEl) {
-        tagsEl.innerHTML = "";
-        memo.tags.forEach(function (tagName) {
-          var tag = memoTags.find(function (t) { return t.name === tagName; });
-          var tagColor = tag ? tag.color : "#757575";
-          var badge = document.createElement("span");
-          badge.className = "memo-tag-badge";
-          badge.style.background = tagColor + "22";
-          badge.style.color = tagColor;
-          badge.style.borderColor = tagColor + "44";
-
-          // Color dot (click to change color)
-          var dot = document.createElement("span");
-          dot.className = "memo-tag-badge-dot";
-          dot.style.background = tagColor;
-          dot.title = "色を変更";
-          (function (tn, dotEl) {
-            dotEl.onclick = function (e) {
-              e.stopPropagation();
-              openTagColorPicker(tn, dotEl);
-            };
-          })(tagName, dot);
-          badge.appendChild(dot);
-
-          badge.appendChild(document.createTextNode(tagName));
-
-          var removeX = document.createElement("span");
-          removeX.className = "memo-tag-remove";
-          removeX.textContent = "\u00d7";
-          removeX.onclick = (function (tn) {
-            return function (e) { e.stopPropagation(); removeTagFromMemo(activeId, tn); };
-          })(tagName);
-          badge.appendChild(removeX);
-          tagsEl.appendChild(badge);
-        });
-      }
-
-      // + button handler
-      var addBtn = toolbar.querySelector(".memo-tag-add-btn");
-      if (addBtn) {
-        addBtn.onclick = function (e) {
-          e.stopPropagation();
-          if (tagDropdownOpen) { closeTagDropdown(); return; }
-          openTagDropdown(addBtn);
-        };
-      }
-    }
-
-    // --- Tag color picker ---
-    function openTagColorPicker(tagName, anchorEl) {
-      var picker = document.createElement("input");
-      picker.type = "color";
-      picker.style.position = "absolute";
-      picker.style.opacity = "0";
-      picker.style.pointerEvents = "none";
-      var tag = memoTags.find(function (t) { return t.name === tagName; });
-      picker.value = tag ? tag.color : "#757575";
-      document.body.appendChild(picker);
-      picker.addEventListener("input", function () {
-        updateMemoTagColorLocal(tagName, picker.value);
-      });
-      picker.addEventListener("change", function () {
-        picker.remove();
-      });
-      // Fallback cleanup
-      picker.addEventListener("blur", function () {
-        setTimeout(function () { picker.remove(); }, 200);
-      });
-      picker.click();
-    }
-
-    // --- Tag dropdown (add/toggle tags) ---
-    function openTagDropdown(anchorBtn) {
-      closeTagDropdown();
-      tagDropdownOpen = true;
-
-      var memo = activeId ? memos.find(function (m) { return m.id === activeId; }) : null;
-      if (!memo) return;
-
-      tagDropdownEl = document.createElement("div");
-      tagDropdownEl.className = "memo-tag-dropdown";
-
-      // Search input
-      var searchInput = document.createElement("input");
-      searchInput.type = "text";
-      searchInput.className = "memo-tag-dropdown-search";
-      searchInput.placeholder = "タグを検索 / 作成...";
-      tagDropdownEl.appendChild(searchInput);
-
-      var listEl = document.createElement("div");
-      listEl.className = "memo-tag-dropdown-list";
-      tagDropdownEl.appendChild(listEl);
-
-      // Hidden color picker for new tag creation
-      var newTagColor = "#757575";
-      var newTagColorPicker = document.createElement("input");
-      newTagColorPicker.type = "color";
-      newTagColorPicker.className = "cat-color-hidden";
-      newTagColorPicker.value = newTagColor;
-      tagDropdownEl.appendChild(newTagColorPicker);
-
-      // Hidden color picker for existing tags
-      var editColorPicker = document.createElement("input");
-      editColorPicker.type = "color";
-      editColorPicker.className = "cat-color-hidden";
-      tagDropdownEl.appendChild(editColorPicker);
-      var editColorTarget = null;
-
-      function renderDropdownList(filter) {
-        listEl.innerHTML = "";
-        var q = (filter || "").toLowerCase();
-        var hasExact = false;
-
-        var filtered = memoTags.filter(function (t) {
-          if (!q) return true;
-          var match = t.name.toLowerCase().indexOf(q) !== -1;
-          if (t.name.toLowerCase() === q) hasExact = true;
-          return match;
-        });
-
-        filtered.forEach(function (tag) {
-          var item = document.createElement("div");
-          item.className = "memo-tag-dropdown-item";
-
-          var dot = document.createElement("span");
-          dot.className = "memo-tag-dropdown-dot";
-          dot.style.background = tag.color;
-          dot.title = "色を変更";
-          // Click dot -> color picker
-          (function (t, d) {
-            dot.addEventListener("mousedown", function (e) {
-              e.preventDefault();
-              e.stopPropagation();
-              editColorTarget = t.name;
-              editColorPicker.value = t.color;
-              editColorPicker.click();
-            });
-          })(tag, dot);
-
-          var hasTag = memo.tags.indexOf(tag.name) !== -1;
-          var check = document.createElement("span");
-          check.className = "memo-tag-dropdown-check";
-          check.textContent = hasTag ? "\u2713" : "";
-
-          var label = document.createElement("span");
-          label.className = "memo-tag-dropdown-label";
-          label.textContent = tag.name;
-
-          item.appendChild(dot);
-          item.appendChild(label);
-          item.appendChild(check);
-
-          (function (tagName, isOn) {
-            item.addEventListener("mousedown", function (e) {
-              // Don't close on dot click
-              if (e.target === dot) return;
-              e.preventDefault();
-              if (isOn) removeTagFromMemo(activeId, tagName);
-              else addTagToMemo(activeId, tagName);
-              // Re-fetch memo ref (may have changed)
-              memo = memos.find(function (m) { return m.id === activeId; });
-              renderDropdownList(searchInput.value.trim());
-            });
-          })(tag.name, hasTag);
-
-          listEl.appendChild(item);
-        });
-
-        // "Create new" row
-        if (q && !hasExact) {
-          var createRow = document.createElement("div");
-          createRow.className = "memo-tag-dropdown-create";
-
-          var createDot = document.createElement("span");
-          createDot.className = "memo-tag-dropdown-dot";
-          createDot.style.background = newTagColor;
-          createDot.title = "色を選択";
-          createDot.addEventListener("mousedown", function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            newTagColorPicker.click();
-          });
-
-          var createLabel = document.createElement("span");
-          createLabel.textContent = "+ \"" + filter + "\" を作成";
-
-          createRow.appendChild(createDot);
-          createRow.appendChild(createLabel);
-          createRow.addEventListener("mousedown", function (e) {
-            if (e.target === createDot) return;
-            e.preventDefault();
-            addNewTag(filter, newTagColor);
-            addTagToMemo(activeId, filter);
-            memo = memos.find(function (m) { return m.id === activeId; });
-            searchInput.value = "";
-            renderDropdownList("");
-          });
-
-          listEl.appendChild(createRow);
-        }
-      }
-
-      searchInput.addEventListener("input", function () {
-        renderDropdownList(searchInput.value.trim());
-      });
-
-      newTagColorPicker.addEventListener("input", function () {
-        newTagColor = newTagColorPicker.value;
-        // Update the create row dot
-        var createDot = listEl.querySelector(".memo-tag-dropdown-create .memo-tag-dropdown-dot");
-        if (createDot) createDot.style.background = newTagColor;
-      });
-
-      editColorPicker.addEventListener("input", function () {
-        if (!editColorTarget) return;
-        updateMemoTagColorLocal(editColorTarget, editColorPicker.value);
-        renderDropdownList(searchInput.value.trim());
-      });
-
-      renderDropdownList("");
-
-      // Position below button using fixed positioning to escape overflow:hidden
-      var btnRect = anchorBtn.getBoundingClientRect();
-      tagDropdownEl.style.position = "fixed";
-      tagDropdownEl.style.top = (btnRect.bottom + 4) + "px";
-      tagDropdownEl.style.right = (window.innerWidth - btnRect.right) + "px";
-      tagDropdownEl.style.left = "auto";
-      document.body.appendChild(tagDropdownEl);
-
-      // Focus search
-      setTimeout(function () { searchInput.focus(); }, 0);
-
-      // Close on outside click
-      setTimeout(function () {
-        document.addEventListener("mousedown", handleDropdownOutsideClick);
-      }, 0);
-    }
-
-    function handleDropdownOutsideClick(e) {
-      if (tagDropdownEl && !tagDropdownEl.contains(e.target)) {
-        closeTagDropdown();
-      }
-    }
-
-    function closeTagDropdown() {
-      tagDropdownOpen = false;
-      if (tagDropdownEl) {
-        tagDropdownEl.remove();
-        tagDropdownEl = null;
-      }
-      document.removeEventListener("mousedown", handleDropdownOutsideClick);
+      // Update tag picker
+      initTagPicker();
+      tagPicker.setItems(memoTags);
+      tagPicker.setSelected(memo.tags.slice());
     }
 
     // =========================================================
@@ -1038,7 +858,9 @@
 
           var check = document.createElement("span");
           check.className = "memo-tag-dropdown-check";
-          check.textContent = activeTagFilter === tag.name ? "\u2713" : "";
+          if (activeTagFilter === tag.name) {
+            check.innerHTML = checkSvg(14);
+          }
 
           item.appendChild(dot);
           item.appendChild(label);
@@ -1097,9 +919,167 @@
       document.removeEventListener("mousedown", handleTagFilterOutsideClick);
     }
 
+    // =========================================================
+    // Drag & drop reorder
+    // =========================================================
+    function gripSvg() {
+      return '<svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">' +
+        '<circle cx="3" cy="2" r="1.2"/><circle cx="7" cy="2" r="1.2"/>' +
+        '<circle cx="3" cy="7" r="1.2"/><circle cx="7" cy="7" r="1.2"/>' +
+        '<circle cx="3" cy="12" r="1.2"/><circle cx="7" cy="12" r="1.2"/>' +
+        '</svg>';
+    }
+
+    function isReorderEnabled() {
+      if (sidebarBusy) return false;
+      if (memos.length <= 1) return false;
+      var searchInput = document.querySelector(".memo-search-input");
+      var q = searchInput ? searchInput.value.trim() : "";
+      if (q || activeTagFilter) return false;
+      return true;
+    }
+
+    function startDrag(e, id, el) {
+      var listEl = el.parentNode;
+      if (!listEl) return;
+
+      var rect = el.getBoundingClientRect();
+      var offsetY = e.clientY - rect.top;
+
+      // Create ghost (clone)
+      var clone = el.cloneNode(true);
+      clone.className = "memo-sidebar-item memo-drag-ghost";
+      clone.style.position = "fixed";
+      clone.style.left = rect.left + "px";
+      clone.style.top = (e.clientY - offsetY) + "px";
+      clone.style.width = rect.width + "px";
+      clone.style.zIndex = "300";
+      clone.style.pointerEvents = "none";
+      document.body.appendChild(clone);
+
+      // Create placeholder
+      var placeholder = document.createElement("div");
+      placeholder.className = "memo-drag-placeholder";
+      placeholder.style.height = rect.height + "px";
+      listEl.insertBefore(placeholder, el);
+
+      // Hide original
+      el.style.display = "none";
+
+      listEl.classList.add("is-reordering");
+
+      dragState = {
+        id: id,
+        el: el,
+        clone: clone,
+        placeholder: placeholder,
+        listEl: listEl,
+        startY: e.clientY,
+        offsetY: offsetY,
+      };
+
+      document.addEventListener("pointermove", onDragMove);
+      document.addEventListener("pointerup", onDragEnd);
+      document.addEventListener("pointercancel", onDragEnd);
+    }
+
+    function onDragMove(e) {
+      if (!dragState) return;
+      e.preventDefault();
+
+      // Update ghost position
+      dragState.clone.style.top = (e.clientY - dragState.offsetY) + "px";
+
+      // Determine insertion point among visible items
+      var items = dragState.listEl.querySelectorAll(".memo-sidebar-item:not([style*='display: none'])");
+      var placeholder = dragState.placeholder;
+      var inserted = false;
+
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        if (item === dragState.el) continue;
+        var r = item.getBoundingClientRect();
+        var midY = r.top + r.height / 2;
+        if (e.clientY < midY) {
+          dragState.listEl.insertBefore(placeholder, item);
+          inserted = true;
+          break;
+        }
+      }
+      if (!inserted) {
+        // Place after last visible item
+        dragState.listEl.appendChild(placeholder);
+      }
+    }
+
+    function onDragEnd(e) {
+      if (!dragState) return;
+      document.removeEventListener("pointermove", onDragMove);
+      document.removeEventListener("pointerup", onDragEnd);
+      document.removeEventListener("pointercancel", onDragEnd);
+
+      // Remove ghost
+      dragState.clone.remove();
+
+      // Restore original element at placeholder position
+      dragState.el.style.display = "";
+      dragState.listEl.insertBefore(dragState.el, dragState.placeholder);
+      dragState.placeholder.remove();
+
+      dragState.listEl.classList.remove("is-reordering");
+
+      // Read new order from DOM
+      var domItems = dragState.listEl.querySelectorAll(".memo-sidebar-item");
+      var newOrderIds = [];
+      for (var i = 0; i < domItems.length; i++) {
+        var did = domItems[i].getAttribute("data-id");
+        if (did) newOrderIds.push(did);
+      }
+
+      // Rebuild memos array in new order
+      var memoMap = {};
+      memos.forEach(function (m) { memoMap[m.id] = m; });
+      var newMemos = [];
+      for (var j = 0; j < newOrderIds.length; j++) {
+        var m = memoMap[newOrderIds[j]];
+        if (m) {
+          m.sortOrder = j + 1;
+          newMemos.push(m);
+        }
+      }
+      // Add any memos not in the DOM (shouldn't happen, but be safe)
+      memos.forEach(function (m) {
+        if (newOrderIds.indexOf(m.id) === -1) newMemos.push(m);
+      });
+      memos = newMemos;
+
+      // Queue server save
+      pendingOrder = newOrderIds;
+      flushOrderSave();
+
+      dragState = null;
+    }
+
+    function flushOrderSave() {
+      if (savingOrder) return;
+      if (!pendingOrder) return;
+      var order = pendingOrder;
+      pendingOrder = null;
+      savingOrder = true;
+      serverCall("updateMemoSortOrders", order)
+        .catch(function (err) {
+          console.error("Failed to save memo order:", err);
+        })
+        .finally(function () {
+          savingOrder = false;
+          if (pendingOrder) flushOrderSave();
+        });
+    }
+
     function applyFilters() {
       var searchInput = document.querySelector(".memo-search-input");
       var q = (searchInput ? searchInput.value : "").toLowerCase();
+      var hasFilter = !!(q || activeTagFilter);
       var items = document.querySelectorAll(".memo-sidebar-item");
       items.forEach(function (item) {
         var nameMatch = !q || (item.getAttribute("data-name") || "").toLowerCase().indexOf(q) !== -1;
@@ -1109,6 +1089,8 @@
           tagMatch = tags.indexOf(activeTagFilter) !== -1;
         }
         item.style.display = nameMatch && tagMatch ? "" : "none";
+        var handle = item.querySelector(".memo-drag-handle");
+        if (handle) handle.style.display = hasFilter ? "none" : "";
       });
     }
 
@@ -1118,6 +1100,17 @@
       item.setAttribute("data-id", memo.id);
       item.setAttribute("data-name", memo.name);
       item.setAttribute("data-tags", memo.tags.join(","));
+
+      // Drag handle
+      var handle = document.createElement("span");
+      handle.className = "memo-drag-handle";
+      handle.innerHTML = gripSvg();
+      handle.addEventListener("pointerdown", function (e) {
+        if (!isReorderEnabled()) return;
+        e.preventDefault();
+        startDrag(e, memo.id, item);
+      });
+      item.appendChild(handle);
 
       var nameSpan = document.createElement("span");
       nameSpan.className = "memo-item-name";

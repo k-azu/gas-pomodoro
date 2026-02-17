@@ -171,10 +171,7 @@
           <div class="memo-editor-area">
             <div id="memo-editor-toolbar" class="memo-editor-toolbar" style="display:none">
               <span class="memo-toolbar-name"></span>
-              <div class="memo-toolbar-tags"></div>
-              <div class="memo-tag-adder">
-                <button class="memo-tag-add-btn" title="タグを追加">+</button>
-              </div>
+              <div id="memo-tag-picker-area"></div>
             </div>
             <div id="memo-editor-container" class="editor-full-container"></div>
           </div>
@@ -185,7 +182,7 @@
       <div class="tab-content" data-tab-content="record" style="display:none">
         <div class="record-panel">
           <div class="panel-toolbar">
-            <input id="record-category" type="text" placeholder="カテゴリ" autocomplete="off" />
+            <div id="record-category-area"></div>
           </div>
           <div id="record-editor-container" class="editor-flex-container"></div>
           <div class="panel-footer">
@@ -210,7 +207,7 @@
             <label id="viewer-type-label" class="checkbox-label" style="display:none"
               ><input type="checkbox" id="viewer-type-work" checked />
               作業に含める</label>
-            <input id="viewer-category" type="text" placeholder="カテゴリ" autocomplete="off" />
+            <div id="viewer-category-area"></div>
           </div>
           <div id="viewer-editor-container" class="editor-full-container"></div>
           <div class="panel-footer">
@@ -227,7 +224,7 @@
             <label class="checkbox-label"
               ><input type="checkbox" id="int-type-work" checked />
               作業に含める</label>
-            <input id="int-category" type="text" placeholder="カテゴリ" autocomplete="off" />
+            <div id="int-category-area"></div>
           </div>
           <div id="int-note-editor-container" class="editor-flex-container"></div>
           <div class="panel-footer">
@@ -244,12 +241,19 @@
       <div class="spinner"></div>
     </div>
 
+    <script>
+      function checkSvg(size, color) {
+        var s = size || 14;
+        var c = color || "currentColor";
+        return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 14 14" fill="none" stroke="' + c + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5 7 5.5 10.5 11.5 3.5"/></svg>';
+      }
+    </script>
     <?!= include('Notification'); ?>
     <script src="https://tiptap-markdown-editor.pages.dev/tiptap-markdown-editor.iife.js"></script>
     <?!= include('TabPanel'); ?>
     <?!= include('MemoEditor'); ?>
     <?!= include('MemoSidebar'); ?>
-    <?!= include('CategoryCombo'); ?>
+    <?!= include('ItemPicker'); ?>
     <?!= include('RecordForm'); ?>
     <?!= include('DateSelector'); ?>
     <?!= include('JavaScript'); ?>

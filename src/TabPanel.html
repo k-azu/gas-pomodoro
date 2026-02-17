@@ -59,6 +59,9 @@
       }
 
       activeTab = tabId;
+
+      // Notify link bubbles that editor visibility changed
+      window.dispatchEvent(new Event("resize"));
     }
 
     var viewerOpen = false;
@@ -68,22 +71,31 @@
     var viewerCategorySaveCallback = null; // optional callback for in-memory category save
     var viewerSheetType = null;  // "Categories" or "InterruptionCategories"
     var viewerOriginalCategory = ""; // track original category for change detection
-    var viewerCombo = null;
+    var viewerPicker = null;
     var viewerOriginalType = null; // "work" or "nonWork", null if not interruption
     var viewerTypeSaveCallback = null; // optional callback for in-memory type save
 
-    function initViewerCombo() {
-      if (viewerCombo) return;
-      viewerCombo = CategoryCombo.create({
-        inputId: "viewer-category",
-        categories: [],
-        sheetType: "Categories",
-        onSelect: function () {},
+    function initViewerPicker() {
+      if (viewerPicker) return;
+      viewerPicker = ItemPicker.create({
+        containerId: "viewer-category-area",
+        mode: "single",
+        items: [],
+        selected: [],
+        placeholder: "\u30AB\u30C6\u30B4\u30EA\u3092\u691C\u7D22 / \u4F5C\u6210...",
+        onAdd: function () {},
+        onRemove: function () {},
+        onCreateItem: function () {},
+        onColorChange: function (name, color) {
+          if (viewerSheetType) {
+            serverCall("updateCategoryColor", name, color, viewerSheetType);
+          }
+        },
       });
     }
 
     function showViewer(title, meta, markdown, recordId, recordType, saveCallbackOrOpts) {
-      initViewerCombo();
+      initViewerPicker();
 
       // Show viewer tab button
       var viewerBtn = document.querySelector('.tab-btn[data-tab="viewer"]');
@@ -119,13 +131,12 @@
         var cats = viewerSheetType === "InterruptionCategories"
           ? state.interruptionCategories
           : state.categories;
-        viewerCombo.setSheetType(viewerSheetType);
-        viewerCombo.setCategories(cats);
-        viewerCombo.setValue(category);
-        document.getElementById("viewer-category").parentNode.style.display = "";
+        viewerPicker.setItems(cats);
+        viewerPicker.setSelected(category ? [category] : []);
+        document.getElementById("viewer-category-area").style.display = "";
       } else {
-        viewerCombo.setValue("");
-        document.getElementById("viewer-category").parentNode.style.display = "none";
+        viewerPicker.setSelected([]);
+        document.getElementById("viewer-category-area").style.display = "none";
       }
 
       // Interruption type toggle
@@ -162,7 +173,7 @@
     function saveViewer() {
       var markdown = MemoEditor.getViewerValue();
       var saveBtn = document.getElementById("viewer-save-btn");
-      var newCategory = viewerCombo ? viewerCombo.getValue() : "";
+      var newCategory = viewerPicker ? (viewerPicker.getSelected()[0] || "") : "";
       var categoryChanged = viewerSheetType && newCategory !== viewerOriginalCategory;
       var newType = viewerOriginalType ? getViewerType() : null;
       var typeChanged = newType && newType !== viewerOriginalType;

@@ -55,17 +55,18 @@ function getMemos(): MemoMetadata[] {
 
 function getMemoContent(
   memoId: string,
-): { id: string; content: string } | null {
+): { id: string; content: string; updatedAt: string } | null {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Memos")!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return null;
 
-  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  for (let i = ids.length - 1; i >= 0; i--) {
-    if (String(ids[i][0]) === memoId) {
-      const content = String(sheet.getRange(i + 2, 3).getValue());
-      return { id: memoId, content };
+  const data = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (String(data[i][0]) === memoId) {
+      const content = String(data[i][2]);
+      const updatedAt = String(data[i][5]);
+      return { id: memoId, content, updatedAt };
     }
   }
   return null;
@@ -140,7 +141,6 @@ function renameMemo(
   for (let i = ids.length - 1; i >= 0; i--) {
     if (String(ids[i][0]) === memoId) {
       sheet.getRange(i + 2, 2).setValue(newName);
-      sheet.getRange(i + 2, 6).setValue(new Date().toISOString());
       invalidateMemoCache();
       return { success: true };
     }
@@ -161,7 +161,6 @@ function updateMemoTags(
   for (let i = ids.length - 1; i >= 0; i--) {
     if (String(ids[i][0]) === memoId) {
       sheet.getRange(i + 2, 4).setValue(JSON.stringify(tags));
-      sheet.getRange(i + 2, 6).setValue(new Date().toISOString());
       invalidateMemoCache();
       return { success: true };
     }
@@ -244,6 +243,7 @@ function updateMemoTagColor(
 function saveMemoContent(
   memoId: string,
   content: string,
+  updatedAt: string,
 ): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Memos")!;
@@ -256,7 +256,7 @@ function saveMemoContent(
       // Skip soft-deleted memos
       if (data[i][7] !== true) return { success: false };
       sheet.getRange(i + 2, 3).setValue(content);
-      sheet.getRange(i + 2, 6).setValue(new Date().toISOString());
+      sheet.getRange(i + 2, 6).setValue(updatedAt);
       return { success: true };
     }
   }
@@ -272,6 +272,36 @@ function parseTags(val: unknown): string[] {
   } catch (_e) {
     return [];
   }
+}
+
+function updateMemoSortOrders(orderedIds: string[]): { success: boolean } {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Memos")!;
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { success: false };
+
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  const sortOrders = sheet.getRange(2, 7, lastRow - 1, 1).getValues();
+
+  const orderMap: { [id: string]: number } = {};
+  for (let i = 0; i < orderedIds.length; i++) {
+    orderMap[orderedIds[i]] = i + 1;
+  }
+
+  let changed = false;
+  for (let i = 0; i < ids.length; i++) {
+    const id = String(ids[i][0]);
+    if (orderMap[id] !== undefined && sortOrders[i][0] !== orderMap[id]) {
+      sortOrders[i][0] = orderMap[id];
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    sheet.getRange(2, 7, lastRow - 1, 1).setValues(sortOrders);
+  }
+  invalidateMemoCache();
+  return { success: true };
 }
 
 function invalidateMemoCache(): void {

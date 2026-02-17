@@ -1,0 +1,388 @@
+<script>
+  var ItemPicker = (function () {
+    function create(opts) {
+      var containerId = opts.containerId;
+      var mode = opts.mode || "single"; // "single" | "multi"
+      var items = opts.items || [];
+      var selected = opts.selected || [];
+      var placeholder = opts.placeholder || "";
+      var onAdd = opts.onAdd || function () {};
+      var onRemove = opts.onRemove || function () {};
+      var onCreateItem = opts.onCreateItem || function () {};
+      var onColorChange = opts.onColorChange || function () {};
+      var newColor = "#757575";
+
+      var container = document.getElementById(containerId);
+      if (!container) return null;
+
+      // Build DOM
+      var picker = document.createElement("div");
+      picker.className = "item-picker";
+
+      var badgesEl = document.createElement("div");
+      badgesEl.className = "item-picker-badges";
+      picker.appendChild(badgesEl);
+
+      var addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.className = "item-picker-add-btn";
+      addBtn.textContent = "+";
+      addBtn.title = placeholder;
+      picker.appendChild(addBtn);
+
+      container.appendChild(picker);
+
+      // Dropdown (appended to body for fixed positioning)
+      var dropdown = document.createElement("div");
+      dropdown.className = "item-picker-dropdown";
+      dropdown.style.display = "none";
+
+      var searchInput = document.createElement("input");
+      searchInput.type = "text";
+      searchInput.className = "item-picker-search";
+      searchInput.placeholder = placeholder;
+      dropdown.appendChild(searchInput);
+
+      var listEl = document.createElement("div");
+      listEl.className = "item-picker-list";
+      dropdown.appendChild(listEl);
+
+      // Hidden color pickers
+      var newColorPicker = document.createElement("input");
+      newColorPicker.type = "color";
+      newColorPicker.className = "item-picker-color-hidden";
+      newColorPicker.value = newColor;
+      dropdown.appendChild(newColorPicker);
+
+      var editColorPicker = document.createElement("input");
+      editColorPicker.type = "color";
+      editColorPicker.className = "item-picker-color-hidden";
+      dropdown.appendChild(editColorPicker);
+      var editColorTarget = null;
+
+      document.body.appendChild(dropdown);
+
+      var dropdownOpen = false;
+
+      function findItem(name) {
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].name === name) return items[i];
+        }
+        return null;
+      }
+
+      function isSelected(name) {
+        return selected.indexOf(name) !== -1;
+      }
+
+      // --- Render badges ---
+      function renderBadges() {
+        badgesEl.innerHTML = "";
+        selected.forEach(function (name) {
+          var item = findItem(name);
+          var color = item ? item.color : "#757575";
+
+          var badge = document.createElement("span");
+          badge.className = "item-picker-badge";
+          badge.style.background = color + "22";
+          badge.style.color = color;
+          badge.style.borderColor = color + "44";
+
+          // In single mode, clicking badge opens dropdown
+          if (mode === "single") {
+            badge.style.cursor = "pointer";
+            badge.addEventListener("click", function (e) {
+              e.stopPropagation();
+              if (dropdownOpen) closeDropdown();
+              else openDropdown();
+            });
+          }
+
+          var dot = document.createElement("span");
+          dot.className = "item-picker-badge-dot";
+          dot.style.background = color;
+          dot.title = "\u8272\u3092\u5909\u66f4";
+          (function (n, d) {
+            d.onclick = function (e) {
+              e.stopPropagation();
+              openBadgeColorPicker(n, d);
+            };
+          })(name, dot);
+          badge.appendChild(dot);
+
+          badge.appendChild(document.createTextNode(name));
+
+          var removeX = document.createElement("span");
+          removeX.className = "item-picker-badge-remove";
+          removeX.textContent = "\u00d7";
+          (function (n) {
+            removeX.onclick = function (e) {
+              e.stopPropagation();
+              removeSelection(n);
+            };
+          })(name);
+          badge.appendChild(removeX);
+
+          badgesEl.appendChild(badge);
+        });
+
+        // In single mode, hide + button when something is selected
+        if (mode === "single") {
+          addBtn.style.display = selected.length > 0 ? "none" : "";
+        }
+      }
+
+      function openBadgeColorPicker(name, anchorEl) {
+        var colorInput = document.createElement("input");
+        colorInput.type = "color";
+        colorInput.style.position = "absolute";
+        colorInput.style.opacity = "0";
+        colorInput.style.pointerEvents = "none";
+        var item = findItem(name);
+        colorInput.value = item ? item.color : "#757575";
+        document.body.appendChild(colorInput);
+        colorInput.addEventListener("input", function () {
+          if (item) item.color = colorInput.value;
+          onColorChange(name, colorInput.value);
+          renderBadges();
+          if (dropdownOpen) renderList(searchInput.value.trim());
+        });
+        colorInput.addEventListener("change", function () {
+          colorInput.remove();
+        });
+        colorInput.addEventListener("blur", function () {
+          setTimeout(function () { colorInput.remove(); }, 200);
+        });
+        colorInput.click();
+      }
+
+      // --- Render dropdown list ---
+      function renderList(filter) {
+        listEl.innerHTML = "";
+        var q = (filter || "").toLowerCase();
+        var hasExact = false;
+
+        var filtered = items.filter(function (item) {
+          if (!q) return true;
+          var match = item.name.toLowerCase().indexOf(q) !== -1;
+          if (item.name.toLowerCase() === q) hasExact = true;
+          return match;
+        });
+
+        filtered.forEach(function (item) {
+          var row = document.createElement("div");
+          row.className = "item-picker-item";
+
+          var dot = document.createElement("span");
+          dot.className = "item-picker-item-dot";
+          dot.style.background = item.color;
+          dot.title = "\u8272\u3092\u5909\u66f4";
+          (function (it, d) {
+            dot.addEventListener("mousedown", function (e) {
+              e.preventDefault();
+              e.stopPropagation();
+              editColorTarget = it.name;
+              editColorPicker.value = it.color;
+              editColorPicker.click();
+            });
+          })(item, dot);
+
+          var label = document.createElement("span");
+          label.className = "item-picker-item-label";
+          label.textContent = item.name;
+
+          var on = isSelected(item.name);
+          var check = document.createElement("span");
+          check.className = "item-picker-item-check";
+          if (on) {
+            check.innerHTML = checkSvg(14, item.color);
+          }
+
+          row.appendChild(dot);
+          row.appendChild(label);
+          row.appendChild(check);
+
+          (function (itemName, wasOn) {
+            row.addEventListener("mousedown", function (e) {
+              if (e.target === dot) return;
+              e.preventDefault();
+              if (wasOn) {
+                removeSelection(itemName);
+              } else {
+                addSelection(itemName);
+              }
+              if (mode === "single") {
+                closeDropdown();
+              } else {
+                renderList(searchInput.value.trim());
+              }
+            });
+          })(item.name, on);
+
+          listEl.appendChild(row);
+        });
+
+        // "Create new" row
+        if (q && !hasExact) {
+          var createRow = document.createElement("div");
+          createRow.className = "item-picker-create";
+
+          var createDot = document.createElement("span");
+          createDot.className = "item-picker-item-dot";
+          createDot.style.background = newColor;
+          createDot.title = "\u8272\u3092\u9078\u629E";
+          createDot.addEventListener("mousedown", function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            newColorPicker.click();
+          });
+
+          var createLabel = document.createElement("span");
+          createLabel.textContent = "+ \"" + filter + "\" \u3092\u4F5C\u6210";
+
+          createRow.appendChild(createDot);
+          createRow.appendChild(createLabel);
+          createRow.addEventListener("mousedown", function (e) {
+            if (e.target === createDot) return;
+            e.preventDefault();
+            onCreateItem(filter, newColor);
+            addSelection(filter);
+            searchInput.value = "";
+            if (mode === "single") {
+              closeDropdown();
+            } else {
+              renderList("");
+            }
+          });
+
+          listEl.appendChild(createRow);
+        }
+      }
+
+      // --- Selection management ---
+      function addSelection(name) {
+        if (mode === "single") {
+          // Replace existing selection
+          var old = selected.slice();
+          selected.length = 0;
+          old.forEach(function (n) { onRemove(n); });
+          selected.push(name);
+        } else {
+          if (isSelected(name)) return;
+          selected.push(name);
+        }
+        onAdd(name);
+        renderBadges();
+      }
+
+      function removeSelection(name) {
+        var idx = selected.indexOf(name);
+        if (idx === -1) return;
+        selected.splice(idx, 1);
+        onRemove(name);
+        renderBadges();
+        if (dropdownOpen) renderList(searchInput.value.trim());
+      }
+
+      // --- Dropdown open/close ---
+      function openDropdown() {
+        if (dropdownOpen) return;
+        dropdownOpen = true;
+        searchInput.value = "";
+        renderList("");
+        dropdown.style.display = "";
+        positionDropdown();
+        setTimeout(function () { searchInput.focus(); }, 0);
+        setTimeout(function () {
+          document.addEventListener("mousedown", handleOutsideClick);
+        }, 0);
+      }
+
+      function closeDropdown() {
+        if (!dropdownOpen) return;
+        dropdownOpen = false;
+        dropdown.style.display = "none";
+        document.removeEventListener("mousedown", handleOutsideClick);
+      }
+
+      function positionDropdown() {
+        var rect = picker.getBoundingClientRect();
+        dropdown.style.position = "fixed";
+        dropdown.style.top = (rect.bottom + 4) + "px";
+        dropdown.style.left = rect.left + "px";
+        dropdown.style.width = Math.max(rect.width, 200) + "px";
+      }
+
+      function handleOutsideClick(e) {
+        if (dropdown.contains(e.target) || picker.contains(e.target)) return;
+        closeDropdown();
+      }
+
+      // --- Events ---
+      addBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (dropdownOpen) closeDropdown();
+        else openDropdown();
+      });
+
+      searchInput.addEventListener("input", function () {
+        renderList(searchInput.value.trim());
+      });
+
+      searchInput.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") {
+          closeDropdown();
+        }
+      });
+
+      newColorPicker.addEventListener("input", function () {
+        newColor = newColorPicker.value;
+        var createDot = listEl.querySelector(".item-picker-create .item-picker-item-dot");
+        if (createDot) createDot.style.background = newColor;
+      });
+
+      editColorPicker.addEventListener("input", function () {
+        if (!editColorTarget) return;
+        var item = findItem(editColorTarget);
+        if (item) {
+          item.color = editColorPicker.value;
+          onColorChange(editColorTarget, editColorPicker.value);
+          renderList(searchInput.value.trim());
+          renderBadges();
+        }
+      });
+
+      // Initial render
+      renderBadges();
+
+      // --- Public API ---
+      return {
+        getSelected: function () {
+          return selected.slice();
+        },
+        setSelected: function (names) {
+          selected.length = 0;
+          (names || []).forEach(function (n) { selected.push(n); });
+          renderBadges();
+        },
+        getColor: function (name) {
+          var item = findItem(name);
+          return item ? item.color : newColor;
+        },
+        setItems: function (newItems) {
+          items = newItems || [];
+          renderBadges();
+        },
+        setSheetType: function () {
+          // kept for API compat — no-op (sheetType is managed by callers)
+        },
+        destroy: function () {
+          dropdown.remove();
+          picker.remove();
+        },
+      };
+    }
+
+    return { create: create };
+  })();
+</script>

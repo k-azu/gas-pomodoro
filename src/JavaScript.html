@@ -218,22 +218,29 @@
       updateControls();
     }
 
-    var intCombo = null;
+    var intPicker = null;
 
-    function initIntCombo() {
-      if (intCombo) return;
-      intCombo = CategoryCombo.create({
-        inputId: "int-category",
-        categories: state.interruptionCategories || [],
-        sheetType: "InterruptionCategories",
-        onSelect: function () {},
+    function initIntPicker() {
+      if (intPicker) return;
+      intPicker = ItemPicker.create({
+        containerId: "int-category-area",
+        mode: "single",
+        items: state.interruptionCategories || [],
+        selected: [],
+        placeholder: "\u30AB\u30C6\u30B4\u30EA\u3092\u691C\u7D22 / \u4F5C\u6210...",
+        onAdd: function () {},
+        onRemove: function () {},
+        onCreateItem: function () {},
+        onColorChange: function (name, color) {
+          serverCall("updateCategoryColor", name, color, "InterruptionCategories");
+        },
       });
     }
 
     function populateInterruptionCategorySelect() {
-      initIntCombo();
-      intCombo.setCategories(state.interruptionCategories);
-      intCombo.setValue("");
+      initIntPicker();
+      intPicker.setItems(state.interruptionCategories);
+      intPicker.setSelected([]);
     }
 
     function ensureInterruptionCategory(category) {
@@ -242,13 +249,13 @@
         return c.name === category;
       });
       if (exists) return Promise.resolve();
-      var color = intCombo ? intCombo.getColor() : "#757575";
+      var color = intPicker ? intPicker.getColor(category) : "#757575";
       return serverCall("addInterruptionCategory", category, color).then(function (result) {
         if (result.success) {
           return serverCall("getInterruptionCategories").then(function (cats) {
             if (cats) {
               state.interruptionCategories = cats;
-              if (intCombo) intCombo.setCategories(cats);
+              if (intPicker) intPicker.setItems(cats);
             }
           });
         }
@@ -265,7 +272,7 @@
       // Read form values
       var typeCheckbox = document.getElementById("int-type-work");
       var type = typeCheckbox && typeCheckbox.checked ? "work" : "nonWork";
-      var category = intCombo ? intCombo.getValue() : document.getElementById("int-category").value.trim();
+      var category = intPicker ? (intPicker.getSelected()[0] || "") : "";
       var note = (MemoEditor.getInterruptionValue() || "").trim();
 
       state.interruptions.push({
@@ -791,17 +798,22 @@
       var row = document.createElement("div");
       row.className = "history-item-row";
 
-      // Category dot with color
-      var dot = document.createElement("span");
-      dot.className = "history-type";
+      // Category badge
       var catColor = r.category && colorMap[r.category];
-      dot.style.background = catColor || "var(--text-secondary)";
-
-      // Category name
       var cat = document.createElement("span");
-      cat.className = "history-category";
-      cat.textContent = r.category || "";
-      if (catColor) cat.style.color = catColor;
+      cat.className = "history-badge";
+      if (r.category) {
+        var catDot = document.createElement("span");
+        catDot.className = "history-badge-dot";
+        catDot.style.background = catColor || "var(--text-secondary)";
+        cat.appendChild(catDot);
+        cat.appendChild(document.createTextNode(r.category));
+        if (catColor) {
+          cat.style.background = catColor + "22";
+          cat.style.color = catColor;
+          cat.style.borderColor = catColor + "44";
+        }
+      }
 
       // Description (first line only)
       var desc = document.createElement("span");
@@ -828,7 +840,6 @@
       );
       meta.textContent = metaParts.join(" ");
 
-      row.appendChild(dot);
       row.appendChild(cat);
       row.appendChild(desc);
       row.appendChild(meta);
@@ -871,19 +882,25 @@
               ? intMins + "分" + (intSecs > 0 ? intSecs + "秒" : "")
               : intSecs + "秒";
 
-          // Dot with interruption category color
-          var intDot = document.createElement("span");
-          intDot.className = "history-type";
+          // Category badge
           var intCatObj = int.category ? state.interruptionCategories.find(function (c) {
             return c.name === int.category;
           }) : null;
-          intDot.style.background = (intCatObj && intCatObj.color) || "var(--text-secondary)";
-
-          // Category name
+          var intCatColor = intCatObj && intCatObj.color;
           var intCat = document.createElement("span");
-          intCat.className = "history-category";
-          intCat.textContent = int.category || "";
-          if (intCatObj && intCatObj.color) intCat.style.color = intCatObj.color;
+          intCat.className = "history-badge";
+          if (int.category) {
+            var intCatDot = document.createElement("span");
+            intCatDot.className = "history-badge-dot";
+            intCatDot.style.background = intCatColor || "var(--text-secondary)";
+            intCat.appendChild(intCatDot);
+            intCat.appendChild(document.createTextNode(int.category));
+            if (intCatColor) {
+              intCat.style.background = intCatColor + "22";
+              intCat.style.color = intCatColor;
+              intCat.style.borderColor = intCatColor + "44";
+            }
+          }
 
           // Note (first line)
           var intDesc = document.createElement("span");
@@ -905,7 +922,6 @@
           intMetaParts.push(durStr + "/" + typeLabel);
           intMeta.textContent = intMetaParts.join(" ");
 
-          intRow.appendChild(intDot);
           intRow.appendChild(intCat);
           intRow.appendChild(intDesc);
           intRow.appendChild(intMeta);
