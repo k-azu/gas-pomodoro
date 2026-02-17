@@ -70,6 +70,9 @@
       dom.statsWorkIntTime = document.getElementById("stats-work-int-time");
       dom.statsNonworkIntTime = document.getElementById("stats-nonwork-int-time");
       dom.historyList = document.getElementById("history-list");
+      dom.appLeft = document.querySelector(".app-left");
+      dom.stripTime = document.querySelector(".strip-time");
+      dom.stripDots = document.querySelector(".strip-dots");
     }
 
     // --- localStorage persistence ---
@@ -146,6 +149,7 @@
           dom.timerDisplay.textContent =
             String(intMins).padStart(2, "0") + ":" + String(intSecs).padStart(2, "0");
         }
+        updateCollapsedStrip();
         return;
       }
 
@@ -504,6 +508,7 @@
 
       updateDots();
       updateInterruptionBadge();
+      updateCollapsedStrip();
     }
 
     function updateDots() {
@@ -527,6 +532,7 @@
         }
         container.appendChild(dot);
       }
+      mirrorStripDots();
     }
 
     function updateControls() {
@@ -565,6 +571,46 @@
         dom.interruptionBadge.style.display = "";
       } else {
         dom.interruptionBadge.style.display = "none";
+      }
+    }
+
+    // --- Left column collapse ---
+    var LEFT_COLLAPSED_KEY = "gas_pomodoro_left_collapsed";
+
+    function toggleLeftCollapse() {
+      dom.appLeft.classList.toggle("collapsed");
+      var collapsed = dom.appLeft.classList.contains("collapsed");
+      try {
+        localStorage.setItem(LEFT_COLLAPSED_KEY, collapsed ? "1" : "");
+      } catch (e) {}
+      if (collapsed) updateCollapsedStrip();
+    }
+
+    function updateCollapsedStrip() {
+      if (!dom.appLeft.classList.contains("collapsed")) return;
+      dom.stripTime.textContent = dom.timerDisplay.textContent;
+      // Mirror data-phase to .app-left
+      var dataPhase = state.phase;
+      if (dataPhase === "breakDone") dataPhase = state.breakType || "shortBreak";
+      dom.appLeft.setAttribute("data-phase", dataPhase);
+    }
+
+    function mirrorStripDots() {
+      var container = dom.stripDots;
+      container.innerHTML = "";
+      var limit = state.config.pomodorosBeforeLongBreak;
+      for (var i = limit; i >= 1; i--) {
+        var dot = document.createElement("div");
+        dot.className = "pomodoro-dot";
+        if (i < state.pomodoroSetIndex) {
+          dot.classList.add("completed");
+        } else if (
+          i === state.pomodoroSetIndex &&
+          (state.phase === "work" || state.phase === "interrupted")
+        ) {
+          dot.classList.add("current");
+        }
+        container.appendChild(dot);
       }
     }
 
@@ -656,6 +702,13 @@
       cacheDom();
       showLoading(true);
 
+      // Restore left column collapsed state
+      try {
+        if (localStorage.getItem(LEFT_COLLAPSED_KEY)) {
+          dom.appLeft.classList.add("collapsed");
+        }
+      } catch (e) {}
+
       // Flush debounced saveState on tab close
       window.addEventListener("beforeunload", flushSaveState);
 
@@ -722,6 +775,7 @@
       getState: getState,
       getInterruptionCategories: getInterruptionCategories,
       ensureInterruptionCategory: ensureInterruptionCategory,
+      toggleLeftCollapse: toggleLeftCollapse,
     };
   })();
 
