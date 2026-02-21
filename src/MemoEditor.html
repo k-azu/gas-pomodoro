@@ -143,8 +143,7 @@
     function handleImageUpload(file) {
       if (file.size > MAX_CLIENT_BYTES) {
         var sizeMB = (file.size / 1024 / 1024).toFixed(1);
-        alert("画像サイズが上限(10MB)を超えています: " + sizeMB + "MB");
-        return Promise.reject(new Error("画像サイズが上限を超えています"));
+        return Promise.reject(new Error("画像サイズが上限(10MB)を超えています: " + sizeMB + "MB"));
       }
       var mimeType = file.type || "image/jpeg";
       var ext = {"image/jpeg":"jpg","image/png":"png","image/gif":"gif","image/webp":"webp"}[mimeType] || "jpg";
@@ -157,29 +156,26 @@
         + ("0"+now.getMinutes()).slice(-2)
         + ("0"+now.getSeconds()).slice(-2);
       var uploadName = "pomodoro_" + ts + "." + ext;
-      var displayBlob = new Blob([file], { type: mimeType });
-      var blobUrl = URL.createObjectURL(displayBlob);
 
-      // Upload to Drive in the background
-      var reader = new FileReader();
-      reader.onload = function () {
-        var base64 = reader.result.split(",")[1];
-        serverCall("uploadImage", base64, uploadName, mimeType)
-          .then(function (result) {
-            registerBlobUrl(result.fileId, blobUrl);
-            setCachedImage(result.fileId, displayBlob);
-          })
-          .catch(function (err) {
-            alert("画像のアップロードに失敗しました: " + err);
-          });
-      };
-      reader.onerror = function () {
-        alert("ファイルの読み込みに失敗しました");
-      };
-      reader.readAsDataURL(file);
-
-      // Return blob URL immediately for instant preview
-      return Promise.resolve(blobUrl);
+      return new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function () {
+          var base64 = reader.result.split(",")[1];
+          serverCall("uploadImage", base64, uploadName, mimeType)
+            .then(function (result) {
+              var blob = new Blob([file], { type: mimeType });
+              var blobUrl = URL.createObjectURL(blob);
+              registerBlobUrl(result.fileId, blobUrl);
+              setCachedImage(result.fileId, blob);
+              resolve(blobUrl);
+            })
+            .catch(reject);
+        };
+        reader.onerror = function () {
+          reject(new Error("ファイルの読み込みに失敗しました"));
+        };
+        reader.readAsDataURL(file);
+      });
     }
 
     // =========================================================
