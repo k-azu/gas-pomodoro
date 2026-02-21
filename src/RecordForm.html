@@ -299,11 +299,33 @@
       return y + "-" + m + "-" + day;
     }
 
+    function setRecordEditorLoading(on) {
+      var container = document.getElementById("record-editor-container");
+      if (!container) return;
+      var overlay = container.querySelector(".memo-editor-loading-overlay");
+      if (on) {
+        if (overlay) return;
+        container.style.position = "relative";
+        overlay = document.createElement("div");
+        overlay.className = "memo-editor-loading-overlay";
+        overlay.innerHTML = '<div class="memo-editor-loading-spinner"></div>';
+        container.appendChild(overlay);
+      } else {
+        if (overlay) overlay.remove();
+      }
+    }
+
     function copyFromPrevious() {
-      serverCall("getLastWorkDescription").then(function (desc) {
-        if (!desc) return;
-        MemoEditor.setRecordValue(desc);
-      });
+      setRecordEditorLoading(true);
+      serverCall("getLastWorkRecord")
+        .then(function (result) {
+          if (!result) return;
+          if (result.description) MemoEditor.setRecordValue(result.description);
+          if (result.category && recordPicker) recordPicker.setSelected([result.category]);
+        })
+        .finally(function () {
+          setRecordEditorLoading(false);
+        });
     }
 
     return {

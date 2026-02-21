@@ -168,9 +168,10 @@ function updateInterruptionType(
 
 function updateRecordTimes(
   recordId: string,
-  startTimeISO: string,
-  endTimeISO: string,
+  startTimeISO: string | null,
+  endTimeISO: string | null,
 ): { success: boolean } {
+  if (!startTimeISO && !endTimeISO) return { success: false };
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("PomodoroLog")!;
   const lastRow = sheet.getLastRow();
@@ -180,11 +181,16 @@ function updateRecordTimes(
   for (let i = ids.length - 1; i >= 0; i--) {
     if (String(ids[i][0]) === recordId) {
       const row = i + 2;
-      sheet.getRange(row, 3).setValue(startTimeISO);
-      sheet.getRange(row, 4).setValue(endTimeISO);
+      if (startTimeISO) sheet.getRange(row, 3).setValue(startTimeISO);
+      if (endTimeISO) sheet.getRange(row, 4).setValue(endTimeISO);
+      const start = new Date(
+        startTimeISO || String(sheet.getRange(row, 3).getValue()),
+      );
+      const end = new Date(
+        endTimeISO || String(sheet.getRange(row, 4).getValue()),
+      );
       const actualSeconds = Math.round(
-        (new Date(endTimeISO).getTime() - new Date(startTimeISO).getTime()) /
-          1000,
+        (end.getTime() - start.getTime()) / 1000,
       );
       sheet.getRange(row, 6).setValue(actualSeconds);
       return { success: true };
@@ -564,18 +570,26 @@ function getWeekRecordCounts(weekStartDate: string): {
   return dateCounts;
 }
 
-function getLastWorkDescription(): string {
+function getLastWorkRecord(): {
+  description: string;
+  category: string;
+} | null {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("PomodoroLog")!;
   const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return "";
+  if (lastRow <= 1) return null;
   const SCAN = 50;
   const start = Math.max(2, lastRow - SCAN + 1);
   const data = sheet.getRange(start, 1, lastRow - start + 1, 15).getValues();
   for (let i = data.length - 1; i >= 0; i--) {
-    if (String(data[i][6]) === "work") return String(data[i][7]);
+    if (String(data[i][6]) === "work") {
+      return {
+        description: String(data[i][7]),
+        category: String(data[i][8]),
+      };
+    }
   }
-  return "";
+  return null;
 }
 
 function getTodayInterruptions(): InterruptionRecord[] {

@@ -326,6 +326,7 @@
     function onTargetReached() {
       if (state.phase === "work") {
         NotificationManager.notify("作業時間到達", "設定時間に達しました。");
+        TabPanel.switchTab("record");
       } else if (state.phase === "shortBreak" || state.phase === "longBreak") {
         NotificationManager.notify("休憩時間到達", "設定時間に達しました。");
       }

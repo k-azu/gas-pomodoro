@@ -256,10 +256,11 @@
         promises.push(serverCall("updateInterruptionType", viewerRecordId, newType));
       }
 
-      // Check if times changed
-      var timesChanged = false;
-      var newStartISO = viewerOriginalStartISO;
-      var newEndISO = viewerOriginalEndISO;
+      // Check if times changed (only send changed fields)
+      var startChanged = false;
+      var endChanged = false;
+      var newStartISO = null;
+      var newEndISO = null;
       if (viewerOriginalStartISO && viewerOriginalEndISO) {
         var startInput = document.getElementById("viewer-start-time");
         var endInput = document.getElementById("viewer-end-time");
@@ -267,16 +268,21 @@
         var origED = new Date(viewerOriginalEndISO);
         var origStartHM = String(origSD.getHours()).padStart(2, "0") + ":" + String(origSD.getMinutes()).padStart(2, "0");
         var origEndHM = String(origED.getHours()).padStart(2, "0") + ":" + String(origED.getMinutes()).padStart(2, "0");
-        if (startInput.value !== origStartHM || endInput.value !== origEndHM) {
-          timesChanged = true;
+        if (startInput.value !== origStartHM) {
+          startChanged = true;
           var sp = startInput.value.split(":");
-          var ep = endInput.value.split(":");
           var ns = new Date(origSD);
           ns.setHours(parseInt(sp[0]), parseInt(sp[1]), 0, 0);
+          newStartISO = ns.toISOString();
+        }
+        if (endInput.value !== origEndHM) {
+          endChanged = true;
+          var ep = endInput.value.split(":");
           var ne = new Date(origED);
           ne.setHours(parseInt(ep[0]), parseInt(ep[1]), 0, 0);
-          newStartISO = ns.toISOString();
           newEndISO = ne.toISOString();
+        }
+        if (startChanged || endChanged) {
           promises.push(serverCall("updateRecordTimes", viewerRecordId, newStartISO, newEndISO));
         }
       }
@@ -286,10 +292,8 @@
           if (saveBtn) saveBtn.disabled = false;
           viewerOriginalCategory = newCategory;
           if (typeChanged) viewerOriginalType = newType;
-          if (timesChanged) {
-            viewerOriginalStartISO = newStartISO;
-            viewerOriginalEndISO = newEndISO;
-          }
+          if (startChanged) viewerOriginalStartISO = newStartISO;
+          if (endChanged) viewerOriginalEndISO = newEndISO;
           refreshAll();
         })
         .catch(function (err) {
