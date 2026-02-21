@@ -166,6 +166,39 @@ function updateInterruptionType(
   return { success: false };
 }
 
+function updateInterruptionTimes(
+  interruptionId: string,
+  startTimeISO: string | null,
+  endTimeISO: string | null,
+): { success: boolean } {
+  if (!startTimeISO && !endTimeISO) return { success: false };
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Interruptions")!;
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { success: false };
+
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let i = ids.length - 1; i >= 0; i--) {
+    if (String(ids[i][0]) === interruptionId) {
+      const row = i + 2;
+      if (startTimeISO) sheet.getRange(row, 4).setValue(startTimeISO); // column 4 = startTime
+      if (endTimeISO) sheet.getRange(row, 5).setValue(endTimeISO); // column 5 = endTime
+      const start = new Date(
+        startTimeISO || String(sheet.getRange(row, 4).getValue()),
+      );
+      const end = new Date(
+        endTimeISO || String(sheet.getRange(row, 5).getValue()),
+      );
+      const durationSeconds = Math.round(
+        (end.getTime() - start.getTime()) / 1000,
+      );
+      sheet.getRange(row, 6).setValue(durationSeconds); // column 6 = durationSeconds
+      return { success: true };
+    }
+  }
+  return { success: false };
+}
+
 function updateRecordTimes(
   recordId: string,
   startTimeISO: string | null,

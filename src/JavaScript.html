@@ -935,10 +935,7 @@
       (function (record) {
         row.addEventListener("click", function () {
           var description = (record.description || "").trim();
-          var title = (record.description || "").split("\n")[0].trim() || "(無題)";
-          var intCount = record.workInterruptions + record.nonWorkInterruptions;
-          var viewerMeta = intCount > 0 ? intCount + "回中断" : "";
-          TabPanel.showViewer(title, viewerMeta, description, record.id, "record", {
+          TabPanel.showViewer("", "", description, record.id, "record", {
             category: record.category || "",
             sheetType: "Categories",
             startTime: record.startTime,
@@ -1010,20 +1007,19 @@
           intRow.appendChild(intMeta);
 
           // Click handler: open viewer with interruption note
-          (function (interruption, intDurStr) {
+          (function (interruption) {
             intRow.addEventListener("click", function (e) {
               e.stopPropagation();
               var note = (interruption.note || "").trim();
-              var noteTitle = (note ? note.split("\n")[0].trim() : "") || "中断";
-              var intMetaText = (interruption.type === "work" ? "作業" : "非作業") + " - " + intDurStr;
-              if (interruption.category) intMetaText += " - " + interruption.category;
-              TabPanel.showViewer(noteTitle, intMetaText, note, interruption.id, "interruption", {
+              TabPanel.showViewer("", "", note, interruption.id, "interruption", {
                 category: interruption.category || "",
                 sheetType: "InterruptionCategories",
                 interruptionType: interruption.type,
+                startTime: interruption.startTime,
+                endTime: interruption.endTime,
               });
             });
-          })(int, durStr);
+          })(int);
 
           detail.appendChild(intRow);
         });

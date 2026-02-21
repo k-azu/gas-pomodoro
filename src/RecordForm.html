@@ -103,21 +103,12 @@
       var int = App.getState().interruptions[index];
       if (!int) return;
 
-      var typeLabel = int.type === "work" ? "作業に含める" : "作業に含めない";
-      var mins = Math.floor(int.durationSeconds / 60);
-      var secs = int.durationSeconds % 60;
-      var durStr =
-        mins > 0 ? mins + "分" + (secs > 0 ? secs + "秒" : "") : secs + "秒";
-
-      var title = "中断 #" + (index + 1);
-      var metaParts = [typeLabel, durStr];
-      if (int.category) metaParts.push(int.category);
-      var meta = metaParts.join(" · ");
-
-      TabPanel.showViewer(title, meta, int.note || "", null, null, {
+      TabPanel.showViewer("", "", int.note || "", null, null, {
         category: int.category || "",
         sheetType: "InterruptionCategories",
         interruptionType: int.type,
+        startTime: int.startTime,
+        endTime: int.endTime,
         saveCallback: function (markdown) {
           App.getState().interruptions[index].note = markdown;
           renderInterruptionList();
@@ -128,6 +119,12 @@
         },
         typeSaveCallback: function (newType) {
           App.getState().interruptions[index].type = newType;
+          renderInterruptionList();
+        },
+        timeSaveCallback: function (startISO, endISO, durSecs) {
+          App.getState().interruptions[index].startTime = startISO;
+          App.getState().interruptions[index].endTime = endISO;
+          App.getState().interruptions[index].durationSeconds = durSecs;
           renderInterruptionList();
         },
       });

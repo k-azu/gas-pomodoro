@@ -78,6 +78,7 @@
     var viewerTypeSaveCallback = null; // optional callback for in-memory type save
     var viewerOriginalStartISO = null; // original startTime ISO string
     var viewerOriginalEndISO = null;   // original endTime ISO string
+    var viewerTimeSaveCallback = null; // optional callback for in-memory time save
 
     function initViewerPicker() {
       if (viewerPicker) return;
@@ -110,6 +111,7 @@
       viewerSaveCallback = null;
       viewerCategorySaveCallback = null;
       viewerTypeSaveCallback = null;
+      viewerTimeSaveCallback = null;
       viewerSheetType = null;
       viewerOriginalCategory = "";
       viewerOriginalType = null;
@@ -125,6 +127,7 @@
         viewerSaveCallback = opts.saveCallback || null;
         viewerCategorySaveCallback = opts.categorySaveCallback || null;
         viewerTypeSaveCallback = opts.typeSaveCallback || null;
+        viewerTimeSaveCallback = opts.timeSaveCallback || null;
       }
 
       // Category setup
@@ -156,12 +159,8 @@
         typeLabel.style.display = "none";
       }
 
-      // Set header content
-      document.getElementById("viewer-title").textContent = title || "";
-
       // Time group: show for records with startTime/endTime
       var timeGroup = document.getElementById("viewer-time-group");
-      var metaText = document.getElementById("viewer-meta-text");
       if (opts.startTime && opts.endTime) {
         viewerOriginalStartISO = opts.startTime;
         viewerOriginalEndISO = opts.endTime;
@@ -188,10 +187,8 @@
         endInput.onchange = updateDuration;
 
         timeGroup.style.display = "";
-        metaText.textContent = meta || "";
       } else {
         timeGroup.style.display = "none";
-        metaText.textContent = meta || "";
       }
 
       // Show/hide save button based on whether we have a record to save to
@@ -226,6 +223,28 @@
         }
         if (viewerTypeSaveCallback && typeChanged) {
           viewerTypeSaveCallback(newType);
+        }
+        // In-memory time save
+        if (viewerTimeSaveCallback && viewerOriginalStartISO && viewerOriginalEndISO) {
+          var startInput = document.getElementById("viewer-start-time");
+          var endInput = document.getElementById("viewer-end-time");
+          var origSD = new Date(viewerOriginalStartISO);
+          var origED = new Date(viewerOriginalEndISO);
+          var origStartHM = String(origSD.getHours()).padStart(2, "0") + ":" + String(origSD.getMinutes()).padStart(2, "0");
+          var origEndHM = String(origED.getHours()).padStart(2, "0") + ":" + String(origED.getMinutes()).padStart(2, "0");
+          if (startInput.value !== origStartHM || endInput.value !== origEndHM) {
+            var sp = startInput.value.split(":");
+            var ns = new Date(origSD);
+            ns.setHours(parseInt(sp[0]), parseInt(sp[1]), 0, 0);
+            var ep = endInput.value.split(":");
+            var ne = new Date(origED);
+            ne.setHours(parseInt(ep[0]), parseInt(ep[1]), 0, 0);
+            var durSecs = Math.round((ne.getTime() - ns.getTime()) / 1000);
+            if (durSecs < 0) durSecs += 86400;
+            viewerTimeSaveCallback(ns.toISOString(), ne.toISOString(), durSecs);
+            viewerOriginalStartISO = ns.toISOString();
+            viewerOriginalEndISO = ne.toISOString();
+          }
         }
         viewerOriginalCategory = newCategory;
         if (typeChanged) viewerOriginalType = newType;
@@ -285,7 +304,10 @@
           newEndISO = ne.toISOString();
         }
         if (startChanged || endChanged) {
-          promises.push(serverCall("updateRecordTimes", viewerRecordId, newStartISO, newEndISO));
+          var timeFn = viewerRecordType === "interruption"
+            ? "updateInterruptionTimes"
+            : "updateRecordTimes";
+          promises.push(serverCall(timeFn, viewerRecordId, newStartISO, newEndISO));
         }
       }
 
