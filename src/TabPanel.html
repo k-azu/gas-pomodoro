@@ -64,6 +64,8 @@
       window.dispatchEvent(new Event("resize"));
     }
 
+    var settingsOpen = false;
+
     var viewerOpen = false;
     var viewerRecordId = null;   // record or interruption ID
     var viewerRecordType = null; // "record" or "interruption"
@@ -313,6 +315,22 @@
       switchTab("memo");
     }
 
+    function showSettings() {
+      var settingsBtn = document.querySelector('.tab-btn[data-tab="settings"]');
+      if (settingsBtn) settingsBtn.style.display = "";
+      settingsOpen = true;
+      switchTab("settings");
+    }
+
+    function hideSettings() {
+      var settingsBtn = document.querySelector('.tab-btn[data-tab="settings"]');
+      if (settingsBtn) settingsBtn.style.display = "none";
+      settingsOpen = false;
+      switchTab("memo");
+      // Refresh app state with updated configs/categories
+      App.refreshSettings();
+    }
+
     function update(phase) {
       var visibility = tabVisibility[phase] || tabVisibility.idle;
 
@@ -321,8 +339,11 @@
       buttons.forEach(function (btn) {
         var tabId = btn.getAttribute("data-tab");
         if (tabId === "viewer") {
-          // Viewer tab visibility is managed by showViewer/hideViewer
           btn.style.display = viewerOpen ? "" : "none";
+          return;
+        }
+        if (tabId === "settings") {
+          btn.style.display = settingsOpen ? "" : "none";
           return;
         }
         btn.style.display = visibility[tabId] ? "" : "none";
@@ -330,17 +351,18 @@
 
       // Auto-switch tab on phase change
       if (phase !== lastAutoPhase) {
-        var target = autoSwitchTarget[phase] || "memo";
-        // Only auto-switch if the target tab is visible
-        if (visibility[target]) {
-          switchTab(target);
-        } else {
-          switchTab("memo");
+        // Don't auto-switch if settings is open
+        if (activeTab !== "settings") {
+          var target = autoSwitchTarget[phase] || "memo";
+          if (visibility[target]) {
+            switchTab(target);
+          } else {
+            switchTab("memo");
+          }
         }
         lastAutoPhase = phase;
       } else {
-        // If current tab became invisible (and not viewer), fall back to memo
-        if (activeTab !== "viewer" && !visibility[activeTab]) {
+        if (activeTab !== "viewer" && activeTab !== "settings" && !visibility[activeTab]) {
           switchTab("memo");
         }
       }
@@ -358,6 +380,8 @@
       showViewer: showViewer,
       hideViewer: hideViewer,
       saveViewer: saveViewer,
+      showSettings: showSettings,
+      hideSettings: hideSettings,
     };
   })();
 </script>

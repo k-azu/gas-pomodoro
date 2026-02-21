@@ -665,6 +665,35 @@
       return state.interruptionCategories;
     }
 
+    function refreshSettings() {
+      return Promise.all([
+        serverCall("getAllTimerConfigs"),
+        serverCall("getCategories"),
+        serverCall("getInterruptionCategories"),
+      ]).then(function (results) {
+        state.configPatterns = results[0];
+        var current = state.config.patternName;
+        var match = state.configPatterns.find(function (p) {
+          return p.patternName === current;
+        });
+        if (match) {
+          state.config = match;
+        } else {
+          var active = state.configPatterns.find(function (p) {
+            return p.isActive;
+          });
+          state.config = active || state.configPatterns[0];
+        }
+        state.categories = results[1];
+        state.interruptionCategories = results[2];
+
+        populatePatternSelect();
+        RecordForm.populateCategories(state.categories);
+        if (intPicker) intPicker.setItems(state.interruptionCategories);
+        saveState();
+      });
+    }
+
     // --- Restore from localStorage on page load ---
     function restoreTimer() {
       if (
@@ -778,6 +807,7 @@
       getInterruptionCategories: getInterruptionCategories,
       ensureInterruptionCategory: ensureInterruptionCategory,
       toggleLeftCollapse: toggleLeftCollapse,
+      refreshSettings: refreshSettings,
     };
   })();
 

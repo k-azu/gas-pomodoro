@@ -21,6 +21,7 @@
       <!-- Header -->
       <div class="header">
         <h1>Pomodoro Timer</h1>
+        <button class="settings-gear-btn" onclick="SettingsPanel.show()" title="設定">&#9881;</button>
         <button class="left-collapse-btn" onclick="App.toggleLeftCollapse()" title="サイドバーを折りたたむ">◀</button>
       </div>
 
@@ -142,6 +143,7 @@
         <button class="tab-btn" data-tab="record" style="display:none">作業記録</button>
         <button class="tab-btn" data-tab="interruption" style="display:none">中断</button>
         <button class="tab-btn" data-tab="viewer" style="display:none">ビュー</button>
+        <button class="tab-btn" data-tab="settings" style="display:none">設定</button>
       </div>
 
       <!-- メモタブ -->
@@ -233,6 +235,30 @@
           </div>
         </div>
       </div>
+
+      <!-- 設定タブ -->
+      <div class="tab-content" data-tab-content="settings" style="display:none">
+        <div class="settings-panel">
+          <div class="settings-header">
+            <h3>設定</h3>
+            <button class="btn btn-secondary btn-small" onclick="SettingsPanel.close()">閉じる</button>
+          </div>
+          <div class="settings-scroll">
+            <div class="settings-section">
+              <div class="settings-section-title">タイマーパターン</div>
+              <div id="settings-patterns"></div>
+            </div>
+            <div class="settings-section">
+              <div class="settings-section-title">作業カテゴリ</div>
+              <div id="settings-work-cats"></div>
+            </div>
+            <div class="settings-section">
+              <div class="settings-section-title">中断カテゴリ</div>
+              <div id="settings-int-cats"></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div><!-- .app-right -->
     </div><!-- .app-layout -->
 
@@ -256,6 +282,7 @@
     <?!= include('ItemPicker'); ?>
     <?!= include('RecordForm'); ?>
     <?!= include('DateSelector'); ?>
+    <?!= include('SettingsPanel'); ?>
     <?!= include('JavaScript'); ?>
   </body>
 </html>

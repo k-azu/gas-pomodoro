@@ -54,6 +54,7 @@ function getAllInitData(): {
       shortBreakMinutes: Number(row[2]),
       longBreakMinutes: Number(row[3]),
       pomodorosBeforeLongBreak: Number(row[4]),
+      isActive: row[5] === true,
     }));
   }
 

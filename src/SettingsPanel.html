@@ -1,0 +1,368 @@
+<script>
+  var SettingsPanel = (function () {
+    var patterns = [];
+    var workCats = [];
+    var intCats = [];
+
+    function show() {
+      TabPanel.showSettings();
+      refresh();
+    }
+
+    function refresh() {
+      Promise.all([
+        serverCall("getAllTimerConfigs"),
+        serverCall("getAllCategoriesForSettings", "Categories"),
+        serverCall("getAllCategoriesForSettings", "InterruptionCategories"),
+      ]).then(function (results) {
+        patterns = results[0];
+        workCats = results[1];
+        intCats = results[2];
+        renderAll();
+      });
+    }
+
+    function close() {
+      TabPanel.hideSettings();
+    }
+
+    function renderAll() {
+      renderPatterns(document.getElementById("settings-patterns"));
+      renderCategories(
+        document.getElementById("settings-work-cats"),
+        workCats,
+        "Categories"
+      );
+      renderCategories(
+        document.getElementById("settings-int-cats"),
+        intCats,
+        "InterruptionCategories"
+      );
+    }
+
+    // --- Timer Patterns ---
+
+    function renderPatterns(container) {
+      container.innerHTML = "";
+
+      patterns.forEach(function (p) {
+        var item = el("div", "settings-pattern-item");
+
+        var radio = el("input");
+        radio.type = "radio";
+        radio.name = "settings-active-pattern";
+        radio.checked = p.isActive === true;
+        radio.addEventListener("change", function () {
+          handleSetActive(p.patternName);
+        });
+
+        var info = el("span", "settings-pattern-info");
+        info.textContent =
+          p.patternName +
+          "  " +
+          p.workMinutes +
+          "/" +
+          p.shortBreakMinutes +
+          "/" +
+          p.longBreakMinutes +
+          " x" +
+          p.pomodorosBeforeLongBreak;
+
+        var editBtn = el("button", "settings-btn-icon");
+        editBtn.textContent = "編集";
+        editBtn.addEventListener("click", function () {
+          showPatternForm(container, p);
+        });
+
+        var delBtn = el("button", "settings-btn-icon");
+        delBtn.textContent = "削除";
+        delBtn.addEventListener("click", function () {
+          handleDeletePattern(p.patternName);
+        });
+
+        item.appendChild(radio);
+        item.appendChild(info);
+        item.appendChild(editBtn);
+        item.appendChild(delBtn);
+        container.appendChild(item);
+      });
+
+      var addBtn = el("button", "settings-btn-icon settings-add-btn");
+      addBtn.textContent = "+ パターンを追加";
+      addBtn.addEventListener("click", function () {
+        showPatternForm(container, null);
+      });
+      container.appendChild(addBtn);
+    }
+
+    function showPatternForm(container, pattern) {
+      var existing = container.querySelector(".settings-add-form");
+      if (existing) existing.remove();
+
+      var form = el("div", "settings-add-form");
+
+      var nameRow = el("div", "settings-form-row");
+      var nameLabel = el("label");
+      nameLabel.textContent = "パターン名";
+      var nameInput = el("input", "settings-form-input");
+      nameInput.type = "text";
+      nameInput.value = pattern ? pattern.patternName : "";
+      nameRow.appendChild(nameLabel);
+      nameRow.appendChild(nameInput);
+      form.appendChild(nameRow);
+
+      var numRow = el("div", "settings-form-row settings-form-numbers");
+      var fields = [
+        { label: "作業(分)", value: pattern ? pattern.workMinutes : 25 },
+        {
+          label: "短休憩(分)",
+          value: pattern ? pattern.shortBreakMinutes : 5,
+        },
+        {
+          label: "長休憩(分)",
+          value: pattern ? pattern.longBreakMinutes : 15,
+        },
+        {
+          label: "セット数",
+          value: pattern ? pattern.pomodorosBeforeLongBreak : 4,
+        },
+      ];
+      var numInputs = [];
+      fields.forEach(function (f) {
+        var group = el("div", "settings-form-group");
+        var label = el("label");
+        label.textContent = f.label;
+        var input = el("input", "settings-form-input settings-form-number");
+        input.type = "number";
+        input.min = "1";
+        input.value = f.value;
+        numInputs.push(input);
+        group.appendChild(label);
+        group.appendChild(input);
+        numRow.appendChild(group);
+      });
+      form.appendChild(numRow);
+
+      var btnRow = el("div", "settings-form-actions");
+      var saveBtn = el("button", "btn-small btn-primary");
+      saveBtn.textContent = "保存";
+      saveBtn.addEventListener("click", function () {
+        var name = nameInput.value.trim();
+        if (!name) {
+          alert("パターン名を入力してください");
+          return;
+        }
+        var work = parseInt(numInputs[0].value) || 25;
+        var sb = parseInt(numInputs[1].value) || 5;
+        var lb = parseInt(numInputs[2].value) || 15;
+        var sets = parseInt(numInputs[3].value) || 4;
+
+        if (pattern) {
+          handleUpdatePattern(pattern.patternName, name, work, sb, lb, sets);
+        } else {
+          handleAddPattern(name, work, sb, lb, sets);
+        }
+      });
+      var cancelBtn = el("button", "btn-small btn-secondary");
+      cancelBtn.textContent = "キャンセル";
+      cancelBtn.addEventListener("click", function () {
+        form.remove();
+      });
+      btnRow.appendChild(saveBtn);
+      btnRow.appendChild(cancelBtn);
+      form.appendChild(btnRow);
+
+      container.appendChild(form);
+      nameInput.focus();
+    }
+
+    // --- Categories ---
+
+    function renderCategories(container, categories, sheetType) {
+      container.innerHTML = "";
+
+      var active = categories.filter(function (c) {
+        return c.isActive;
+      });
+      var inactive = categories.filter(function (c) {
+        return !c.isActive;
+      });
+
+      active.forEach(function (c, idx) {
+        var item = el("div", "settings-category-item");
+
+        var dot = el("span", "settings-category-dot");
+        dot.style.background = c.color;
+
+        var name = el("span", "settings-category-name");
+        name.textContent = c.name;
+
+        var upBtn = el("button", "settings-btn-icon");
+        upBtn.textContent = "▲";
+        upBtn.disabled = idx === 0;
+        upBtn.addEventListener("click", function () {
+          handleMoveCategory(active, idx, -1, sheetType);
+        });
+
+        var downBtn = el("button", "settings-btn-icon");
+        downBtn.textContent = "▼";
+        downBtn.disabled = idx === active.length - 1;
+        downBtn.addEventListener("click", function () {
+          handleMoveCategory(active, idx, 1, sheetType);
+        });
+
+        var renameBtn = el("button", "settings-btn-icon");
+        renameBtn.textContent = "名前変更";
+        renameBtn.addEventListener("click", function () {
+          handleRenameCategory(c.name, sheetType);
+        });
+
+        var hideBtn = el("button", "settings-btn-icon");
+        hideBtn.textContent = "非表示";
+        hideBtn.addEventListener("click", function () {
+          handleToggleCategory(c.name, sheetType);
+        });
+
+        item.appendChild(dot);
+        item.appendChild(name);
+        item.appendChild(upBtn);
+        item.appendChild(downBtn);
+        item.appendChild(renameBtn);
+        item.appendChild(hideBtn);
+        container.appendChild(item);
+      });
+
+      if (inactive.length > 0) {
+        var divider = el("div", "settings-inactive-divider");
+        divider.textContent = "非表示のカテゴリ";
+        container.appendChild(divider);
+
+        inactive.forEach(function (c) {
+          var item = el("div", "settings-category-item settings-category-inactive");
+
+          var dot = el("span", "settings-category-dot");
+          dot.style.background = c.color;
+
+          var name = el("span", "settings-category-name");
+          name.textContent = c.name;
+
+          var showBtn = el("button", "settings-btn-icon");
+          showBtn.textContent = "表示する";
+          showBtn.addEventListener("click", function () {
+            handleToggleCategory(c.name, sheetType);
+          });
+
+          item.appendChild(dot);
+          item.appendChild(name);
+          item.appendChild(showBtn);
+          container.appendChild(item);
+        });
+      }
+    }
+
+    // --- Handlers ---
+
+    function handleSetActive(name) {
+      serverCall("setActiveTimerConfig", name).then(function (result) {
+        if (!result.success) {
+          alert(result.message);
+        }
+        refresh();
+      });
+    }
+
+    function handleAddPattern(name, work, sb, lb, sets) {
+      serverCall("addTimerConfig", name, work, sb, lb, sets).then(
+        function (result) {
+          if (!result.success) {
+            alert(result.message);
+            return;
+          }
+          refresh();
+        }
+      );
+    }
+
+    function handleUpdatePattern(originalName, name, work, sb, lb, sets) {
+      serverCall(
+        "updateTimerConfig",
+        originalName,
+        name,
+        work,
+        sb,
+        lb,
+        sets
+      ).then(function (result) {
+        if (!result.success) {
+          alert(result.message);
+          return;
+        }
+        refresh();
+      });
+    }
+
+    function handleDeletePattern(name) {
+      if (!confirm("パターン「" + name + "」を削除しますか？")) return;
+      serverCall("deleteTimerConfig", name).then(function (result) {
+        if (!result.success) {
+          alert(result.message);
+          return;
+        }
+        refresh();
+      });
+    }
+
+    function handleMoveCategory(activeList, idx, direction, sheetType) {
+      var newIdx = idx + direction;
+      if (newIdx < 0 || newIdx >= activeList.length) return;
+
+      var ordered = activeList.map(function (c) {
+        return c.name;
+      });
+      var temp = ordered[idx];
+      ordered[idx] = ordered[newIdx];
+      ordered[newIdx] = temp;
+
+      serverCall("reorderCategories", ordered, sheetType).then(function () {
+        refresh();
+      });
+    }
+
+    function handleRenameCategory(oldName, sheetType) {
+      var newName = prompt("新しい名前を入力してください:", oldName);
+      if (
+        newName === null ||
+        newName.trim() === "" ||
+        newName.trim() === oldName
+      )
+        return;
+      serverCall("renameCategory", oldName, newName.trim(), sheetType).then(
+        function (result) {
+          if (!result.success) {
+            alert(result.message);
+            return;
+          }
+          refresh();
+        }
+      );
+    }
+
+    function handleToggleCategory(name, sheetType) {
+      serverCall("toggleCategoryActive", name, sheetType).then(function () {
+        refresh();
+      });
+    }
+
+    // --- Helper ---
+    function el(tag, className) {
+      var e = document.createElement(tag);
+      if (className) e.className = className;
+      return e;
+    }
+
+    return {
+      show: show,
+      close: close,
+    };
+  })();
+</script>
