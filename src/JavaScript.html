@@ -58,7 +58,7 @@
       dom.btnStart = document.getElementById("btn-start");
       dom.workControls = document.getElementById("work-controls");
       dom.breakControls = document.getElementById("break-controls");
-      dom.breakDonePanel = document.getElementById("break-done-panel");
+      dom.breakDonePanel = document.getElementById("break-done-panel"); // may be null (removed)
       dom.recordActions = document.getElementById("record-form-actions");
       dom.workProgress = document.getElementById("work-progress");
       dom.patternSelector = document.getElementById("pattern-selector");
@@ -363,7 +363,8 @@
     }
 
     function continueWork() {
-      if (state.phase !== "breakDone") return;
+      if (state.phase !== "breakDone" && state.phase !== "shortBreak" && state.phase !== "longBreak") return;
+      if (!state.breakType) state.breakType = state.phase;
       saveBreakRecord().then(function () {
         refreshAll();
         startTimer("work", state.config.workMinutes);
@@ -371,7 +372,8 @@
     }
 
     function endSession() {
-      if (state.phase !== "breakDone") return;
+      if (state.phase !== "breakDone" && state.phase !== "shortBreak" && state.phase !== "longBreak") return;
+      if (!state.breakType) state.breakType = state.phase;
       saveBreakRecord().then(function () {
         stopInterval();
         clearState();
@@ -545,8 +547,7 @@
       // Timer card buttons
       dom.btnStart.style.display = isIdle ? "" : "none";
       dom.workControls.style.display = isWork ? "" : "none";
-      dom.breakControls.style.display = isBreak ? "" : "none";
-      dom.breakDonePanel.style.display = isBreakDone ? "" : "none";
+      dom.breakControls.style.display = (isBreak || isBreakDone) ? "" : "none";
 
       // Record form actions (always visible during work)
       dom.recordActions.style.display = isWork ? "" : "none";
@@ -900,23 +901,20 @@
       li.appendChild(row);
 
       // Click handler: open viewer with description
-      (function (record, metaText) {
+      (function (record) {
         row.addEventListener("click", function () {
           var description = (record.description || "").trim();
           var title = (record.description || "").split("\n")[0].trim() || "(無題)";
-          // Add start time to viewer meta
-          var viewerMeta = metaText;
-          try {
-            var st = new Date(record.startTime);
-            viewerMeta = String(st.getHours()).padStart(2, "0") + ":" +
-              String(st.getMinutes()).padStart(2, "0") + " 開始 - " + metaText;
-          } catch (e) {}
+          var intCount = record.workInterruptions + record.nonWorkInterruptions;
+          var viewerMeta = intCount > 0 ? intCount + "回中断" : "";
           TabPanel.showViewer(title, viewerMeta, description, record.id, "record", {
             category: record.category || "",
             sheetType: "Categories",
+            startTime: record.startTime,
+            endTime: record.endTime,
           });
         });
-      })(r, metaParts.join(" "));
+      })(r);
 
       // Interruption detail (always visible inline)
       var recordInts = intMap[r.id];

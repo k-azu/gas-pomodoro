@@ -74,6 +74,8 @@
     var viewerPicker = null;
     var viewerOriginalType = null; // "work" or "nonWork", null if not interruption
     var viewerTypeSaveCallback = null; // optional callback for in-memory type save
+    var viewerOriginalStartISO = null; // original startTime ISO string
+    var viewerOriginalEndISO = null;   // original endTime ISO string
 
     function initViewerPicker() {
       if (viewerPicker) return;
@@ -109,6 +111,8 @@
       viewerSheetType = null;
       viewerOriginalCategory = "";
       viewerOriginalType = null;
+      viewerOriginalStartISO = null;
+      viewerOriginalEndISO = null;
 
       // Parse opts (6th argument)
       var opts = {};
@@ -152,7 +156,41 @@
 
       // Set header content
       document.getElementById("viewer-title").textContent = title || "";
-      document.getElementById("viewer-meta").textContent = meta || "";
+
+      // Time group: show for records with startTime/endTime
+      var timeGroup = document.getElementById("viewer-time-group");
+      var metaText = document.getElementById("viewer-meta-text");
+      if (opts.startTime && opts.endTime) {
+        viewerOriginalStartISO = opts.startTime;
+        viewerOriginalEndISO = opts.endTime;
+        var startInput = document.getElementById("viewer-start-time");
+        var endInput = document.getElementById("viewer-end-time");
+        var durationSpan = document.getElementById("viewer-duration");
+
+        var sd = new Date(opts.startTime);
+        var ed = new Date(opts.endTime);
+        startInput.value = String(sd.getHours()).padStart(2, "0") + ":" + String(sd.getMinutes()).padStart(2, "0");
+        endInput.value = String(ed.getHours()).padStart(2, "0") + ":" + String(ed.getMinutes()).padStart(2, "0");
+
+        var updateDuration = function () {
+          var sp = startInput.value.split(":");
+          var ep = endInput.value.split(":");
+          if (sp.length === 2 && ep.length === 2) {
+            var mins = (parseInt(ep[0]) * 60 + parseInt(ep[1])) - (parseInt(sp[0]) * 60 + parseInt(sp[1]));
+            if (mins < 0) mins += 1440;
+            durationSpan.textContent = mins + "分";
+          }
+        };
+        updateDuration();
+        startInput.onchange = updateDuration;
+        endInput.onchange = updateDuration;
+
+        timeGroup.style.display = "";
+        metaText.textContent = meta || "";
+      } else {
+        timeGroup.style.display = "none";
+        metaText.textContent = meta || "";
+      }
 
       // Show/hide save button based on whether we have a record to save to
       var saveBtn = document.getElementById("viewer-save-btn");
@@ -218,11 +256,40 @@
         promises.push(serverCall("updateInterruptionType", viewerRecordId, newType));
       }
 
+      // Check if times changed
+      var timesChanged = false;
+      var newStartISO = viewerOriginalStartISO;
+      var newEndISO = viewerOriginalEndISO;
+      if (viewerOriginalStartISO && viewerOriginalEndISO) {
+        var startInput = document.getElementById("viewer-start-time");
+        var endInput = document.getElementById("viewer-end-time");
+        var origSD = new Date(viewerOriginalStartISO);
+        var origED = new Date(viewerOriginalEndISO);
+        var origStartHM = String(origSD.getHours()).padStart(2, "0") + ":" + String(origSD.getMinutes()).padStart(2, "0");
+        var origEndHM = String(origED.getHours()).padStart(2, "0") + ":" + String(origED.getMinutes()).padStart(2, "0");
+        if (startInput.value !== origStartHM || endInput.value !== origEndHM) {
+          timesChanged = true;
+          var sp = startInput.value.split(":");
+          var ep = endInput.value.split(":");
+          var ns = new Date(origSD);
+          ns.setHours(parseInt(sp[0]), parseInt(sp[1]), 0, 0);
+          var ne = new Date(origED);
+          ne.setHours(parseInt(ep[0]), parseInt(ep[1]), 0, 0);
+          newStartISO = ns.toISOString();
+          newEndISO = ne.toISOString();
+          promises.push(serverCall("updateRecordTimes", viewerRecordId, newStartISO, newEndISO));
+        }
+      }
+
       Promise.all(promises)
         .then(function () {
           if (saveBtn) saveBtn.disabled = false;
           viewerOriginalCategory = newCategory;
           if (typeChanged) viewerOriginalType = newType;
+          if (timesChanged) {
+            viewerOriginalStartISO = newStartISO;
+            viewerOriginalEndISO = newEndISO;
+          }
           refreshAll();
         })
         .catch(function (err) {

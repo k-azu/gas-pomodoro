@@ -65,24 +65,8 @@
 
         <!-- Break controls (shown during break) -->
         <div id="break-controls" class="timer-controls" style="display: none">
-          <button class="btn btn-primary" onclick="App.completeBreak()">休憩を終了</button>
-        </div>
-
-        <!-- Break done panel (shown after break ends) -->
-        <div
-          id="break-done-panel"
-          class="break-done-panel"
-          style="display: none"
-        >
-          <div class="break-done-message">休憩が終わりました</div>
-          <div class="break-done-actions">
-            <button class="btn btn-primary" onclick="App.continueWork()">
-              次のタイマーへ
-            </button>
-            <button class="btn btn-secondary" onclick="App.endSession()">
-              作業を終了
-            </button>
-          </div>
+          <button class="btn btn-primary" onclick="App.continueWork()">次のタイマーへ</button>
+          <button class="btn btn-secondary" onclick="App.endSession()">作業を終了</button>
         </div>
       </div>
 
@@ -189,6 +173,9 @@
         <div class="record-panel">
           <div class="panel-toolbar">
             <div id="record-category-area"></div>
+            <button class="btn-small btn-secondary"
+                    onclick="RecordForm.copyFromPrevious()"
+                    title="直前の作業記録の内容をコピー">前回をコピー</button>
           </div>
           <div id="record-editor-container" class="editor-flex-container"></div>
           <div class="panel-footer">
@@ -208,7 +195,14 @@
           <div class="panel-toolbar viewer-toolbar">
             <div class="viewer-toolbar-info">
               <div id="viewer-title" class="viewer-title"></div>
-              <div id="viewer-meta" class="viewer-meta"></div>
+              <div id="viewer-meta" class="viewer-meta">
+                <span class="viewer-time-group" id="viewer-time-group" style="display:none">
+                  開始 <input type="time" id="viewer-start-time" class="viewer-time-input" />
+                  - 終了 <input type="time" id="viewer-end-time" class="viewer-time-input" />
+                  <span id="viewer-duration"></span>
+                </span>
+                <span id="viewer-meta-text"></span>
+              </div>
             </div>
             <label id="viewer-type-label" class="checkbox-label" style="display:none"
               ><input type="checkbox" id="viewer-type-work" checked />

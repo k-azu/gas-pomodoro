@@ -166,6 +166,33 @@ function updateInterruptionType(
   return { success: false };
 }
 
+function updateRecordTimes(
+  recordId: string,
+  startTimeISO: string,
+  endTimeISO: string,
+): { success: boolean } {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("PomodoroLog")!;
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { success: false };
+
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let i = ids.length - 1; i >= 0; i--) {
+    if (String(ids[i][0]) === recordId) {
+      const row = i + 2;
+      sheet.getRange(row, 3).setValue(startTimeISO);
+      sheet.getRange(row, 4).setValue(endTimeISO);
+      const actualSeconds = Math.round(
+        (new Date(endTimeISO).getTime() - new Date(startTimeISO).getTime()) /
+          1000,
+      );
+      sheet.getRange(row, 6).setValue(actualSeconds);
+      return { success: true };
+    }
+  }
+  return { success: false };
+}
+
 function getRecentRecords(limit: number = 10): PomodoroRecord[] {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("PomodoroLog")!;
@@ -535,6 +562,20 @@ function getWeekRecordCounts(weekStartDate: string): {
   });
 
   return dateCounts;
+}
+
+function getLastWorkDescription(): string {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("PomodoroLog")!;
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return "";
+  const SCAN = 50;
+  const start = Math.max(2, lastRow - SCAN + 1);
+  const data = sheet.getRange(start, 1, lastRow - start + 1, 15).getValues();
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (String(data[i][6]) === "work") return String(data[i][7]);
+  }
+  return "";
 }
 
 function getTodayInterruptions(): InterruptionRecord[] {

@@ -299,6 +299,13 @@
       return y + "-" + m + "-" + day;
     }
 
+    function copyFromPrevious() {
+      serverCall("getLastWorkDescription").then(function (desc) {
+        if (!desc) return;
+        MemoEditor.setRecordValue(desc);
+      });
+    }
+
     return {
       submitAndDo: submitAndDo,
       clearForm: clearForm,
@@ -308,6 +315,7 @@
       ensureCategory: ensureCategory,
       generateUUID: generateUUID,
       formatDate: formatDate,
+      copyFromPrevious: copyFromPrevious,
     };
   })();
 </script>
