@@ -17,7 +17,12 @@
       try { return localStorage.getItem(key) || ""; } catch (e) { return ""; }
     }
     function lsSet(key, val) {
-      try { localStorage.setItem(key, val); } catch (e) {}
+      try { localStorage.setItem(key, val); } catch (e) {
+        var retries = 5;
+        while (retries-- > 0 && evictOldestMemoCache()) {
+          try { localStorage.setItem(key, val); return; } catch (e2) {}
+        }
+      }
     }
     function lsRemove(key) {
       try { localStorage.removeItem(key); } catch (e) {}
@@ -33,6 +38,27 @@
     var MEMO_CACHE_PREFIX = "gas_pomodoro_memo_";
     var TS_PREFIX = "gas_pomodoro_memo_ts_";
     var SYNCED_PREFIX = "gas_pomodoro_memo_synced_";
+
+    function evictOldestMemoCache() {
+      var oldest = null;
+      var oldestTs = null;
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (!k || k.indexOf(TS_PREFIX) !== 0) continue;
+        var id = k.slice(TS_PREFIX.length);
+        if (id === activeId) continue;
+        var ts = localStorage.getItem(k) || "";
+        if (!oldestTs || ts < oldestTs) {
+          oldest = id;
+          oldestTs = ts;
+        }
+      }
+      if (!oldest) return false;
+      lsRemove(MEMO_CACHE_PREFIX + oldest);
+      lsRemove(TS_PREFIX + oldest);
+      lsRemove(SYNCED_PREFIX + oldest);
+      return true;
+    }
 
     function setLocalTs(id, ts) { lsSet(TS_PREFIX + id, ts); }
     function getLocalTs(id) { return ls(TS_PREFIX + id); }
