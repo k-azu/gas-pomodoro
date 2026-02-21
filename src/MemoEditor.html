@@ -11,6 +11,7 @@
     var intDebounce = null;
     var memoScrollCache = {}; // documentId -> scrollTop
     var currentMemoDocId = null;
+    var _navigateBack = null;
 
     function ls(key) {
       try { return localStorage.getItem(key) || ""; } catch (e) { return ""; }
@@ -197,6 +198,61 @@
     }
 
     function mountEditors(memoMd, recordMd, intMd) {
+      // --- Mention navigation ---
+      var navStack = []; // [{ tab, memoId }]
+
+      function mentionItems(query) {
+        if (typeof MemoSidebar === "undefined") return [];
+        var allMemos = MemoSidebar.getAllMemos();
+        var q = query.toLowerCase();
+        return allMemos
+          .filter(function (m) { return m.name.toLowerCase().indexOf(q) !== -1; })
+          .slice(0, 8)
+          .map(function (m) { return { id: m.id, label: m.name }; });
+      }
+
+      function mentionClick(id) {
+        if (typeof MemoSidebar === "undefined") return;
+        var currentTab = TabPanel.getActiveTab();
+        var currentMemoId = MemoSidebar.getActiveId();
+
+        navStack.push({ tab: currentTab, memoId: currentMemoId });
+        history.pushState({ mentionNav: true }, "");
+
+        TabPanel.switchTab("memo");
+        MemoSidebar.selectMemo(id);
+        updateBackButton();
+      }
+
+      _navigateBack = function () {
+        if (navStack.length === 0) return;
+        var prev = navStack.pop();
+        TabPanel.switchTab(prev.tab);
+        if (prev.memoId && prev.tab === "memo") {
+          MemoSidebar.selectMemo(prev.memoId);
+        }
+        updateBackButton();
+      };
+
+      function updateBackButton() {
+        var btn = document.getElementById("memo-back-btn");
+        if (btn) btn.style.display = navStack.length > 0 ? "" : "none";
+      }
+
+      window.addEventListener("popstate", function (e) {
+        if (navStack.length > 0) {
+          _navigateBack();
+        }
+      });
+
+      var mentionsConfig = [{
+        char: "@",
+        scheme: "mention",
+        prefix: "@",
+        items: mentionItems,
+        onClick: mentionClick,
+      }];
+
       // 1. Memo editor
       var memoContainer = document.getElementById("memo-editor-container");
       if (memoContainer) {
@@ -209,6 +265,7 @@
             }, 500);
           },
           onImageUpload: handleImageUpload,
+          mentions: mentionsConfig,
           placeholder: "メモを入力...",
           defaultMode: "wysiwyg",
           style: { height: "100%" },
@@ -225,6 +282,7 @@
             recordDebounce = setTimeout(function () { lsSet(RECORD_KEY, blobUrlsToDrive(md)); }, 500);
           },
           onImageUpload: handleImageUpload,
+          mentions: mentionsConfig,
           placeholder: "何に取り組みましたか？",
           defaultMode: "wysiwyg",
           style: { height: "100%" },
@@ -241,6 +299,7 @@
             intDebounce = setTimeout(function () { lsSet(INT_KEY, blobUrlsToDrive(md)); }, 500);
           },
           onImageUpload: handleImageUpload,
+          mentions: mentionsConfig,
           placeholder: "中断メモ...",
           defaultMode: "wysiwyg",
           style: { height: "100%" },
@@ -253,6 +312,7 @@
         viewerEditor = window.mountMemoEditor(viewerContainer, {
           initialValue: "",
           onImageUpload: handleImageUpload,
+          mentions: mentionsConfig,
           placeholder: "",
           defaultMode: "wysiwyg",
           style: { height: "100%" },
@@ -402,6 +462,7 @@
       getViewerValue: getViewerValue,
       setViewerValue: setViewerValue,
       clearViewer: clearViewer,
+      navigateBack: function () { if (_navigateBack) _navigateBack(); },
     };
   })();
 </script>
