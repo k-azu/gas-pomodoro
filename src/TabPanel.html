@@ -1,16 +1,17 @@
 <script>
   var TabPanel = (function () {
+    var ACTIVE_TAB_KEY = "gas_pomodoro_active_tab";
     var activeTab = "memo";
     var lastAutoPhase = null;
 
     // Which tabs are visible per phase
     var tabVisibility = {
-      idle: { memo: true, record: false, interruption: false },
-      work: { memo: true, record: true, interruption: false },
-      interrupted: { memo: true, record: true, interruption: true },
-      shortBreak: { memo: true, record: false, interruption: false },
-      longBreak: { memo: true, record: false, interruption: false },
-      breakDone: { memo: true, record: false, interruption: false },
+      idle: { memo: true, task: true, record: false, interruption: false },
+      work: { memo: true, task: true, record: true, interruption: false },
+      interrupted: { memo: true, task: true, record: true, interruption: true },
+      shortBreak: { memo: true, task: true, record: false, interruption: false },
+      longBreak: { memo: true, task: true, record: false, interruption: false },
+      breakDone: { memo: true, task: true, record: false, interruption: false },
     };
 
     // Auto-switch target when entering a new phase
@@ -59,6 +60,11 @@
       }
 
       activeTab = tabId;
+
+      // Persist main tab selection (viewer/settings are transient)
+      if (tabId !== "viewer" && tabId !== "settings") {
+        try { localStorage.setItem(ACTIVE_TAB_KEY, tabId); } catch (e) {}
+      }
 
       // Notify link bubbles that editor visibility changed
       window.dispatchEvent(new Event("resize"));
@@ -375,7 +381,14 @@
       if (phase !== lastAutoPhase) {
         // Don't auto-switch if settings is open
         if (activeTab !== "settings") {
+          // On initial load, restore cached tab if visible
           var target = autoSwitchTarget[phase] || "memo";
+          if (lastAutoPhase === null) {
+            try {
+              var cached = localStorage.getItem(ACTIVE_TAB_KEY);
+              if (cached && visibility[cached]) target = cached;
+            } catch (e) {}
+          }
           if (visibility[target]) {
             switchTab(target);
           } else {

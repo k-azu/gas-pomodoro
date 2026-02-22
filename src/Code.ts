@@ -109,7 +109,7 @@ function getAllInitData(): {
     const TAIL_ROWS = 100;
     const startRow = Math.max(2, logLastRow - TAIL_ROWS + 1);
     const numRows = logLastRow - startRow + 1;
-    const logData = logSheet.getRange(startRow, 1, numRows, 15).getValues();
+    const logData = logSheet.getRange(startRow, 1, numRows, 16).getValues();
 
     const todayRows: PomodoroRecord[] = [];
     logData.forEach((row) => {
@@ -155,6 +155,7 @@ function getAllInitData(): {
         nonWorkInterruptionSeconds: Number(row[12]),
         completionStatus: String(row[13]),
         pomodoroSetIndex: Number(row[14]),
+        taskId: String(row[15]),
       });
     });
     recentRecords = todayRows.reverse();

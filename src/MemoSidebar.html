@@ -266,6 +266,8 @@
       var content = MemoEditor.getValue();
       var existing = ls("gas_pomodoro_memo_" + activeId);
       if (content === existing) return false;
+      // Guard: don't overwrite existing content with empty string (editor not ready)
+      if (!content && existing) return false;
       lsSet("gas_pomodoro_memo_" + activeId, content);
       setLocalTs(activeId, new Date().toISOString());
       return true;

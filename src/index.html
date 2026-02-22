@@ -140,9 +140,10 @@
     <div class="app-right">
       <div class="tab-bar">
         <button class="tab-btn active" data-tab="memo">メモ</button>
+        <button class="tab-btn" data-tab="task">タスク</button>
         <button class="tab-btn" data-tab="record" style="display:none">作業記録</button>
         <button class="tab-btn" data-tab="interruption" style="display:none">中断</button>
-        <button class="tab-btn" data-tab="viewer" style="display:none">ビュー</button>
+        <button class="tab-btn" data-tab="viewer" style="display:none">記録詳細</button>
         <button class="tab-btn" data-tab="settings" style="display:none">設定</button>
       </div>
 
@@ -172,11 +173,33 @@
         </div>
       </div>
 
+      <!-- タスクタブ -->
+      <div class="tab-content" data-tab-content="task" style="display:none">
+        <div class="task-layout">
+          <div id="task-sidebar" class="task-sidebar">
+            <div class="task-sidebar-header">
+              <span class="task-sidebar-title">プロジェクト</span>
+              <button class="memo-new-btn" onclick="TaskPanel.addProject()" title="プロジェクト追加">+</button>
+            </div>
+            <div id="task-tree" class="task-tree"></div>
+          </div>
+          <div class="task-sidebar-toggle" onclick="TaskPanel.toggleSidebar()" title="サイドバー切替">
+            <span class="memo-toggle-chevron"></span>
+          </div>
+          <div class="task-content-area">
+            <div id="task-content">
+              <div class="task-content-placeholder">プロジェクトまたはタスクを選択してください</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 作業記録タブ -->
       <div class="tab-content" data-tab-content="record" style="display:none">
         <div class="record-panel">
           <div class="panel-toolbar">
             <div id="record-category-area"></div>
+            <div id="record-task-area"></div>
             <button class="btn-small btn-secondary"
                     onclick="RecordForm.copyFromPrevious()"
                     title="直前の作業記録の内容をコピー">前回をコピー</button>
@@ -264,6 +287,12 @@
     </div>
 
     <script>
+      function docSvg(size, color) {
+        var s = size || 14;
+        var c = color || "currentColor";
+        return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 16 16" fill="' + c + '"><path d="M4.5 1h5.09a1 1 0 0 1 .7.29l2.42 2.42a1 1 0 0 1 .29.7V14a1 1 0 0 1-1 1h-7.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zm4.5 1v3.5h3.5M5.5 8h5M5.5 10.5h5M5.5 13h3"/></svg>';
+      }
+
       function checkSvg(size, color) {
         var s = size || 14;
         var c = color || "currentColor";
@@ -275,6 +304,8 @@
     <?!= include('TabPanel'); ?>
     <?!= include('MemoEditor'); ?>
     <?!= include('MemoSidebar'); ?>
+    <?!= include('TaskStore'); ?>
+    <?!= include('TaskPanel'); ?>
     <?!= include('ItemPicker'); ?>
     <?!= include('RecordForm'); ?>
     <?!= include('DateSelector'); ?>

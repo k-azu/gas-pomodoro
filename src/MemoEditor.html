@@ -231,6 +231,9 @@
         if (prev.memoId && prev.tab === "memo") {
           MemoSidebar.selectMemo(prev.memoId);
         }
+        if (prev.taskNode && prev.tab === "task" && typeof TaskPanel !== "undefined") {
+          TaskPanel.selectNode(prev.taskNode.type, prev.taskNode.id);
+        }
         updateBackButton();
       };
 
@@ -245,13 +248,142 @@
         }
       });
 
-      var mentionsConfig = [{
-        char: "@",
-        scheme: "mention",
-        prefix: "@",
-        items: mentionItems,
-        onClick: mentionClick,
-      }];
+      // --- Task mention navigation ---
+      function taskMentionItems(query) {
+        if (typeof TaskStore === "undefined") return [];
+        var q = query.toLowerCase();
+        // Synchronous cache fallback: we need items right away
+        // TaskStore returns promises; we pre-cache data for mentions
+        var items = _taskMentionCache || [];
+        return items
+          .filter(function (m) { return m.label.toLowerCase().indexOf(q) !== -1; })
+          .slice(0, 8);
+      }
+
+      function taskMentionClick(id) {
+        if (typeof TaskPanel === "undefined") return;
+        var currentTab = TabPanel.getActiveTab();
+        var currentMemoId = typeof MemoSidebar !== "undefined" ? MemoSidebar.getActiveId() : null;
+        var taskNode = typeof TaskPanel !== "undefined" ? TaskPanel.getSelectedNode() : null;
+
+        navStack.push({ tab: currentTab, memoId: currentMemoId, taskNode: taskNode });
+        history.pushState({ mentionNav: true }, "");
+
+        TabPanel.switchTab("task");
+        TaskPanel.selectNode("task", id);
+        updateBackButton();
+      }
+
+      function entityMentionItems(query) {
+        if (typeof TaskStore === "undefined") return [];
+        var q = query.toLowerCase();
+        var items = _entityMentionCache || [];
+        return items
+          .filter(function (m) { return m.label.toLowerCase().indexOf(q) !== -1; })
+          .slice(0, 8);
+      }
+
+      function entityMentionClick(id) {
+        if (typeof TaskPanel === "undefined") return;
+        var currentTab = TabPanel.getActiveTab();
+        var currentMemoId = typeof MemoSidebar !== "undefined" ? MemoSidebar.getActiveId() : null;
+        var taskNode = typeof TaskPanel !== "undefined" ? TaskPanel.getSelectedNode() : null;
+
+        navStack.push({ tab: currentTab, memoId: currentMemoId, taskNode: taskNode });
+        history.pushState({ mentionNav: true }, "");
+
+        // Parse type from id: "project:uuid" or "case:uuid"
+        var parts = id.split(":");
+        var type = parts[0];
+        var entityId = parts.slice(1).join(":");
+
+        TabPanel.switchTab("task");
+        TaskPanel.selectNode(type, entityId);
+        updateBackButton();
+      }
+
+      // Pre-cache mention data (refreshed periodically)
+      var _taskMentionCache = [];
+      var _entityMentionCache = [];
+
+      function refreshMentionCaches() {
+        if (typeof TaskStore === "undefined") return;
+        Promise.all([
+          TaskStore.getAllTasks(),
+          TaskStore.getAllProjects(),
+          TaskStore.getAllCases(),
+        ]).then(function (results) {
+          var tasks = results[0];
+          var projects = results[1];
+          var cases = results[2];
+
+          // Build project name map
+          var projMap = {};
+          projects.forEach(function (p) { projMap[p.id] = p.name; });
+          var caseMap = {};
+          cases.forEach(function (c) { caseMap[c.id] = c; });
+
+          // Task mention cache
+          _taskMentionCache = tasks.map(function (t) {
+            var path = projMap[t.projectId] || "";
+            if (t.caseId && caseMap[t.caseId]) {
+              path += " > " + caseMap[t.caseId].name;
+            }
+            return {
+              id: t.id,
+              label: t.name + (path ? " (" + path + ")" : ""),
+            };
+          });
+
+          // Entity mention cache (projects + cases)
+          _entityMentionCache = [];
+          projects.forEach(function (p) {
+            _entityMentionCache.push({
+              id: "project:" + p.id,
+              label: p.name,
+            });
+          });
+          cases.forEach(function (c) {
+            var projName = projMap[c.projectId] || "";
+            _entityMentionCache.push({
+              id: "case:" + c.id,
+              label: projName ? projName + "::" + c.name : c.name,
+            });
+          });
+        }).catch(function () {});
+      }
+
+      // Refresh caches on init and on TaskStore changes
+      setTimeout(refreshMentionCaches, 500);
+      if (typeof TaskStore !== "undefined") {
+        TaskStore.on("dataChanged", function () {
+          refreshMentionCaches();
+        });
+      }
+
+      var mentionsConfig = [
+        {
+          char: "@",
+          scheme: "mention",
+          prefix: "@",
+          items: mentionItems,
+          onClick: mentionClick,
+        },
+        {
+          char: "#",
+          scheme: "task",
+          prefix: "#",
+          items: taskMentionItems,
+          onClick: taskMentionClick,
+        },
+        {
+          char: "!",
+          scheme: "entity",
+          prefix: "!",
+          items: entityMentionItems,
+          onClick: entityMentionClick,
+        },
+      ];
 
       // 1. Memo editor
       var memoContainer = document.getElementById("memo-editor-container");

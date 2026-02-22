@@ -741,7 +741,9 @@
       } catch (e) {}
 
       // Flush debounced saveState on tab close
-      window.addEventListener("beforeunload", flushSaveState);
+      window.addEventListener("beforeunload", function () {
+        flushSaveState();
+      });
 
       serverCall("getAllInitData")
         .then(function (data) {
@@ -766,6 +768,17 @@
           DateSelector.init();
           DateSelector.loadWeekCounts();
           MemoSidebar.init(data.memos, data.memoTags);
+
+          // Init TaskStore + TaskPanel
+          if (typeof TaskStore !== "undefined") {
+            TaskStore.init().then(function () {
+              if (typeof TaskPanel !== "undefined") TaskPanel.init();
+              if (typeof RecordForm !== "undefined") RecordForm.renderTaskPicker();
+            }).catch(function (err) {
+              console.error("TaskStore init failed:", err);
+              if (typeof TaskPanel !== "undefined") TaskPanel.init();
+            });
+          }
 
           restoreTimer();
           updateDisplay();

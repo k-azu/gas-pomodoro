@@ -1,0 +1,1416 @@
+<script>
+  var TaskPanel = (function () {
+    var selectedNode = null; // { type: "project"|"case"|"task", id: string }
+    var expandedNodes = {}; // id -> true
+    var EXPANDED_KEY = "gas_pomodoro_task_tree_expanded";
+    var SELECTED_KEY = "gas_pomodoro_task_selected";
+    var SIDEBAR_KEY = "gas_pomodoro_task_sidebar_collapsed";
+    var VIEW_MODE_KEY = "gas_pomodoro_task_view_mode"; // id -> "doc"|"table"
+    var initialized = false;
+    var taskWikiDocId = null;
+    var taskWikiDebounce = null;
+    var taskWikiEditorRef = null; // persistent editor instance
+    var taskWikiStoreName = null;
+    var contentScrollCache = {}; // id -> scrollTop
+    var _wikiContainer = null;   // persistent DOM container (survives innerHTML wipe)
+    var _userHasEdited = false;  // edit flag for current document
+    var _wikiPending = false;    // initial mount in progress (prevents re-entry)
+    var contextMenuEl = null;
+    var dragState = null;
+    var pendingOrder = null;
+    var savingOrder = false;
+
+    // Status config
+    var STATUS_CONFIG = {
+      todo:    { label: "ToDo", color: "#9e9e9e" },
+      doing:   { label: "Doing", color: "#e53935" },
+      review:  { label: "Review", color: "#fb8c00" },
+      done:    { label: "Done", color: "#43a047" },
+      pending: { label: "Pending", color: "#7e57c2" },
+      docs:    { label: "Docs", color: "#1e88e5" },
+    };
+
+    var STATUS_ITEMS = Object.keys(STATUS_CONFIG).map(function (key) {
+      return { name: STATUS_CONFIG[key].label, color: STATUS_CONFIG[key].color };
+    });
+
+    function statusLabelToKey(label) {
+      var keys = Object.keys(STATUS_CONFIG);
+      for (var i = 0; i < keys.length; i++) {
+        if (STATUS_CONFIG[keys[i]].label === label) return keys[i];
+      }
+      return "todo";
+    }
+
+    var statusPickerCounter = 0;
+    var activeStatusPicker = null;
+    var tableStatusPickers = [];
+
+    // =========================================================
+    // Init
+    // =========================================================
+    function init() {
+      // Load expanded state
+      try {
+        var saved = localStorage.getItem(EXPANDED_KEY);
+        if (saved) expandedNodes = JSON.parse(saved);
+      } catch (e) {}
+
+      // Load selected state
+      try {
+        var savedSel = localStorage.getItem(SELECTED_KEY);
+        if (savedSel) selectedNode = JSON.parse(savedSel);
+      } catch (e) {}
+
+      // Load sidebar collapsed state
+      try {
+        if (localStorage.getItem(SIDEBAR_KEY) === "1") {
+          var sidebar = document.getElementById("task-sidebar");
+          if (sidebar) sidebar.classList.add("collapsed");
+        }
+      } catch (e) {}
+
+      TaskStore.on("dataChanged", function () {
+        render();
+      });
+
+      // Render content after init
+      if (selectedNode) renderContent(selectedNode.type, selectedNode.id);
+
+      // Browser back/forward support
+      window.addEventListener("popstate", function (e) {
+        if (e.state && e.state.taskNav) {
+          selectedNode = { type: e.state.type, id: e.state.id };
+          try { localStorage.setItem(SELECTED_KEY, JSON.stringify(selectedNode)); } catch (ex) {}
+          render();
+          renderContent(e.state.type, e.state.id);
+        }
+      });
+
+      // Seed initial history state for restored selection
+      if (selectedNode) {
+        history.replaceState({ taskNav: true, type: selectedNode.type, id: selectedNode.id }, "");
+      }
+
+      // Flush pending edits on tab close / hide
+      function flushWikiOnUnload() {
+        if (taskWikiDebounce) {
+          clearTimeout(taskWikiDebounce);
+          taskWikiDebounce = null;
+        }
+        if (taskWikiDocId) {
+          flushWikiSave(taskWikiDocId);
+        }
+      }
+      window.addEventListener("beforeunload", flushWikiOnUnload);
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "hidden") flushWikiOnUnload();
+      });
+
+      initialized = true;
+      render();
+    }
+
+    // =========================================================
+    // Sidebar Toggle
+    // =========================================================
+    function toggleSidebar() {
+      var sidebar = document.getElementById("task-sidebar");
+      if (!sidebar) return;
+      var collapsed = sidebar.classList.toggle("collapsed");
+      try { localStorage.setItem(SIDEBAR_KEY, collapsed ? "1" : ""); } catch (e) {}
+    }
+
+    // =========================================================
+    // Tree Rendering
+    // =========================================================
+    function render() {
+      if (!initialized) return;
+      var treeEl = document.getElementById("task-tree");
+      if (!treeEl) return;
+
+      TaskStore.getProjects().then(function (projects) {
+        treeEl.innerHTML = "";
+        if (projects.length === 0) {
+          var empty = document.createElement("div");
+          empty.className = "task-tree-empty";
+          empty.textContent = "プロジェクトがありません";
+          treeEl.appendChild(empty);
+          return;
+        }
+
+        var renderPromises = projects.map(function (proj) {
+          return renderProjectNode(proj);
+        });
+
+        Promise.all(renderPromises).then(function (nodes) {
+          nodes.forEach(function (node) {
+            treeEl.appendChild(node);
+          });
+        });
+      });
+    }
+
+    function renderProjectNode(proj) {
+      var container = document.createElement("div");
+      container.className = "task-tree-group";
+      container.setAttribute("data-id", proj.id);
+      container.setAttribute("data-type", "project");
+
+      var item = createTreeItem("project", proj);
+      container.appendChild(item);
+
+      if (!expandedNodes[proj.id]) return Promise.resolve(container);
+
+      var childContainer = document.createElement("div");
+      childContainer.className = "task-tree-children";
+      container.appendChild(childContainer);
+
+      return Promise.all([
+        TaskStore.getCases(proj.id),
+        TaskStore.getTasks(proj.id, ""),
+      ]).then(function (results) {
+        var cases = results[0];
+        var directTasks = results[1];
+
+        // Render cases
+        var casePromises = cases.map(function (c) {
+          return renderCaseNode(c);
+        });
+
+        return Promise.all(casePromises).then(function (caseNodes) {
+          caseNodes.forEach(function (cn) { childContainer.appendChild(cn); });
+
+          // Render direct tasks
+          directTasks.forEach(function (t) {
+            childContainer.appendChild(createTreeItem("task", t));
+          });
+
+          // Add button for direct task
+          var addRow = document.createElement("div");
+          addRow.className = "task-tree-add task-tree-add-task";
+          addRow.textContent = "+ タスク";
+          addRow.onclick = function (e) {
+            e.stopPropagation();
+            addTaskPrompt(proj.id, "");
+          };
+          childContainer.appendChild(addRow);
+
+          return container;
+        });
+      });
+    }
+
+    function renderCaseNode(c) {
+      var container = document.createElement("div");
+      container.className = "task-tree-group task-tree-case-group";
+      container.setAttribute("data-id", c.id);
+      container.setAttribute("data-type", "case");
+
+      var item = createTreeItem("case", c);
+      container.appendChild(item);
+
+      if (!expandedNodes[c.id]) return Promise.resolve(container);
+
+      var childContainer = document.createElement("div");
+      childContainer.className = "task-tree-children";
+      container.appendChild(childContainer);
+
+      return TaskStore.getTasks(c.projectId, c.id).then(function (tasks) {
+        tasks.forEach(function (t) {
+          childContainer.appendChild(createTreeItem("task", t));
+        });
+
+        return container;
+      });
+    }
+
+    function createTreeItem(type, data) {
+      var item = document.createElement("div");
+      item.className = "task-tree-item task-tree-" + type;
+      if (selectedNode && selectedNode.type === type && selectedNode.id === data.id) {
+        item.classList.add("active");
+      }
+      item.setAttribute("data-id", data.id);
+      item.setAttribute("data-type", type);
+
+      // Long-press to drag reorder (project/case only)
+      if (type === "project" || type === "case") {
+        var longPressTimer = null;
+        var lpStartX = 0, lpStartY = 0;
+        item.addEventListener("pointerdown", function (e) {
+          if (e.button !== 0) return;
+          var startE = e;
+          lpStartX = e.clientX;
+          lpStartY = e.clientY;
+          longPressTimer = setTimeout(function () {
+            longPressTimer = null;
+            startDrag(startE, type, data.id, item);
+          }, 250);
+        });
+        item.addEventListener("pointermove", function (e) {
+          // Cancel only if moved more than 8px
+          if (longPressTimer) {
+            var dx = e.clientX - lpStartX;
+            var dy = e.clientY - lpStartY;
+            if (dx * dx + dy * dy > 64) {
+              clearTimeout(longPressTimer);
+              longPressTimer = null;
+            }
+          }
+        });
+        item.addEventListener("pointerup", function () {
+          if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        });
+        item.addEventListener("pointercancel", function () {
+          if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        });
+      }
+
+      // Expand chevron for project/case
+      if (type === "project" || type === "case") {
+        var chevron = document.createElement("span");
+        chevron.className = "task-tree-chevron" + (expandedNodes[data.id] ? " expanded" : "");
+        chevron.textContent = "\u25B6";
+        chevron.onclick = function (e) {
+          e.stopPropagation();
+          toggleExpand(data.id);
+        };
+        item.appendChild(chevron);
+      }
+
+      // Color indicator or status dot
+      if (type === "project") {
+        var projIcon = document.createElement("span");
+        projIcon.className = "task-tree-icon";
+        projIcon.innerHTML = docSvg(14, data.color || "#4285f4");
+        item.appendChild(projIcon);
+      } else if (type === "case") {
+        var caseIcon = document.createElement("span");
+        caseIcon.className = "task-tree-icon";
+        caseIcon.innerHTML = docSvg(14, data.color || "#757575");
+        item.appendChild(caseIcon);
+      } else if (type === "task") {
+        var sc = STATUS_CONFIG[data.status] || STATUS_CONFIG.todo;
+        if (data.status === "docs") {
+          var docsIconTree = document.createElement("span");
+          docsIconTree.className = "task-tree-icon";
+          docsIconTree.title = sc.label;
+          docsIconTree.innerHTML = docSvg(14, sc.color);
+          item.appendChild(docsIconTree);
+        } else {
+          var statusDot = document.createElement("span");
+          statusDot.className = "task-status-dot";
+          statusDot.style.background = sc.color;
+          statusDot.title = sc.label;
+          item.appendChild(statusDot);
+        }
+      }
+
+      // Name
+      var nameSpan = document.createElement("span");
+      nameSpan.className = "task-tree-name";
+      nameSpan.textContent = data.name;
+      item.appendChild(nameSpan);
+
+      // Time badge (task only)
+      if (type === "task" && data._cachedTimeSeconds) {
+        var timeBadge = document.createElement("span");
+        timeBadge.className = "task-tree-time";
+        timeBadge.textContent = formatTaskTime(data._cachedTimeSeconds);
+        item.appendChild(timeBadge);
+      }
+
+      // Add button for project (adds case) and case (adds task)
+      if (type === "project") {
+        var addBtn = document.createElement("span");
+        addBtn.className = "task-tree-add-btn";
+        addBtn.textContent = "+";
+        addBtn.title = "案件を追加";
+        addBtn.onclick = function (e) {
+          e.stopPropagation();
+          if (!expandedNodes[data.id]) toggleExpand(data.id);
+          addCasePrompt(data.id);
+        };
+        item.appendChild(addBtn);
+      } else if (type === "case") {
+        var addBtn = document.createElement("span");
+        addBtn.className = "task-tree-add-btn";
+        addBtn.textContent = "+";
+        addBtn.title = "タスクを追加";
+        addBtn.onclick = function (e) {
+          e.stopPropagation();
+          if (!expandedNodes[data.id]) toggleExpand(data.id);
+          addTaskPrompt(data.projectId, data.id);
+        };
+        item.appendChild(addBtn);
+      }
+
+      // Click to select
+      item.onclick = function () {
+        selectNode(type, data.id);
+      };
+
+      // Context menu
+      item.oncontextmenu = function (e) {
+        showContextMenu(e, type, data);
+      };
+
+      return item;
+    }
+
+    function formatTaskTime(seconds) {
+      if (!seconds) return "";
+      var hours = Math.floor(seconds / 3600);
+      var mins = Math.floor((seconds % 3600) / 60);
+      if (hours > 0) return hours + "h" + (mins > 0 ? mins + "m" : "");
+      return mins + "m";
+    }
+
+    // =========================================================
+    // Expand/Collapse
+    // =========================================================
+    function toggleExpand(id) {
+      if (expandedNodes[id]) {
+        delete expandedNodes[id];
+      } else {
+        expandedNodes[id] = true;
+      }
+      saveExpandedState();
+      render();
+    }
+
+    function saveExpandedState() {
+      try { localStorage.setItem(EXPANDED_KEY, JSON.stringify(expandedNodes)); } catch (e) {}
+    }
+
+    // =========================================================
+    // Node Selection
+    // =========================================================
+    function selectNode(type, id, opts) {
+      var prev = selectedNode;
+      selectedNode = { type: type, id: id };
+      try { localStorage.setItem(SELECTED_KEY, JSON.stringify(selectedNode)); } catch (e) {}
+
+      // Push browser history unless this is a popstate-driven navigation
+      if (!(opts && opts.fromPopState)) {
+        var stateObj = { taskNav: true, type: type, id: id };
+        // Replace if this is the first selection (no previous), otherwise push
+        if (!prev) {
+          history.replaceState(stateObj, "");
+        } else {
+          history.pushState(stateObj, "");
+        }
+      }
+
+      render();
+      renderContent(type, id);
+    }
+
+    function getSelectedNode() {
+      return selectedNode;
+    }
+
+    // =========================================================
+    // Content Area
+    // =========================================================
+    function renderContent(type, id) {
+      var contentEl = document.getElementById("task-content");
+      if (!contentEl) return;
+
+      // Save scroll for previous wiki doc BEFORE DOM is destroyed
+      saveWikiScroll();
+
+      // Detach persistent wiki container before DOM wipe
+      if (_wikiContainer && _wikiContainer.parentNode) {
+        _wikiContainer.parentNode.removeChild(_wikiContainer);
+      }
+
+      // Cleanup previous status pickers
+      if (activeStatusPicker) { activeStatusPicker.destroy(); activeStatusPicker = null; }
+      tableStatusPickers.forEach(function (p) { p.destroy(); });
+      tableStatusPickers = [];
+
+      if (!type || !id) {
+        contentEl.innerHTML = '<div class="task-content-placeholder">プロジェクトまたはタスクを選択してください</div>';
+        return;
+      }
+
+      if (type === "project" || type === "case") {
+        renderProjectOrCaseContent(contentEl, type, id);
+      } else if (type === "task") {
+        renderTaskContent(contentEl, type, id);
+      }
+    }
+
+    function renderProjectOrCaseContent(contentEl, type, id) {
+      var storeFn = type === "project" ? TaskStore.get.bind(null, "projects") : TaskStore.get.bind(null, "cases");
+      storeFn(id).then(function (data) {
+        if (!data) {
+          contentEl.innerHTML = '<div class="task-content-placeholder">データが見つかりません</div>';
+          return;
+        }
+
+        contentEl.innerHTML = '';
+
+        // Header
+        var header = document.createElement("div");
+        header.className = "task-detail-header";
+
+        if (type === "project") {
+          var colorInput = document.createElement("input");
+          colorInput.type = "color";
+          colorInput.className = "task-detail-color";
+          colorInput.value = data.color || "#4285f4";
+          colorInput.onchange = function () {
+            TaskStore.updateProject(id, { color: colorInput.value });
+          };
+          header.appendChild(colorInput);
+        }
+
+        var titleEl = document.createElement("h3");
+        titleEl.className = "task-detail-title";
+        titleEl.textContent = data.name;
+        titleEl.onclick = function () { startInlineRename(titleEl, type, id, data.name); };
+        header.appendChild(titleEl);
+
+        if (data._cachedTimeSeconds) {
+          var timeEl = document.createElement("span");
+          timeEl.className = "task-detail-time";
+          timeEl.textContent = formatTaskTime(data._cachedTimeSeconds);
+          header.appendChild(timeEl);
+        }
+
+        // Restore cached view mode
+        var viewModes = {};
+        try { viewModes = JSON.parse(localStorage.getItem(VIEW_MODE_KEY)) || {}; } catch (e) {}
+        var showingDoc = viewModes[id] !== "table";
+
+        // Toggle button (right-aligned in header)
+        var toggleBtn = document.createElement("button");
+        toggleBtn.className = "task-view-toggle";
+        toggleBtn.textContent = showingDoc ? "タスク" : "ドキュメント";
+        toggleBtn.onclick = function () {
+          showingDoc = !showingDoc;
+          if (showingDoc) {
+            docContent.style.display = "";
+            tableContent.style.display = "none";
+            toggleBtn.textContent = "タスク";
+          } else {
+            docContent.style.display = "none";
+            tableContent.style.display = "";
+            toggleBtn.textContent = "ドキュメント";
+            renderTaskTable(tableContent, type, id);
+          }
+          try {
+            viewModes[id] = showingDoc ? "doc" : "table";
+            localStorage.setItem(VIEW_MODE_KEY, JSON.stringify(viewModes));
+          } catch (e) {}
+        };
+        header.appendChild(toggleBtn);
+
+        contentEl.appendChild(header);
+
+        // Document content
+        var docContent = document.createElement("div");
+        docContent.className = "task-doc-content editor-full-container";
+        if (!showingDoc) docContent.style.display = "none";
+        contentEl.appendChild(docContent);
+
+        // Table content
+        var tableContent = document.createElement("div");
+        tableContent.className = "task-table-content";
+        if (showingDoc) tableContent.style.display = "none";
+        contentEl.appendChild(tableContent);
+
+        // Attach wiki editor
+        attachWikiEditor(docContent, id, type === "project" ? "projects" : "cases");
+
+        // If cached as table view, render table now
+        if (!showingDoc) renderTaskTable(tableContent, type, id);
+      });
+    }
+
+    function renderTaskContent(contentEl, type, id) {
+      TaskStore.get("tasks", id).then(function (data) {
+        if (!data) {
+          contentEl.innerHTML = '<div class="task-content-placeholder">データが見つかりません</div>';
+          return;
+        }
+
+        contentEl.innerHTML = '';
+
+        // Header with status and dates
+        var header = document.createElement("div");
+        header.className = "task-detail-header";
+
+        // Status picker (ItemPicker style)
+        var statusContainerId = "task-status-picker-" + (++statusPickerCounter);
+        var statusArea = document.createElement("div");
+        statusArea.id = statusContainerId;
+        statusArea.className = "task-status-picker-area";
+        header.appendChild(statusArea);
+
+        var titleEl = document.createElement("h3");
+        titleEl.className = "task-detail-title";
+        titleEl.textContent = data.name;
+        titleEl.onclick = function () { startInlineRename(titleEl, "task", id, data.name); };
+        header.appendChild(titleEl);
+
+        if (data._cachedTimeSeconds) {
+          var timeEl = document.createElement("span");
+          timeEl.className = "task-detail-time";
+          timeEl.textContent = formatTaskTime(data._cachedTimeSeconds);
+          header.appendChild(timeEl);
+        }
+
+        contentEl.appendChild(header);
+
+        // Create status picker after header is in DOM
+        var currentStatusLabel = (STATUS_CONFIG[data.status] || STATUS_CONFIG.todo).label;
+        activeStatusPicker = ItemPicker.create({
+          containerId: statusContainerId,
+          mode: "single",
+          items: STATUS_ITEMS.slice(),
+          selected: [currentStatusLabel],
+          placeholder: "ステータス",
+          onAdd: function (label) {
+            var key = statusLabelToKey(label);
+            TaskStore.updateTask(id, { status: key });
+          },
+          onRemove: function () {},
+          onCreateItem: function () {},
+          onColorChange: function () {},
+        });
+
+        // Date row
+        var dateRow = document.createElement("div");
+        dateRow.className = "task-date-row";
+
+        var startLabel = document.createElement("label");
+        startLabel.className = "task-date-label";
+        startLabel.textContent = "開始: ";
+        var startInput = document.createElement("input");
+        startInput.type = "date";
+        startInput.className = "task-date-input";
+        startInput.value = data.startedAt ? data.startedAt.slice(0, 10) : "";
+        startInput.onchange = function () {
+          TaskStore.updateTask(id, { startedAt: startInput.value || "" });
+        };
+        startLabel.appendChild(startInput);
+        dateRow.appendChild(startLabel);
+
+        var dueLabel = document.createElement("label");
+        dueLabel.className = "task-date-label";
+        dueLabel.textContent = "期限: ";
+        var dueInput = document.createElement("input");
+        dueInput.type = "date";
+        dueInput.className = "task-date-input";
+        dueInput.value = data.dueDate ? data.dueDate.slice(0, 10) : "";
+        dueInput.onchange = function () {
+          TaskStore.updateTask(id, { dueDate: dueInput.value || "" });
+        };
+        dueLabel.appendChild(dueInput);
+        dateRow.appendChild(dueLabel);
+
+        contentEl.appendChild(dateRow);
+
+        // Wiki editor container
+        var wikiContainer = document.createElement("div");
+        wikiContainer.className = "task-wiki-container editor-full-container";
+        contentEl.appendChild(wikiContainer);
+
+        attachWikiEditor(wikiContainer, id, "tasks");
+
+        // Work records section (collapsible)
+        var recordsSection = document.createElement("details");
+        recordsSection.className = "task-records-section";
+        var recordsSummary = document.createElement("summary");
+        recordsSummary.textContent = "作業記録";
+        recordsSection.appendChild(recordsSummary);
+
+        var recordsList = document.createElement("div");
+        recordsList.className = "task-records-list";
+        recordsSection.appendChild(recordsList);
+        contentEl.appendChild(recordsSection);
+
+        // Load records on open
+        recordsSection.addEventListener("toggle", function () {
+          if (recordsSection.open) {
+            loadTaskRecords(recordsList, id);
+          }
+        });
+      });
+    }
+
+    // =========================================================
+    // Wiki Editor (persistent single instance)
+    // =========================================================
+    function ensureWikiEditor(initialDocId, initialContent) {
+      if (_wikiContainer) return;
+      if (typeof window.mountMemoEditor !== "function") return;
+
+      _wikiContainer = document.createElement("div");
+      _wikiContainer.style.height = "100%";
+
+      taskWikiEditorRef = window.mountMemoEditor(_wikiContainer, {
+        initialValue: initialContent || "",
+        initialDocumentId: initialDocId,
+        onChange: function (md) {
+          _userHasEdited = true;
+          if (taskWikiDebounce) clearTimeout(taskWikiDebounce);
+          taskWikiDebounce = setTimeout(function () {
+            taskWikiDebounce = null;
+            TaskStore.saveContent(taskWikiDocId, md, taskWikiStoreName);
+          }, 2000);
+        },
+        placeholder: "ドキュメントを入力...",
+        defaultMode: "wysiwyg",
+        style: { height: "100%" },
+      });
+    }
+
+    function attachWikiEditor(target, id, storeName) {
+      // --- Initial mount: load content first, then create editor ---
+      if (!_wikiContainer && !_wikiPending) {
+        _wikiPending = true;
+        taskWikiDocId = id;
+        taskWikiStoreName = storeName;
+        _userHasEdited = false;
+
+        TaskStore.getContent(id, storeName).then(function (content) {
+          _wikiPending = false;
+          if (taskWikiDocId !== id) return; // stale
+
+          ensureWikiEditor(id, content || "");
+          if (!_wikiContainer || !taskWikiEditorRef) return;
+
+          target.appendChild(_wikiContainer);
+        });
+        return;
+      }
+
+      // Re-entry during initial load — skip
+      if (_wikiPending) return;
+
+      if (!_wikiContainer || !taskWikiEditorRef) return;
+
+      // Same document — reattach only (preserves undo/cursor/selection)
+      if (taskWikiDocId === id) {
+        target.appendChild(_wikiContainer);
+        restoreWikiScroll(id);
+        return;
+      }
+
+      // Different document — save scroll & flush BEFORE reattach (reattach resets scrollTop)
+      saveWikiScroll();
+      if (taskWikiDebounce) {
+        clearTimeout(taskWikiDebounce);
+        taskWikiDebounce = null;
+      }
+      if (taskWikiDocId) {
+        flushWikiSave(taskWikiDocId);
+      }
+
+      taskWikiDocId = id;
+      taskWikiStoreName = storeName;
+      _userHasEdited = false;
+
+      target.appendChild(_wikiContainer);
+
+      // Cache hit: editor already has this document loaded (undo/cursor preserved)
+      if (typeof taskWikiEditorRef.hasDocument === "function" && taskWikiEditorRef.hasDocument(id)) {
+        taskWikiEditorRef.switchDocument(id, "");
+        restoreWikiScroll(id);
+        taskWikiEditorRef.setEditable(true);
+        return;
+      }
+
+      // Cache miss: load from IndexedDB
+      taskWikiEditorRef.setEditable(false);
+
+      TaskStore.getContent(id, storeName).then(function (content) {
+        if (taskWikiDocId !== id) return; // stale
+
+        taskWikiEditorRef.switchDocument(id, content || "");
+        restoreWikiScroll(id);
+
+        // Wait for any pending lock on this id before enabling edit
+        TaskStore.withLock(id, function () {}).then(function () {
+          if (taskWikiDocId === id) taskWikiEditorRef.setEditable(true);
+        });
+      }).catch(function () {
+        if (taskWikiDocId === id) {
+          taskWikiEditorRef.switchDocument(id, "");
+          taskWikiEditorRef.setEditable(true);
+        }
+      });
+    }
+
+    function getWikiScrollEl() {
+      if (!_wikiContainer) return null;
+      return _wikiContainer.querySelector(".mdg-editor-content") || null;
+    }
+
+    function saveWikiScroll() {
+      if (!taskWikiDocId) return;
+      // Skip when detached — scrollTop resets to 0 and would overwrite the real value
+      if (!_wikiContainer || !_wikiContainer.isConnected) return;
+      var el = getWikiScrollEl();
+      if (el) contentScrollCache[taskWikiDocId] = el.scrollTop;
+    }
+
+    function restoreWikiScroll(docId) {
+      var pos = contentScrollCache[docId];
+      if (pos == null) return;
+      setTimeout(function () {
+        var el = getWikiScrollEl();
+        if (el) el.scrollTop = pos;
+      }, 0);
+    }
+
+    function flushWikiSave(id) {
+      if (!taskWikiEditorRef || !_userHasEdited) return;
+      var md = taskWikiEditorRef.getValue();
+      // Guard: don't save empty content when editor is not ready
+      if (!md && taskWikiEditorRef.isReady && !taskWikiEditorRef.isReady()) return;
+      if (md != null) {
+        TaskStore.saveContent(id, md, taskWikiStoreName);
+      }
+    }
+
+    // =========================================================
+    // Task Table
+    // =========================================================
+    function renderTaskTable(container, parentType, parentId) {
+      tableStatusPickers.forEach(function (p) { p.destroy(); });
+      tableStatusPickers = [];
+      container.innerHTML = "";
+
+      var loadPromise;
+      if (parentType === "project") {
+        loadPromise = Promise.all([
+          TaskStore.getCases(parentId),
+          TaskStore.getTasks(parentId, ""),
+        ]).then(function (results) {
+          return { cases: results[0], directTasks: results[1] };
+        });
+      } else {
+        // case
+        loadPromise = TaskStore.getTasks("", parentId).then(function (tasks) {
+          return { cases: [], directTasks: tasks };
+        });
+      }
+
+      loadPromise.then(function (data) {
+        // Direct tasks group
+        if (data.directTasks.length > 0 || parentType === "project") {
+          var directGroup = createTaskTableGroup(
+            parentType === "project" ? "直属タスク" : "",
+            data.directTasks,
+            parentId,
+            ""
+          );
+          container.appendChild(directGroup);
+          initTablePickers(directGroup);
+        }
+
+        // Case groups
+        if (data.cases && data.cases.length > 0) {
+          var casePromises = data.cases.map(function (c) {
+            return TaskStore.getTasks(c.projectId, c.id).then(function (tasks) {
+              return { caseName: c.name, caseId: c.id, projectId: c.projectId, tasks: tasks };
+            });
+          });
+
+          Promise.all(casePromises).then(function (caseGroups) {
+            caseGroups.forEach(function (cg) {
+              var group = createTaskTableGroup(cg.caseName, cg.tasks, cg.projectId, cg.caseId);
+              container.appendChild(group);
+              initTablePickers(group);
+            });
+          });
+        }
+      });
+    }
+
+    function initTablePickers(group) {
+      var pickers = group._pendingPickers || [];
+      pickers.forEach(function (p) {
+        var sc = STATUS_CONFIG[p.task.status] || STATUS_CONFIG.todo;
+        var picker = ItemPicker.create({
+          containerId: p.containerId,
+          mode: "single",
+          items: STATUS_ITEMS.slice(),
+          selected: [sc.label],
+          placeholder: "ステータス",
+          onAdd: function (label) {
+            var key = statusLabelToKey(label);
+            TaskStore.updateTask(p.task.id, { status: key });
+          },
+          onRemove: function () {},
+          onCreateItem: function () {},
+          onColorChange: function () {},
+        });
+        if (picker) tableStatusPickers.push(picker);
+      });
+      delete group._pendingPickers;
+    }
+
+    function createDateCell(td, dateValue, onChange) {
+      var display = document.createElement("span");
+      display.className = "task-table-date-display";
+      display.textContent = dateValue ? dateValue.slice(0, 10) : "-";
+      td.appendChild(display);
+
+      var input = document.createElement("input");
+      input.type = "date";
+      input.className = "task-table-date";
+      input.value = dateValue ? dateValue.slice(0, 10) : "";
+      input.onkeydown = function (e) { e.preventDefault(); };
+      td.appendChild(input);
+
+      display.onclick = function (e) {
+        e.stopPropagation();
+        input.showPicker();
+      };
+      input.onclick = function (e) { e.stopPropagation(); };
+      input.onchange = function () {
+        display.textContent = input.value || "-";
+        onChange(input.value || "");
+      };
+    }
+
+    function createTaskTableGroup(title, tasks, projectId, caseId) {
+      var group = document.createElement("div");
+      group.className = "task-table-group";
+
+      if (title) {
+        var header = document.createElement("div");
+        header.className = "task-table-group-header";
+        header.textContent = title;
+        group.appendChild(header);
+      }
+
+      var table = document.createElement("table");
+      table.className = "task-table";
+
+      var thead = document.createElement("thead");
+      thead.innerHTML = "<tr><th>名前</th><th>Status</th><th>開始</th><th>期限</th><th>完了</th><th>作業時間</th></tr>";
+      table.appendChild(thead);
+
+      var tbody = document.createElement("tbody");
+      var pendingPickers = [];
+      tasks.forEach(function (t) {
+        var tr = document.createElement("tr");
+        tr.className = "task-table-row";
+        tr.onclick = function () { selectNode("task", t.id); };
+
+        // Name
+        var tdName = document.createElement("td");
+        tdName.className = "task-table-name-cell";
+
+        // Edit (rename) button
+        var editBtn = document.createElement("button");
+        editBtn.className = "task-table-edit-btn";
+        editBtn.title = "名前を変更";
+        editBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M12.1 1.3a1.5 1.5 0 012.1 2.1L5.6 12l-3.2.8.8-3.2z"/></svg>';
+        editBtn.onclick = function (e) {
+          e.stopPropagation();
+          // Switch to inline rename
+          var input = document.createElement("input");
+          input.type = "text";
+          input.className = "task-table-name-input";
+          input.value = t.name;
+          nameSpan.style.display = "none";
+          editBtn.style.display = "none";
+          tdName.appendChild(input);
+          input.focus();
+          input.select();
+          input.onblur = function () {
+            var newName = input.value.trim();
+            if (newName && newName !== t.name) {
+              TaskStore.updateTask(t.id, { name: newName });
+              nameSpan.textContent = newName;
+            }
+            input.remove();
+            nameSpan.style.display = "";
+            editBtn.style.display = "";
+          };
+          input.onkeydown = function (ev) {
+            if (ev.key === "Enter") input.blur();
+            if (ev.key === "Escape") {
+              input.value = t.name;
+              input.blur();
+            }
+          };
+        };
+        tdName.appendChild(editBtn);
+
+        if (t.status === "docs") {
+          var docsIcon = document.createElement("span");
+          docsIcon.className = "task-docs-icon";
+          docsIcon.innerHTML = docSvg(14, "#1e88e5");
+          tdName.appendChild(docsIcon);
+        }
+
+        var nameSpan = document.createElement("span");
+        nameSpan.className = "task-table-name";
+        nameSpan.textContent = t.name;
+        tdName.appendChild(nameSpan);
+        tr.appendChild(tdName);
+
+        // Status (ItemPicker - deferred creation)
+        var tdStatus = document.createElement("td");
+        tdStatus.onclick = function (e) { e.stopPropagation(); };
+        var tblStatusId = "task-table-status-" + (++statusPickerCounter);
+        var tblStatusArea = document.createElement("div");
+        tblStatusArea.id = tblStatusId;
+        tblStatusArea.className = "task-table-status-area";
+        tdStatus.appendChild(tblStatusArea);
+        tr.appendChild(tdStatus);
+        pendingPickers.push({ containerId: tblStatusId, task: t });
+
+        // Start date
+        var tdStart = document.createElement("td");
+        createDateCell(tdStart, t.startedAt, function (val) {
+          TaskStore.updateTask(t.id, { startedAt: val });
+        });
+        tr.appendChild(tdStart);
+
+        // Due date
+        var tdDue = document.createElement("td");
+        createDateCell(tdDue, t.dueDate, function (val) {
+          TaskStore.updateTask(t.id, { dueDate: val });
+        });
+        tr.appendChild(tdDue);
+
+        // Completed date
+        var tdCompleted = document.createElement("td");
+        tdCompleted.className = "task-table-completed";
+        tdCompleted.textContent = t.completedAt ? t.completedAt.slice(0, 10) : "-";
+        tr.appendChild(tdCompleted);
+
+        // Time
+        var tdTime = document.createElement("td");
+        tdTime.className = "task-table-time";
+        tdTime.textContent = t._cachedTimeSeconds ? formatTaskTime(t._cachedTimeSeconds) : "-";
+        tr.appendChild(tdTime);
+
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      group.appendChild(table);
+
+      // Add task row
+      var addRow = document.createElement("div");
+      addRow.className = "task-table-add";
+      addRow.textContent = "+ タスク追加";
+      addRow.onclick = function () {
+        addTaskPrompt(projectId, caseId);
+      };
+      group.appendChild(addRow);
+
+      // Deferred: init pickers after group is in DOM
+      group._pendingPickers = pendingPickers;
+      return group;
+    }
+
+    // =========================================================
+    // Task Records
+    // =========================================================
+    function loadTaskRecords(container, taskId) {
+      container.innerHTML = '<div class="task-records-loading">読み込み中...</div>';
+      serverCall("getTaskPomodoroRecords", taskId).then(function (records) {
+        container.innerHTML = "";
+        if (!records || records.length === 0) {
+          container.innerHTML = '<div class="task-records-empty">作業記録がありません</div>';
+          return;
+        }
+        records.forEach(function (r) {
+          if (r.type !== "work") return;
+          var row = document.createElement("div");
+          row.className = "task-record-row";
+
+          var firstLine = (r.description || "").split("\n")[0].trim() || "(無題)";
+          var durMin = Math.floor(r.actualDurationSeconds / 60);
+          var dateStr = "";
+          try {
+            var d = new Date(r.startTime);
+            dateStr = (d.getMonth() + 1) + "/" + d.getDate() + " " +
+              String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+          } catch (e) {}
+
+          row.innerHTML = '<span class="task-record-date">' + dateStr + '</span>'
+            + '<span class="task-record-desc">' + escapeHtml(firstLine) + '</span>'
+            + '<span class="task-record-dur">' + durMin + '分</span>';
+
+          row.onclick = function () {
+            TabPanel.showViewer("", "", r.description || "", r.id, "record", {
+              category: r.category || "",
+              sheetType: "Categories",
+              startTime: r.startTime,
+              endTime: r.endTime,
+            });
+          };
+
+          container.appendChild(row);
+        });
+      }).catch(function () {
+        container.innerHTML = '<div class="task-records-empty">読み込みに失敗しました</div>';
+      });
+    }
+
+    function escapeHtml(str) {
+      var div = document.createElement("div");
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // =========================================================
+    // Add operations
+    // =========================================================
+    function addProject() {
+      var name = prompt("プロジェクト名:");
+      if (!name || !name.trim()) return;
+      TaskStore.addProject(name.trim(), "#4285f4");
+    }
+
+    function addCasePrompt(projectId) {
+      var name = prompt("案件名:");
+      if (!name || !name.trim()) return;
+      TaskStore.addCase(projectId, name.trim());
+    }
+
+    function addTaskPrompt(projectId, caseId) {
+      var name = prompt("タスク名:");
+      if (!name || !name.trim()) return;
+      TaskStore.addTask(projectId, caseId || "", name.trim());
+    }
+
+    // =========================================================
+    // Inline Rename
+    // =========================================================
+    function startInlineRename(el, type, id, currentName) {
+      var input = document.createElement("input");
+      input.type = "text";
+      input.className = "task-inline-rename";
+      input.value = currentName;
+
+      function finish() {
+        var newName = input.value.trim() || currentName;
+        if (newName !== currentName) {
+          if (type === "project") TaskStore.updateProject(id, { name: newName });
+          else if (type === "case") TaskStore.updateCase(id, { name: newName });
+          else TaskStore.updateTask(id, { name: newName });
+        }
+        el.textContent = newName;
+        el.onclick = function () { startInlineRename(el, type, id, newName); };
+      }
+
+      input.addEventListener("blur", finish);
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+        if (e.key === "Escape") { input.value = currentName; input.blur(); }
+      });
+
+      el.textContent = "";
+      el.onclick = null;
+      el.appendChild(input);
+      input.focus();
+      input.select();
+    }
+
+    // =========================================================
+    // Context Menu
+    // =========================================================
+    function showContextMenu(e, type, data) {
+      e.preventDefault();
+      e.stopPropagation();
+      hideContextMenu();
+
+      contextMenuEl = document.createElement("div");
+      contextMenuEl.className = "task-context-menu";
+
+      // Rename
+      var renameBtn = document.createElement("div");
+      renameBtn.className = "task-context-item";
+      renameBtn.textContent = "名前変更";
+      renameBtn.onclick = function () {
+        hideContextMenu();
+        var el = document.querySelector('.task-tree-item[data-id="' + data.id + '"] .task-tree-name');
+        if (el) startTreeRename(el, type, data.id, data.name);
+      };
+      contextMenuEl.appendChild(renameBtn);
+
+      // Color change (project only)
+      if (type === "project") {
+        var colorItem = document.createElement("div");
+        colorItem.className = "task-context-item";
+        colorItem.textContent = "色変更";
+        var colorInput = document.createElement("input");
+        colorInput.type = "color";
+        colorInput.value = data.color || "#4285f4";
+        colorInput.className = "task-context-color-input";
+        colorInput.onclick = function (e) { e.stopPropagation(); };
+        colorInput.onchange = function () {
+          TaskStore.updateProject(data.id, { color: colorInput.value });
+          hideContextMenu();
+        };
+        colorItem.appendChild(colorInput);
+        contextMenuEl.appendChild(colorItem);
+      }
+
+      // Status change (task only)
+      if (type === "task") {
+        var statusHeader = document.createElement("div");
+        statusHeader.className = "task-context-separator";
+        statusHeader.textContent = "ステータス";
+        contextMenuEl.appendChild(statusHeader);
+
+        Object.keys(STATUS_CONFIG).forEach(function (key) {
+          var statusItem = document.createElement("div");
+          statusItem.className = "task-context-item";
+          var dot = document.createElement("span");
+          dot.className = "task-status-dot";
+          dot.style.background = STATUS_CONFIG[key].color;
+          statusItem.appendChild(dot);
+          statusItem.appendChild(document.createTextNode(STATUS_CONFIG[key].label));
+          if (data.status === key) {
+            var chk = document.createElement("span");
+            chk.className = "task-context-check";
+            chk.innerHTML = checkSvg(12);
+            statusItem.appendChild(chk);
+          }
+          statusItem.onclick = function () {
+            hideContextMenu();
+            TaskStore.updateTask(data.id, { status: key });
+          };
+          contextMenuEl.appendChild(statusItem);
+        });
+      }
+
+      // Archive
+      var archiveSep = document.createElement("div");
+      archiveSep.className = "task-context-separator";
+      contextMenuEl.appendChild(archiveSep);
+
+      var archiveBtn = document.createElement("div");
+      archiveBtn.className = "task-context-item task-context-danger";
+      archiveBtn.textContent = "アーカイブ";
+      archiveBtn.onclick = function () {
+        hideContextMenu();
+        var confirmMsg = "「" + data.name + "」をアーカイブしますか？";
+        if (type === "project") confirmMsg += "\n（配下の案件・タスクもアーカイブされます）";
+        else if (type === "case") confirmMsg += "\n（配下のタスクもアーカイブされます）";
+        if (!confirm(confirmMsg)) return;
+        if (type === "project") TaskStore.archiveProject(data.id);
+        else if (type === "case") TaskStore.archiveCase(data.id);
+        else TaskStore.archiveTask(data.id);
+        if (selectedNode && selectedNode.id === data.id) {
+          selectedNode = null;
+          try { localStorage.removeItem(SELECTED_KEY); } catch (e) {}
+          renderContent(null, null);
+        }
+      };
+      contextMenuEl.appendChild(archiveBtn);
+
+      // Position
+      contextMenuEl.style.left = e.clientX + "px";
+      contextMenuEl.style.top = e.clientY + "px";
+      document.body.appendChild(contextMenuEl);
+
+      var rect = contextMenuEl.getBoundingClientRect();
+      if (rect.right > window.innerWidth) {
+        contextMenuEl.style.left = (window.innerWidth - rect.width - 8) + "px";
+      }
+      if (rect.bottom > window.innerHeight) {
+        contextMenuEl.style.top = (window.innerHeight - rect.height - 8) + "px";
+      }
+
+      setTimeout(function () {
+        document.addEventListener("click", hideContextMenu, { once: true });
+      }, 0);
+    }
+
+    function hideContextMenu() {
+      if (contextMenuEl) {
+        contextMenuEl.remove();
+        contextMenuEl = null;
+      }
+    }
+
+    function startTreeRename(el, type, id, currentName) {
+      var input = document.createElement("input");
+      input.type = "text";
+      input.className = "task-tree-rename-input";
+      input.value = currentName;
+
+      function finish() {
+        var newName = input.value.trim() || currentName;
+        if (newName !== currentName) {
+          if (type === "project") TaskStore.updateProject(id, { name: newName });
+          else if (type === "case") TaskStore.updateCase(id, { name: newName });
+          else TaskStore.updateTask(id, { name: newName });
+        }
+        render();
+      }
+
+      input.addEventListener("blur", finish);
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+        if (e.key === "Escape") { input.value = currentName; input.blur(); }
+      });
+
+      el.textContent = "";
+      el.appendChild(input);
+      input.focus();
+      input.select();
+    }
+
+    // =========================================================
+    // Drag & Drop
+    // =========================================================
+    function startDrag(e, type, id, el) {
+      var parent = el.parentNode;
+      if (!parent) return;
+
+      // Find siblings of same type
+      var siblings = [];
+      var siblingsContainer = parent.parentNode;
+      if (type === "project") {
+        siblingsContainer = document.getElementById("task-tree");
+      } else {
+        siblingsContainer = parent.closest(".task-tree-children");
+      }
+      if (!siblingsContainer) return;
+
+      var rect = el.getBoundingClientRect();
+      var offsetY = e.clientY - rect.top;
+
+      // Ghost
+      var clone = el.cloneNode(true);
+      clone.className = el.className + " task-drag-ghost";
+      clone.style.position = "fixed";
+      clone.style.left = rect.left + "px";
+      clone.style.top = (e.clientY - offsetY) + "px";
+      clone.style.width = rect.width + "px";
+      clone.style.zIndex = "300";
+      clone.style.pointerEvents = "none";
+      document.body.appendChild(clone);
+
+      // Placeholder
+      var placeholder = document.createElement("div");
+      placeholder.className = "task-drag-placeholder";
+      placeholder.style.height = rect.height + "px";
+
+      if (type === "project") {
+        parent.parentNode.insertBefore(placeholder, parent);
+        parent.style.display = "none";
+      } else {
+        siblingsContainer.insertBefore(placeholder, el.closest(".task-tree-group") || el);
+        (el.closest(".task-tree-group") || el).style.display = "none";
+      }
+
+      dragState = {
+        type: type,
+        id: id,
+        el: el,
+        clone: clone,
+        placeholder: placeholder,
+        container: type === "project" ? document.getElementById("task-tree") : siblingsContainer,
+        parent: type === "project" ? parent.parentNode : parent,
+        originalEl: type === "project" ? parent : (el.closest(".task-tree-group") || el),
+        offsetY: offsetY,
+      };
+
+      document.addEventListener("pointermove", onDragMove);
+      document.addEventListener("pointerup", onDragEnd);
+      document.addEventListener("pointercancel", onDragEnd);
+    }
+
+    function onDragMove(e) {
+      if (!dragState) return;
+      e.preventDefault();
+      dragState.clone.style.top = (e.clientY - dragState.offsetY) + "px";
+
+      var container = dragState.container;
+      var selector = dragState.type === "project" ? ".task-tree-group[data-type='project']" : ".task-tree-group, .task-tree-item";
+      var items = container.querySelectorAll(selector);
+      var placeholder = dragState.placeholder;
+      var inserted = false;
+
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        if (item === dragState.originalEl) continue;
+        if (item.style.display === "none") continue;
+        var r = item.getBoundingClientRect();
+        var midY = r.top + r.height / 2;
+        if (e.clientY < midY) {
+          container.insertBefore(placeholder, item);
+          inserted = true;
+          break;
+        }
+      }
+      if (!inserted) {
+        container.appendChild(placeholder);
+      }
+    }
+
+    function onDragEnd() {
+      if (!dragState) return;
+      document.removeEventListener("pointermove", onDragMove);
+      document.removeEventListener("pointerup", onDragEnd);
+      document.removeEventListener("pointercancel", onDragEnd);
+
+      dragState.clone.remove();
+      dragState.originalEl.style.display = "";
+      dragState.container.insertBefore(dragState.originalEl, dragState.placeholder);
+      dragState.placeholder.remove();
+
+      // Read new order
+      var selector = dragState.type === "project" ? ".task-tree-group[data-type='project']" : ":scope > .task-tree-group, :scope > .task-tree-item";
+      var items;
+      try {
+        items = dragState.container.querySelectorAll(selector);
+      } catch (e) {
+        items = dragState.container.children;
+      }
+      var newOrder = [];
+      for (var i = 0; i < items.length; i++) {
+        var did = items[i].getAttribute("data-id");
+        if (did) newOrder.push(did);
+      }
+
+      if (newOrder.length > 0) {
+        if (dragState.type === "project") {
+          TaskStore.reorderProjects(newOrder);
+        } else if (dragState.type === "case") {
+          var projGroup = dragState.container.closest(".task-tree-group[data-type='project']");
+          var projId = projGroup ? projGroup.getAttribute("data-id") : "";
+          TaskStore.reorderCases(projId, newOrder);
+        } else {
+          // tasks - get parent info
+          var parentGroup = dragState.container.closest(".task-tree-group");
+          var parentId = parentGroup ? parentGroup.getAttribute("data-id") : "";
+          TaskStore.reorderTasks(parentId, newOrder);
+        }
+      }
+
+      dragState = null;
+    }
+
+    // =========================================================
+    // Public API
+    // =========================================================
+    return {
+      init: init,
+      render: render,
+      selectNode: selectNode,
+      getSelectedNode: getSelectedNode,
+      toggleSidebar: toggleSidebar,
+      addProject: addProject,
+      STATUS_CONFIG: STATUS_CONFIG,
+    };
+  })();
+</script>

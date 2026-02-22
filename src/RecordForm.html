@@ -1,6 +1,7 @@
 <script>
   var RecordForm = (function () {
     var recordPicker = null;
+    var selectedTaskId = null;
 
     function initPicker() {
       if (recordPicker) return;
@@ -24,6 +25,8 @@
       if (recordPicker) {
         recordPicker.setSelected([]);
       }
+      selectedTaskId = null;
+      renderTaskPicker();
     }
 
     function populateCategories(categories) {
@@ -252,6 +255,7 @@
         nonWorkInterruptionSeconds: nonWorkIntSeconds,
         completionStatus: completionStatus,
         pomodoroSetIndex: state.pomodoroSetIndex,
+        taskId: selectedTaskId || "",
       };
     }
 
@@ -319,10 +323,155 @@
           if (!result) return;
           if (result.description) MemoEditor.setRecordValue(result.description);
           if (result.category && recordPicker) recordPicker.setSelected([result.category]);
+          if (result.taskId) {
+            selectedTaskId = result.taskId;
+            renderTaskPicker();
+          }
         })
         .finally(function () {
           setRecordEditorLoading(false);
         });
+    }
+
+    // Task Picker
+    function renderTaskPicker() {
+      var area = document.getElementById("record-task-area");
+      if (!area) return;
+
+      if (typeof TaskStore === "undefined") {
+        area.innerHTML = "";
+        return;
+      }
+
+      area.innerHTML = "";
+      var picker = document.createElement("div");
+      picker.className = "task-picker";
+
+      var label = document.createElement("span");
+      label.className = "task-picker-label";
+      label.textContent = "タスク:";
+      picker.appendChild(label);
+
+      // Project select
+      var projSelect = document.createElement("select");
+      projSelect.className = "task-picker-select";
+      projSelect.innerHTML = '<option value="">-</option>';
+
+      // Case select
+      var caseSelect = document.createElement("select");
+      caseSelect.className = "task-picker-select";
+      caseSelect.style.display = "none";
+
+      // Task select
+      var taskSelect = document.createElement("select");
+      taskSelect.className = "task-picker-select";
+      taskSelect.style.display = "none";
+
+      // Clear button
+      var clearBtn = document.createElement("span");
+      clearBtn.className = "task-picker-clear";
+      clearBtn.textContent = "\u00d7";
+      clearBtn.style.display = selectedTaskId ? "" : "none";
+      clearBtn.onclick = function () {
+        selectedTaskId = null;
+        projSelect.value = "";
+        caseSelect.style.display = "none";
+        taskSelect.style.display = "none";
+        clearBtn.style.display = "none";
+      };
+
+      picker.appendChild(projSelect);
+      picker.appendChild(caseSelect);
+      picker.appendChild(taskSelect);
+      picker.appendChild(clearBtn);
+      area.appendChild(picker);
+
+      // Load projects
+      TaskStore.getProjects().then(function (projects) {
+        projects.forEach(function (p) {
+          var opt = document.createElement("option");
+          opt.value = p.id;
+          opt.textContent = p.name;
+          projSelect.appendChild(opt);
+        });
+
+        // If task is pre-selected, find and set the selectors
+        if (selectedTaskId) {
+          TaskStore.get("tasks", selectedTaskId).then(function (task) {
+            if (!task) return;
+            projSelect.value = task.projectId;
+            loadCaseSelect(task.projectId, caseSelect, taskSelect, task.caseId, task.id);
+          });
+        }
+      });
+
+      projSelect.onchange = function () {
+        var projId = projSelect.value;
+        selectedTaskId = null;
+        clearBtn.style.display = "none";
+        if (!projId) {
+          caseSelect.style.display = "none";
+          taskSelect.style.display = "none";
+          return;
+        }
+        loadCaseSelect(projId, caseSelect, taskSelect, "", "");
+      };
+    }
+
+    function loadCaseSelect(projId, caseSelect, taskSelect, preselectedCaseId, preselectedTaskId) {
+      caseSelect.innerHTML = '<option value="">直属タスク</option>';
+      caseSelect.style.display = "";
+
+      TaskStore.getCases(projId).then(function (cases) {
+        cases.forEach(function (c) {
+          var opt = document.createElement("option");
+          opt.value = c.id;
+          opt.textContent = c.name;
+          caseSelect.appendChild(opt);
+        });
+
+        if (preselectedCaseId) {
+          caseSelect.value = preselectedCaseId;
+        }
+
+        var caseId = caseSelect.value;
+        loadTaskSelect(projId, caseId, taskSelect, preselectedTaskId);
+      });
+
+      caseSelect.onchange = function () {
+        selectedTaskId = null;
+        var clearBtn = caseSelect.parentNode.querySelector(".task-picker-clear");
+        if (clearBtn) clearBtn.style.display = "none";
+        loadTaskSelect(projId, caseSelect.value, taskSelect, "");
+      };
+    }
+
+    function loadTaskSelect(projId, caseId, taskSelect, preselectedTaskId) {
+      taskSelect.innerHTML = '<option value="">-</option>';
+      taskSelect.style.display = "";
+
+      TaskStore.getTasks(projId, caseId).then(function (tasks) {
+        tasks.forEach(function (t) {
+          // Exclude done/docs tasks
+          if (t.status === "done" || t.status === "docs") return;
+          var opt = document.createElement("option");
+          opt.value = t.id;
+          opt.textContent = t.name;
+          taskSelect.appendChild(opt);
+        });
+
+        if (preselectedTaskId) {
+          taskSelect.value = preselectedTaskId;
+          var clearBtn = taskSelect.parentNode.querySelector(".task-picker-clear");
+          if (clearBtn) clearBtn.style.display = "";
+        }
+      });
+
+      taskSelect.onchange = function () {
+        selectedTaskId = taskSelect.value || null;
+        var clearBtn = taskSelect.parentNode.querySelector(".task-picker-clear");
+        if (clearBtn) clearBtn.style.display = selectedTaskId ? "" : "none";
+      };
     }
 
     return {
@@ -335,6 +484,7 @@
       generateUUID: generateUUID,
       formatDate: formatDate,
       copyFromPrevious: copyFromPrevious,
+      renderTaskPicker: renderTaskPicker,
     };
   })();
 </script>

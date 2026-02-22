@@ -1,0 +1,518 @@
+<script>
+  var TaskStore = (function () {
+    var DB_NAME = "gas_pomodoro";
+    var DB_VERSION = 1;
+    var _db = null;
+    var _listeners = {};
+
+    // =========================================================
+    // Per-ID operation lock (serializes read-modify-write)
+    // =========================================================
+    var _pendingOps = {};
+    function withLock(id, fn) {
+      var prev = _pendingOps[id] || Promise.resolve();
+      var next = prev.then(fn, fn);
+      _pendingOps[id] = next;
+      next.then(function () {
+        if (_pendingOps[id] === next) delete _pendingOps[id];
+      });
+      return next;
+    }
+
+    // =========================================================
+    // IndexedDB Setup
+    // =========================================================
+    function openDB() {
+      if (_db) return Promise.resolve(_db);
+      return new Promise(function (resolve, reject) {
+        var req;
+        try {
+          req = indexedDB.open(DB_NAME, DB_VERSION);
+        } catch (e) {
+          console.error("[TaskStore] indexedDB.open threw:", e);
+          reject(e);
+          return;
+        }
+        req.onupgradeneeded = function () {
+          var db = req.result;
+          if (!db.objectStoreNames.contains("projects")) {
+            db.createObjectStore("projects", { keyPath: "id" });
+          }
+          if (!db.objectStoreNames.contains("cases")) {
+            var cs = db.createObjectStore("cases", { keyPath: "id" });
+            cs.createIndex("projectId", "projectId", { unique: false });
+          }
+          if (!db.objectStoreNames.contains("tasks")) {
+            var ts = db.createObjectStore("tasks", { keyPath: "id" });
+            ts.createIndex("projectId", "projectId", { unique: false });
+            ts.createIndex("caseId", "caseId", { unique: false });
+            ts.createIndex("status", "status", { unique: false });
+          }
+          if (!db.objectStoreNames.contains("contents")) {
+            db.createObjectStore("contents", { keyPath: "id" });
+          }
+          if (!db.objectStoreNames.contains("syncMeta")) {
+            db.createObjectStore("syncMeta", { keyPath: "key" });
+          }
+        };
+        req.onsuccess = function () {
+          _db = req.result;
+          console.log("[TaskStore] IndexedDB opened successfully");
+          resolve(_db);
+        };
+        req.onerror = function () {
+          console.error("[TaskStore] IndexedDB open failed:", req.error);
+          reject(req.error);
+        };
+        req.onblocked = function () {
+          console.warn("[TaskStore] IndexedDB open blocked (another connection open?)");
+        };
+      });
+    }
+
+    // =========================================================
+    // Core DB functions
+    // =========================================================
+    function getAll(storeName) {
+      return openDB().then(function (db) {
+        return new Promise(function (resolve, reject) {
+          var tx = db.transaction(storeName, "readonly");
+          var req = tx.objectStore(storeName).getAll();
+          req.onsuccess = function () { resolve(req.result); };
+          req.onerror = function () { reject(req.error); };
+        });
+      });
+    }
+
+    function get(storeName, id) {
+      return openDB().then(function (db) {
+        return new Promise(function (resolve, reject) {
+          var tx = db.transaction(storeName, "readonly");
+          var req = tx.objectStore(storeName).get(id);
+          req.onsuccess = function () { resolve(req.result || null); };
+          req.onerror = function () {
+            console.error("[TaskStore] get failed:", storeName, id, req.error);
+            reject(req.error);
+          };
+        });
+      });
+    }
+
+    /** Lock-free direct read (alias for get, intent-revealing name) */
+    var rawGet = get;
+
+    function put(storeName, data) {
+      return openDB().then(function (db) {
+        return new Promise(function (resolve, reject) {
+          var tx = db.transaction(storeName, "readwrite");
+          tx.objectStore(storeName).put(data);
+          tx.oncomplete = function () { resolve(); };
+          tx.onerror = function () {
+            console.error("[TaskStore] put failed:", storeName, data && data.id, tx.error);
+            reject(tx.error);
+          };
+        });
+      });
+    }
+
+    function remove(storeName, id) {
+      return openDB().then(function (db) {
+        return new Promise(function (resolve, reject) {
+          var tx = db.transaction(storeName, "readwrite");
+          tx.objectStore(storeName).delete(id);
+          tx.oncomplete = function () { resolve(); };
+          tx.onerror = function () { reject(tx.error); };
+        });
+      });
+    }
+
+    function getByIndex(storeName, indexName, val) {
+      return openDB().then(function (db) {
+        return new Promise(function (resolve, reject) {
+          var tx = db.transaction(storeName, "readonly");
+          var idx = tx.objectStore(storeName).index(indexName);
+          var req = idx.getAll(val);
+          req.onsuccess = function () { resolve(req.result); };
+          req.onerror = function () { reject(req.error); };
+        });
+      });
+    }
+
+    // =========================================================
+    // Generic update helpers (withLock-based)
+    // =========================================================
+    function updateEntity(storeName, id, mergeFn) {
+      return withLock(id, function () {
+        return get(storeName, id).then(function (item) {
+          if (!item) return;
+          mergeFn(item);
+          return put(storeName, item);
+        });
+      });
+    }
+
+    function updateSortOrders(storeName, entries) {
+      return Promise.all(entries.map(function (e) {
+        return withLock(e.id, function () {
+          return get(storeName, e.id).then(function (item) {
+            if (!item) return;
+            item.sortOrder = e.sortOrder;
+            return put(storeName, item);
+          });
+        }).catch(function (err) {
+          console.error("[TaskStore] updateSortOrders partial failure:", e.id, err);
+        });
+      }));
+    }
+
+    // =========================================================
+    // Event System
+    // =========================================================
+    function on(event, cb) {
+      if (!_listeners[event]) _listeners[event] = [];
+      _listeners[event].push(cb);
+    }
+
+    function emit(event, data) {
+      var cbs = _listeners[event] || [];
+      cbs.forEach(function (cb) {
+        try { cb(data); } catch (e) { console.error("TaskStore event error:", e); }
+      });
+    }
+
+    // =========================================================
+    // UUID generation
+    // =========================================================
+    function generateUUID() {
+      return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+        var r = (Math.random() * 16) | 0;
+        return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+      });
+    }
+
+    // =========================================================
+    // CRUD Operations
+    // =========================================================
+    function addProject(name, color) {
+      var id = generateUUID();
+      var now = new Date().toISOString();
+      var item = {
+        id: id,
+        name: name,
+        color: color || "#4285f4",
+        sortOrder: Date.now(),
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      };
+      return put("projects", item).then(function () {
+        emit("dataChanged", { entityType: "project", op: "add", id: id });
+        return id;
+      });
+    }
+
+    function addCase(projectId, name) {
+      var id = generateUUID();
+      var now = new Date().toISOString();
+      var item = {
+        id: id,
+        projectId: projectId,
+        name: name,
+        sortOrder: Date.now(),
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      };
+      return put("cases", item).then(function () {
+        emit("dataChanged", { entityType: "case", op: "add", id: id });
+        return id;
+      });
+    }
+
+    function addTask(projectId, caseId, name) {
+      var id = generateUUID();
+      var now = new Date().toISOString();
+      var item = {
+        id: id,
+        projectId: projectId,
+        caseId: caseId || "",
+        name: name,
+        status: "todo",
+        sortOrder: Date.now(),
+        isActive: true,
+        createdAt: now,
+        completedAt: "",
+        startedAt: "",
+        dueDate: "",
+        updatedAt: now,
+      };
+      return put("tasks", item).then(function () {
+        emit("dataChanged", { entityType: "task", op: "add", id: id });
+        return id;
+      });
+    }
+
+    function updateProject(id, fields) {
+      return withLock(id, function () {
+        return get("projects", id).then(function (item) {
+          if (!item) return;
+          Object.keys(fields).forEach(function (k) { item[k] = fields[k]; });
+          item.updatedAt = new Date().toISOString();
+          return put("projects", item).then(function () {
+            emit("dataChanged", { entityType: "project", op: "update", id: id });
+          });
+        });
+      });
+    }
+
+    function updateCase(id, fields) {
+      return withLock(id, function () {
+        return get("cases", id).then(function (item) {
+          if (!item) return;
+          Object.keys(fields).forEach(function (k) { item[k] = fields[k]; });
+          item.updatedAt = new Date().toISOString();
+          return put("cases", item).then(function () {
+            emit("dataChanged", { entityType: "case", op: "update", id: id });
+          });
+        });
+      });
+    }
+
+    function updateTask(id, fields) {
+      return withLock(id, function () {
+        return get("tasks", id).then(function (item) {
+          if (!item) return;
+          var oldStatus = item.status;
+          Object.keys(fields).forEach(function (k) { item[k] = fields[k]; });
+          if (fields.status === "done" && oldStatus !== "done") {
+            item.completedAt = new Date().toISOString();
+          } else if (fields.status && fields.status !== "done" && oldStatus === "done") {
+            item.completedAt = "";
+          }
+          item.updatedAt = new Date().toISOString();
+          return put("tasks", item).then(function () {
+            emit("dataChanged", { entityType: "task", op: "update", id: id });
+          });
+        });
+      });
+    }
+
+    function archiveProject(id) {
+      return withLock(id, function () {
+        return get("projects", id).then(function (item) {
+          if (!item) return;
+          item.isActive = false;
+          return put("projects", item);
+        });
+      }).then(function () {
+        return getByIndex("cases", "projectId", id).then(function (cases) {
+          return Promise.all(cases.map(function (c) {
+            return withLock(c.id, function () {
+              return get("cases", c.id).then(function (latest) {
+                if (!latest) return;
+                latest.isActive = false;
+                return put("cases", latest);
+              });
+            });
+          }));
+        });
+      }).then(function () {
+        return getByIndex("tasks", "projectId", id).then(function (tasks) {
+          return Promise.all(tasks.map(function (t) {
+            return withLock(t.id, function () {
+              return get("tasks", t.id).then(function (latest) {
+                if (!latest) return;
+                latest.isActive = false;
+                return put("tasks", latest);
+              });
+            });
+          }));
+        });
+      }).then(function () {
+        emit("dataChanged", { entityType: "project", op: "archive", id: id });
+      });
+    }
+
+    function archiveCase(id) {
+      return withLock(id, function () {
+        return get("cases", id).then(function (item) {
+          if (!item) return;
+          item.isActive = false;
+          return put("cases", item);
+        });
+      }).then(function () {
+        return getByIndex("tasks", "caseId", id).then(function (tasks) {
+          return Promise.all(tasks.map(function (t) {
+            return withLock(t.id, function () {
+              return get("tasks", t.id).then(function (latest) {
+                if (!latest) return;
+                latest.isActive = false;
+                return put("tasks", latest);
+              });
+            });
+          }));
+        });
+      }).then(function () {
+        emit("dataChanged", { entityType: "case", op: "archive", id: id });
+      });
+    }
+
+    function archiveTask(id) {
+      return withLock(id, function () {
+        return get("tasks", id).then(function (item) {
+          if (!item) return;
+          item.isActive = false;
+          return put("tasks", item).then(function () {
+            emit("dataChanged", { entityType: "task", op: "archive", id: id });
+          });
+        });
+      });
+    }
+
+    // =========================================================
+    // Content Management (IndexedDB only)
+    // =========================================================
+    function saveContent(id, content, storeName) {
+      return withLock(id, function () {
+        return get("contents", id).then(function (existing) {
+          var now = new Date().toISOString();
+          var item = existing || { id: id };
+          item.content = content;
+          item.updatedAt = now;
+          item._storeName = storeName;
+          return put("contents", item);
+        });
+      });
+    }
+
+    function getContent(id, storeName) {
+      return rawGet("contents", id).then(function (record) {
+        if (!record) return null;
+        return record.content != null ? record.content : "";
+      });
+    }
+
+    // =========================================================
+    // Query API
+    // =========================================================
+    function getProjects() {
+      return getAll("projects").then(function (items) {
+        return items
+          .filter(function (p) { return p.isActive !== false; })
+          .sort(function (a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+      });
+    }
+
+    function getCases(projectId) {
+      return getByIndex("cases", "projectId", projectId).then(function (items) {
+        return items
+          .filter(function (c) { return c.isActive !== false; })
+          .sort(function (a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+      });
+    }
+
+    var STATUS_ORDER = { doing: 0, todo: 1, review: 2, pending: 3, docs: 4, done: 5 };
+
+    function getTasks(projectId, caseId) {
+      var indexName = caseId ? "caseId" : "projectId";
+      var indexVal = caseId || projectId;
+      return getByIndex("tasks", indexName, indexVal).then(function (items) {
+        return items
+          .filter(function (t) {
+            if (t.isActive === false) return false;
+            if (caseId) return true;
+            return !t.caseId;
+          })
+          .sort(function (a, b) {
+            var sa = STATUS_ORDER[a.status] !== undefined ? STATUS_ORDER[a.status] : 99;
+            var sb = STATUS_ORDER[b.status] !== undefined ? STATUS_ORDER[b.status] : 99;
+            if (sa !== sb) return sa - sb;
+            return (a.createdAt || "").localeCompare(b.createdAt || "");
+          });
+      });
+    }
+
+    function getAllProjects() { return getProjects(); }
+    function getAllCases() {
+      return getAll("cases").then(function (items) {
+        return items.filter(function (c) { return c.isActive !== false; });
+      });
+    }
+    function getAllTasks() {
+      return getAll("tasks").then(function (items) {
+        return items.filter(function (t) { return t.isActive !== false; });
+      });
+    }
+
+    // =========================================================
+    // Reorder
+    // =========================================================
+    function reorderProjects(orderedIds) {
+      var entries = orderedIds.map(function (id, i) {
+        return { id: id, sortOrder: i + 1 };
+      });
+      return updateSortOrders("projects", entries).then(function () {
+        emit("dataChanged", { entityType: "project", op: "reorder" });
+      });
+    }
+
+    function reorderCases(projectId, orderedIds) {
+      var entries = orderedIds.map(function (id, i) {
+        return { id: id, sortOrder: i + 1 };
+      });
+      return updateSortOrders("cases", entries).then(function () {
+        emit("dataChanged", { entityType: "case", op: "reorder" });
+      });
+    }
+
+    function reorderTasks(parentId, orderedIds) {
+      var entries = orderedIds.map(function (id, i) {
+        return { id: id, sortOrder: i + 1 };
+      });
+      return updateSortOrders("tasks", entries).then(function () {
+        emit("dataChanged", { entityType: "task", op: "reorder" });
+      });
+    }
+
+    // =========================================================
+    // Init
+    // =========================================================
+    function init() {
+      return openDB();
+    }
+
+    // =========================================================
+    // Public API
+    // =========================================================
+    return {
+      init: init,
+      on: on,
+      getProjects: getProjects,
+      getCases: getCases,
+      getTasks: getTasks,
+      getAllProjects: getAllProjects,
+      getAllCases: getAllCases,
+      getAllTasks: getAllTasks,
+      addProject: addProject,
+      addCase: addCase,
+      addTask: addTask,
+      updateProject: updateProject,
+      updateCase: updateCase,
+      updateTask: updateTask,
+      archiveProject: archiveProject,
+      archiveCase: archiveCase,
+      archiveTask: archiveTask,
+      reorderProjects: reorderProjects,
+      reorderCases: reorderCases,
+      reorderTasks: reorderTasks,
+      saveContent: saveContent,
+      getContent: getContent,
+      withLock: withLock,
+      rawGet: rawGet,
+      get: get,
+      put: put,
+      updateEntity: updateEntity,
+      updateSortOrders: updateSortOrders,
+    };
+  })();
+</script>

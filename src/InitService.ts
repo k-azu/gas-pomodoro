@@ -121,6 +121,83 @@ function initializeSpreadsheet(): void {
     memoTagsSheet.setFrozenRows(1);
   }
 
+  // Projects sheet
+  let projSheet = ss.getSheetByName("Projects");
+  if (!projSheet) {
+    projSheet = ss.insertSheet("Projects");
+    projSheet
+      .getRange("A1:H1")
+      .setValues([
+        [
+          "id",
+          "name",
+          "content",
+          "color",
+          "sortOrder",
+          "isActive",
+          "createdAt",
+          "updatedAt",
+        ],
+      ]);
+    projSheet.getRange("A1:H1").setFontWeight("bold");
+    projSheet.setFrozenRows(1);
+  }
+
+  // Cases sheet
+  let casesSheet = ss.getSheetByName("Cases");
+  if (!casesSheet) {
+    casesSheet = ss.insertSheet("Cases");
+    casesSheet
+      .getRange("A1:H1")
+      .setValues([
+        [
+          "id",
+          "projectId",
+          "name",
+          "content",
+          "sortOrder",
+          "isActive",
+          "createdAt",
+          "updatedAt",
+        ],
+      ]);
+    casesSheet.getRange("A1:H1").setFontWeight("bold");
+    casesSheet.setFrozenRows(1);
+  }
+
+  // Tasks sheet
+  let tasksSheet = ss.getSheetByName("Tasks");
+  if (!tasksSheet) {
+    tasksSheet = ss.insertSheet("Tasks");
+    tasksSheet
+      .getRange("A1:M1")
+      .setValues([
+        [
+          "id",
+          "projectId",
+          "caseId",
+          "name",
+          "content",
+          "status",
+          "sortOrder",
+          "isActive",
+          "createdAt",
+          "completedAt",
+          "startedAt",
+          "dueDate",
+          "updatedAt",
+        ],
+      ]);
+    tasksSheet.getRange("A1:M1").setFontWeight("bold");
+    tasksSheet.setFrozenRows(1);
+  }
+
+  // PomodoroLog: add taskId column (P) if not present
+  if (logSheet.getRange("P1").getValue() === "") {
+    logSheet.getRange("P1").setValue("taskId");
+    logSheet.getRange("P1").setFontWeight("bold");
+  }
+
   // TimerConfig sheet
   let configSheet = ss.getSheetByName("TimerConfig");
   if (!configSheet) {

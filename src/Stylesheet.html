@@ -1926,4 +1926,737 @@
       font-size: 0.65rem;
     }
   }
+
+  /* =========================================================
+     Task Management Styles
+     ========================================================= */
+
+  /* Layout */
+  .task-layout {
+    display: flex;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .task-sidebar {
+    width: 260px;
+    min-width: 260px;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: width 0.2s, min-width 0.2s;
+  }
+
+  .task-sidebar.collapsed {
+    width: 0;
+    min-width: 0;
+    border-right: none;
+    overflow: hidden;
+  }
+
+  .task-sidebar-toggle {
+    width: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    background: var(--bg);
+    border-right: 1px solid var(--border-subtle);
+  }
+
+  .task-sidebar-toggle:hover {
+    background: var(--border);
+  }
+
+  .task-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+  }
+
+  .task-sidebar-title {
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text);
+  }
+
+  .task-content-area {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+  }
+
+  #task-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+    font-size: 14px;
+  }
+
+  .task-content-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    height: 100%;
+  }
+
+  /* Tree */
+  .task-tree {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+
+  .task-tree-empty {
+    padding: 24px 16px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+  }
+
+  .task-tree-group {
+    position: relative;
+  }
+
+  .task-tree-item {
+    display: flex;
+    align-items: center;
+    padding: 5px 8px 5px 6px;
+    cursor: pointer;
+    font-size: 0.82rem;
+    gap: 4px;
+    border-radius: 4px;
+    margin: 1px 4px;
+    transition: background 0.1s;
+    min-height: 28px;
+  }
+
+  .task-tree-item:hover {
+    background: var(--bg);
+  }
+
+  .task-tree-item.active {
+    background: #e3f2fd;
+  }
+
+  .task-tree-project {
+    font-weight: 600;
+  }
+
+  .task-tree-case {
+    padding-left: 24px;
+  }
+
+  .task-tree-task {
+    padding-left: 28px;
+  }
+
+  .task-tree-case-group .task-tree-task {
+    padding-left: 48px;
+  }
+
+  .task-tree-children {
+    position: relative;
+  }
+
+  .task-tree-children::before {
+    content: "";
+    position: absolute;
+    left: 22px;
+    top: 0;
+    bottom: 8px;
+    width: 1px;
+    background: var(--border);
+  }
+
+  .task-tree-case-group > .task-tree-children::before {
+    left: 42px;
+  }
+
+  /* Chevron */
+  .task-tree-chevron {
+    font-size: 8px;
+    width: 14px;
+    text-align: center;
+    color: var(--text-secondary);
+    transition: transform 0.15s;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+
+  .task-tree-chevron.expanded {
+    transform: rotate(90deg);
+  }
+
+  /* Color dot */
+  .task-tree-icon {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    line-height: 0;
+  }
+
+  /* Status dot */
+  .task-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Name */
+  .task-tree-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Time badge */
+  .task-tree-time {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+
+  /* Add button in tree */
+  .task-tree-add-btn {
+    opacity: 0;
+    font-size: 1rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+    padding: 0 4px;
+    flex-shrink: 0;
+  }
+
+  .task-tree-item:hover .task-tree-add-btn {
+    opacity: 1;
+  }
+
+  .task-tree-add {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    padding: 3px 8px;
+    cursor: pointer;
+    margin: 0 4px;
+    border-radius: 4px;
+  }
+
+  .task-tree-add:hover {
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  /* Align with direct tasks: item padding-left(24px) + drag handle area(~12px) */
+  .task-tree-add-task {
+    padding-left: 36px;
+  }
+
+  /* Drag handle */
+  /* Rename input */
+  .task-tree-rename-input,
+  .task-inline-rename {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: inherit;
+    font-family: inherit;
+    width: 100%;
+    background: var(--surface);
+  }
+
+  /* Drag ghost/placeholder */
+  .task-drag-ghost {
+    opacity: 0.8;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    background: var(--surface);
+    border-radius: 4px;
+  }
+
+  .task-drag-placeholder {
+    background: #e3f2fd;
+    border: 2px dashed #90caf9;
+    border-radius: 4px;
+    margin: 1px 4px;
+  }
+
+  /* Context menu */
+  .task-context-menu {
+    position: fixed;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    padding: 4px 0;
+    z-index: 200;
+    min-width: 160px;
+    font-size: 0.82rem;
+  }
+
+  .task-context-item {
+    padding: 6px 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .task-context-item:hover {
+    background: var(--bg);
+  }
+
+  .task-context-danger {
+    color: #e53935;
+  }
+
+  .task-context-item.disabled,
+  .task-tree-add-btn.disabled,
+  .task-tree-add.disabled,
+  .task-table-add.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+    cursor: default;
+  }
+
+  .task-context-separator {
+    padding: 4px 12px 2px;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-top: 1px solid var(--border-subtle);
+    margin-top: 2px;
+  }
+
+  .task-context-check {
+    margin-left: auto;
+  }
+
+  .task-context-color-input {
+    width: 24px;
+    height: 20px;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    margin-left: auto;
+  }
+
+  /* Content area - Detail header (matches .memo-editor-toolbar) */
+  .task-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+    min-height: 34px;
+  }
+
+  .task-detail-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 1px 4px;
+    transition: background 0.15s;
+    margin: 0;
+  }
+
+  .task-detail-title:hover {
+    background: var(--bg);
+  }
+
+  .task-detail-color {
+    width: 14px;
+    height: 14px;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .task-detail-time {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+
+  /* Status picker area in task header */
+  .task-status-picker-area {
+    flex-shrink: 0;
+  }
+
+  /* Date row */
+  .task-date-row {
+    display: flex;
+    gap: 12px;
+    padding: 4px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+  }
+
+  .task-date-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .task-date-input {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.8rem;
+    font-family: inherit;
+  }
+
+  .task-view-toggle {
+    margin-left: auto;
+    padding: 2px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    font-size: 0.78rem;
+    font-family: inherit;
+    color: var(--text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .task-view-toggle:hover {
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  /* Doc content — inherits editor-full-container flex layout */
+  .task-doc-content {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Wiki container for task detail — inherits editor-full-container flex layout */
+  .task-wiki-container {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Task table */
+  .task-table-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+  }
+
+  .task-table-group {
+    margin-bottom: 16px;
+  }
+
+  .task-table-group-header {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 6px 16px;
+    color: var(--text-secondary);
+    background: var(--bg);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .task-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    table-layout: fixed;
+  }
+
+  .task-table th {
+    text-align: left;
+    padding: 6px 8px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-size: 12px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  .task-table th:first-child {
+    padding-left: 16px;
+  }
+
+  /* Fixed-width columns: Status, Start, Due, Completed, Time */
+  .task-table th:nth-child(2),
+  .task-table td:nth-child(2) { width: 100px; }
+  .task-table th:nth-child(3),
+  .task-table td:nth-child(3) { width: 100px; }
+  .task-table th:nth-child(4),
+  .task-table td:nth-child(4) { width: 100px; }
+  .task-table th:nth-child(5),
+  .task-table td:nth-child(5) { width: 100px; }
+  .task-table th:nth-child(6),
+  .task-table td:nth-child(6) { width: 70px; }
+
+  .task-table-row {
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+
+  .task-table-row:hover {
+    background: var(--bg);
+  }
+
+  .task-table-row td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border-subtle);
+    vertical-align: middle;
+    position: relative;
+  }
+
+  .task-table-row td:first-child {
+    padding-left: 16px;
+  }
+
+  .task-table-name-cell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .task-table-edit-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #bdbdbd;
+    padding: 2px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .task-table-row:hover .task-table-edit-btn {
+    opacity: 1;
+  }
+
+  .task-table-edit-btn:hover {
+    color: #1976d2;
+    background: #e3f2fd;
+  }
+
+  .task-table-name {
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  .task-table-name:hover {
+    color: #1976d2;
+    text-decoration: underline;
+  }
+
+  .task-table-name-input {
+    border: none;
+    border-bottom: 1px solid #1976d2;
+    background: transparent;
+    font-size: inherit;
+    font-family: inherit;
+    width: 100%;
+    padding: 2px 0;
+    outline: none;
+    flex: 1;
+  }
+
+  .task-table-status-area {
+    display: inline-block;
+  }
+
+  .task-table-status-area .item-picker {
+    min-height: auto;
+    border: none;
+    padding: 0;
+    background: transparent;
+    gap: 2px;
+  }
+
+  .task-table-status-area .item-picker-badge {
+    padding: 2px 6px;
+  }
+
+  .task-table-status-area .item-picker-add-btn {
+    width: 20px;
+    height: 20px;
+    font-size: 0.8rem;
+  }
+
+  .task-table-date-display {
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .task-table-date {
+    border: none;
+    background: transparent;
+    font-size: 0;
+    width: 0;
+    padding: 0;
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .task-table-completed {
+    font-size: 14px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .task-table-time {
+    font-size: 14px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .task-table-add {
+    padding: 6px 16px;
+    font-size: 14px;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .task-table-add:hover {
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  .task-docs-icon {
+    display: inline-flex;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+
+  /* Records section */
+  .task-records-section {
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .task-records-section summary {
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  .task-records-section summary:hover {
+    color: var(--text);
+  }
+
+  .task-records-list {
+    padding: 0 16px 8px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .task-records-loading,
+  .task-records-empty {
+    padding: 12px 0;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    text-align: center;
+  }
+
+  .task-record-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    cursor: pointer;
+    font-size: 0.78rem;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .task-record-row:hover {
+    background: var(--bg);
+  }
+
+  .task-record-date {
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    width: 80px;
+  }
+
+  .task-record-desc {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .task-record-dur {
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+
+  /* Task picker in record form */
+  .task-picker {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .task-picker-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  .task-picker-select {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.78rem;
+    font-family: inherit;
+    background: var(--surface);
+    max-width: 140px;
+  }
+
+  .task-picker-clear {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 2px 4px;
+  }
+
+  .task-picker-clear:hover {
+    color: var(--text);
+  }
 </style>
