@@ -17,6 +17,10 @@
     var _wikiPending = false;    // initial mount in progress (prevents re-entry)
     var contextMenuEl = null;
     var dragState = null;
+    var _renderDebounce = null;
+    var _renderAfterDrag = false;
+    var _renaming = false;
+    var _renderAfterRename = false;
 
     // Status config
     var STATUS_CONFIG = {
@@ -133,6 +137,17 @@
     // =========================================================
     function render() {
       if (!initialized) return;
+      if (_renderDebounce) cancelAnimationFrame(_renderDebounce);
+      _renderDebounce = requestAnimationFrame(function () {
+        _renderDebounce = null;
+        renderImpl();
+      });
+    }
+
+    function renderImpl() {
+      if (dragState) { _renderAfterDrag = true; return; }
+      if (_renaming) { _renderAfterRename = true; return; }
+
       var treeEl = document.getElementById("task-tree");
       if (!treeEl) return;
 
@@ -692,18 +707,39 @@
 
         TaskStore.getContent(id, storeName).then(function (content) {
           _wikiPending = false;
-          if (taskWikiDocId !== id) return; // stale
+          if (taskWikiDocId !== id) {
+            // Node switched during initial mount — re-render for current selection
+            if (selectedNode) renderContent(selectedNode.type, selectedNode.id);
+            return;
+          }
 
           ensureWikiEditor(id, content || "");
           if (!_wikiContainer || !taskWikiEditorRef) return;
 
+          taskWikiEditorRef.setEditable(false);
           target.appendChild(_wikiContainer);
+
+          // Compare with server (same 2-phase as cache-miss path)
+          TaskStore.resolveWithServer(id, storeName).then(function (resolution) {
+            if (taskWikiDocId !== id) return;
+            if (resolution && resolution.useServer) {
+              taskWikiEditorRef.switchDocument(id, resolution.content || "");
+            }
+            taskWikiEditorRef.setEditable(true);
+          }).catch(function () {
+            if (taskWikiDocId === id) taskWikiEditorRef.setEditable(true);
+          });
         });
         return;
       }
 
-      // Re-entry during initial load — skip
-      if (_wikiPending) return;
+      // Re-entry during initial load — update ID so stale check catches it
+      if (_wikiPending) {
+        taskWikiDocId = id;
+        taskWikiStoreName = storeName;
+        _userHasEdited = false;
+        return;
+      }
 
       if (!_wikiContainer || !taskWikiEditorRef) return;
 
@@ -847,6 +883,7 @@
     }
 
     function initTablePickers(group) {
+      if (!group.isConnected) return;
       var pickers = group._pendingPickers || [];
       pickers.forEach(function (p) {
         var sc = STATUS_CONFIG[p.task.status] || STATUS_CONFIG.todo;
@@ -1100,12 +1137,14 @@
     }
 
     function startRename(el, type, id, currentName, onDone) {
+      _renaming = true;
       var input = document.createElement("input");
       input.type = "text";
       input.className = el.closest(".task-tree-item") ? "task-tree-rename-input" : "task-inline-rename";
       input.value = currentName;
 
       function finish() {
+        _renaming = false;
         var newName = input.value.trim() || currentName;
         if (newName !== currentName) {
           if (type === "project") TaskStore.updateProject(id, { name: newName });
@@ -1115,6 +1154,10 @@
         if (onDone) {
           onDone(newName);
         } else {
+          render();
+        }
+        if (_renderAfterRename) {
+          _renderAfterRename = false;
           render();
         }
       }
@@ -1381,6 +1424,10 @@
       }
 
       dragState = null;
+      if (_renderAfterDrag) {
+        _renderAfterDrag = false;
+        render();
+      }
     }
 
     // =========================================================
