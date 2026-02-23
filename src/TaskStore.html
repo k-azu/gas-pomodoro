@@ -4,6 +4,16 @@
     var DB_VERSION = 1;
     var _db = null;
     var _listeners = {};
+    var _entityStoreMap = {};
+    var _serverQueues = {};
+    var _metaDebounces = {};
+    var _contentSyncDebounces = {};
+    var _reorderState = {
+      projects: { pending: null, saving: false },
+      cases: { pending: null, saving: false },
+      tasks: { pending: null, saving: false }
+    };
+    var _reorderDebounces = {};
 
     // =========================================================
     // Per-ID operation lock (serializes read-modify-write)
@@ -153,10 +163,12 @@
 
     function updateSortOrders(storeName, entries) {
       return Promise.all(entries.map(function (e) {
+        _entityStoreMap[e.id] = storeName;
         return withLock(e.id, function () {
           return get(storeName, e.id).then(function (item) {
             if (!item) return;
             item.sortOrder = e.sortOrder;
+            item._dirty = true;
             return put(storeName, item);
           });
         }).catch(function (err) {
@@ -204,9 +216,14 @@
         isActive: true,
         createdAt: now,
         updatedAt: now,
+        content: "",
+        _dirty: true,
+        _pendingCreate: true,
       };
+      _entityStoreMap[id] = "projects";
       return put("projects", item).then(function () {
         emit("dataChanged", { entityType: "project", op: "add", id: id });
+        syncCreateToServer("projects", id);
         return id;
       });
     }
@@ -222,9 +239,14 @@
         isActive: true,
         createdAt: now,
         updatedAt: now,
+        content: "",
+        _dirty: true,
+        _pendingCreate: true,
       };
+      _entityStoreMap[id] = "cases";
       return put("cases", item).then(function () {
         emit("dataChanged", { entityType: "case", op: "add", id: id });
+        syncCreateToServer("cases", id);
         return id;
       });
     }
@@ -245,40 +267,52 @@
         startedAt: "",
         dueDate: "",
         updatedAt: now,
+        content: "",
+        _dirty: true,
+        _pendingCreate: true,
       };
+      _entityStoreMap[id] = "tasks";
       return put("tasks", item).then(function () {
         emit("dataChanged", { entityType: "task", op: "add", id: id });
+        syncCreateToServer("tasks", id);
         return id;
       });
     }
 
     function updateProject(id, fields) {
+      _entityStoreMap[id] = "projects";
       return withLock(id, function () {
         return get("projects", id).then(function (item) {
           if (!item) return;
           Object.keys(fields).forEach(function (k) { item[k] = fields[k]; });
           item.updatedAt = new Date().toISOString();
+          item._dirty = true;
           return put("projects", item).then(function () {
             emit("dataChanged", { entityType: "project", op: "update", id: id });
+            scheduleMetadataSync("projects", id);
           });
         });
       });
     }
 
     function updateCase(id, fields) {
+      _entityStoreMap[id] = "cases";
       return withLock(id, function () {
         return get("cases", id).then(function (item) {
           if (!item) return;
           Object.keys(fields).forEach(function (k) { item[k] = fields[k]; });
           item.updatedAt = new Date().toISOString();
+          item._dirty = true;
           return put("cases", item).then(function () {
             emit("dataChanged", { entityType: "case", op: "update", id: id });
+            scheduleMetadataSync("cases", id);
           });
         });
       });
     }
 
     function updateTask(id, fields) {
+      _entityStoreMap[id] = "tasks";
       return withLock(id, function () {
         return get("tasks", id).then(function (item) {
           if (!item) return;
@@ -290,8 +324,10 @@
             item.completedAt = "";
           }
           item.updatedAt = new Date().toISOString();
+          item._dirty = true;
           return put("tasks", item).then(function () {
             emit("dataChanged", { entityType: "task", op: "update", id: id });
+            scheduleMetadataSync("tasks", id);
           });
         });
       });
@@ -302,6 +338,7 @@
         return get("projects", id).then(function (item) {
           if (!item) return;
           item.isActive = false;
+          item._dirty = true;
           return put("projects", item);
         });
       }).then(function () {
@@ -311,6 +348,7 @@
               return get("cases", c.id).then(function (latest) {
                 if (!latest) return;
                 latest.isActive = false;
+                latest._dirty = true;
                 return put("cases", latest);
               });
             });
@@ -323,6 +361,7 @@
               return get("tasks", t.id).then(function (latest) {
                 if (!latest) return;
                 latest.isActive = false;
+                latest._dirty = true;
                 return put("tasks", latest);
               });
             });
@@ -330,6 +369,7 @@
         });
       }).then(function () {
         emit("dataChanged", { entityType: "project", op: "archive", id: id });
+        syncArchiveToServer("projects", id);
       });
     }
 
@@ -338,6 +378,7 @@
         return get("cases", id).then(function (item) {
           if (!item) return;
           item.isActive = false;
+          item._dirty = true;
           return put("cases", item);
         });
       }).then(function () {
@@ -347,6 +388,7 @@
               return get("tasks", t.id).then(function (latest) {
                 if (!latest) return;
                 latest.isActive = false;
+                latest._dirty = true;
                 return put("tasks", latest);
               });
             });
@@ -354,6 +396,7 @@
         });
       }).then(function () {
         emit("dataChanged", { entityType: "case", op: "archive", id: id });
+        syncArchiveToServer("cases", id);
       });
     }
 
@@ -362,34 +405,521 @@
         return get("tasks", id).then(function (item) {
           if (!item) return;
           item.isActive = false;
+          item._dirty = true;
           return put("tasks", item).then(function () {
             emit("dataChanged", { entityType: "task", op: "archive", id: id });
+            syncArchiveToServer("tasks", id);
           });
         });
       });
     }
 
     // =========================================================
-    // Content Management (IndexedDB only)
+    // Content Management (stored within entity records)
     // =========================================================
     function saveContent(id, content, storeName) {
+      _entityStoreMap[id] = storeName;
       return withLock(id, function () {
-        return get("contents", id).then(function (existing) {
+        return get(storeName, id).then(function (existing) {
+          if (!existing) return;
           var now = new Date().toISOString();
-          var item = existing || { id: id };
-          item.content = content;
-          item.updatedAt = now;
-          item._storeName = storeName;
-          return put("contents", item);
+          existing.content = content;
+          existing._contentLocalTs = now;
+          return put(storeName, existing).then(function () {
+            scheduleContentSync(storeName, id);
+          });
         });
       });
     }
 
     function getContent(id, storeName) {
-      return rawGet("contents", id).then(function (record) {
+      return rawGet(storeName, id).then(function (record) {
         if (!record) return null;
         return record.content != null ? record.content : "";
       });
+    }
+
+    // =========================================================
+    // Migration: contents store → entity stores
+    // =========================================================
+    function migrateContentsToEntities() {
+      if (localStorage.getItem("gas_pomodoro_contents_migrated") === "1") {
+        return Promise.resolve();
+      }
+      return getAll("contents").then(function (records) {
+        if (!records || records.length === 0) {
+          localStorage.setItem("gas_pomodoro_contents_migrated", "1");
+          return;
+        }
+        var ops = records.map(function (record) {
+          var targetStore = record._storeName;
+          if (!targetStore) return Promise.resolve();
+          return get(targetStore, record.id).then(function (entity) {
+            if (!entity) return;
+            if (entity.content == null || entity.content === "") {
+              entity.content = record.content || "";
+              entity._contentLocalTs = record.updatedAt || new Date().toISOString();
+              return put(targetStore, entity);
+            }
+          });
+        });
+        return Promise.all(ops).then(function () {
+          return openDB().then(function (db) {
+            return new Promise(function (resolve, reject) {
+              var tx = db.transaction("contents", "readwrite");
+              tx.objectStore("contents").clear();
+              tx.oncomplete = function () { resolve(); };
+              tx.onerror = function () { reject(tx.error); };
+            });
+          });
+        }).then(function () {
+          localStorage.setItem("gas_pomodoro_contents_migrated", "1");
+        });
+      }).catch(function (err) {
+        console.warn("[TaskStore] migration error:", err);
+      });
+    }
+
+    // =========================================================
+    // Sync Utilities
+    // =========================================================
+    function stripLocalFields(obj) {
+      var result = {};
+      Object.keys(obj).forEach(function (k) {
+        if (k.charAt(0) !== "_") result[k] = obj[k];
+      });
+      return result;
+    }
+
+    function withTimeout(promise, ms) {
+      return new Promise(function (resolve, reject) {
+        var timer = setTimeout(function () { reject(new Error("timeout")); }, ms);
+        promise.then(function (v) { clearTimeout(timer); resolve(v); },
+                     function (e) { clearTimeout(timer); reject(e); });
+      });
+    }
+
+    function withServerQueue(id, fn) {
+      var prev = _serverQueues[id] || Promise.resolve();
+      var next = prev.then(fn, fn);
+      _serverQueues[id] = next;
+      next.then(function () {
+        if (_serverQueues[id] === next) delete _serverQueues[id];
+      });
+      return next;
+    }
+
+    function retryWithBackoff(fn, maxRetries) {
+      maxRetries = maxRetries || 5;
+      function attempt(n) {
+        return fn().catch(function (err) {
+          if (n >= maxRetries) {
+            emit("syncError", { error: err });
+            throw err;
+          }
+          var delay = Math.pow(2, n) * 1000;
+          return new Promise(function (resolve) {
+            setTimeout(resolve, delay);
+          }).then(function () { return attempt(n + 1); });
+        });
+      }
+      return attempt(0);
+    }
+
+    function storeNameToServerFns(storeName) {
+      if (storeName === "projects") return { add: "addProject", update: "updateProject", archive: "archiveProject", getContent: "getProjectContent", reorder: "reorderProjects" };
+      if (storeName === "cases") return { add: "addCase", update: "updateCase", archive: "archiveCase", getContent: "getCaseContent", reorder: "reorderCases" };
+      return { add: "addTask", update: "updateTask", archive: "archiveTask", getContent: "getTaskContent", reorder: "reorderTasks" };
+    }
+
+    // =========================================================
+    // Write Sync: IDB → Server
+    // =========================================================
+    function syncCreateToServer(storeName, id) {
+      withServerQueue(id, function () {
+        return get(storeName, id).then(function (entity) {
+          if (!entity || !entity._pendingCreate) return;
+          var fns = storeNameToServerFns(storeName);
+          var callFn;
+          if (storeName === "projects") {
+            callFn = function () { return serverCall(fns.add, entity.id, entity.name, entity.color || "#4285f4"); };
+          } else if (storeName === "cases") {
+            callFn = function () { return serverCall(fns.add, entity.id, entity.projectId, entity.name); };
+          } else {
+            callFn = function () { return serverCall(fns.add, entity.id, entity.projectId, entity.caseId || "", entity.name); };
+          }
+          return retryWithBackoff(callFn).then(function (result) {
+            return withLock(id, function () {
+              return get(storeName, id).then(function (latest) {
+                if (!latest) return;
+                latest._pendingCreate = false;
+                latest._dirty = false;
+                latest._lastServerUpdatedAt = result.updatedAt;
+                return put(storeName, latest);
+              });
+            });
+          });
+        });
+      }).catch(function (err) {
+        console.error("[TaskStore] syncCreateToServer failed:", storeName, id, err);
+      });
+    }
+
+    function scheduleMetadataSync(storeName, id) {
+      if (_metaDebounces[id]) clearTimeout(_metaDebounces[id]);
+      _metaDebounces[id] = setTimeout(function () {
+        delete _metaDebounces[id];
+        syncMetadataToServer(storeName, id);
+      }, 1000);
+    }
+
+    function syncMetadataToServer(storeName, id) {
+      withServerQueue(id, function () {
+        return get(storeName, id).then(function (entity) {
+          if (!entity) return;
+          if (entity._pendingCreate) return;
+          var clean = stripLocalFields(entity);
+          delete clean.id;
+          delete clean.createdAt;
+          delete clean.content;
+          var fns = storeNameToServerFns(storeName);
+          return retryWithBackoff(function () {
+            return serverCall(fns.update, id, clean);
+          }).then(function (result) {
+            if (!result || !result.updatedAt) return;
+            return withLock(id, function () {
+              return get(storeName, id).then(function (latest) {
+                if (!latest) return;
+                latest._dirty = false;
+                latest._lastServerUpdatedAt = result.updatedAt;
+                return put(storeName, latest);
+              });
+            });
+          });
+        });
+      }).catch(function (err) {
+        console.error("[TaskStore] syncMetadataToServer failed:", storeName, id, err);
+      });
+    }
+
+    function syncArchiveToServer(storeName, id) {
+      withServerQueue(id, function () {
+        return get(storeName, id).then(function (entity) {
+          if (!entity) return;
+          if (entity._pendingCreate) return;
+          var fns = storeNameToServerFns(storeName);
+          return retryWithBackoff(function () {
+            return serverCall(fns.archive, id);
+          }).then(function () {
+            return withLock(id, function () {
+              return get(storeName, id).then(function (latest) {
+                if (!latest) return;
+                latest._dirty = false;
+                return put(storeName, latest);
+              });
+            });
+          });
+        });
+      }).catch(function (err) {
+        console.error("[TaskStore] syncArchiveToServer failed:", storeName, id, err);
+      });
+    }
+
+    function scheduleContentSync(storeName, id) {
+      if (_contentSyncDebounces[id]) clearTimeout(_contentSyncDebounces[id]);
+      _contentSyncDebounces[id] = setTimeout(function () {
+        delete _contentSyncDebounces[id];
+        syncContentToServer(storeName, id);
+      }, 30000);
+    }
+
+    function flushContentSync(storeName, id) {
+      if (_contentSyncDebounces[id]) {
+        clearTimeout(_contentSyncDebounces[id]);
+        delete _contentSyncDebounces[id];
+      }
+      syncContentToServer(storeName, id);
+    }
+
+    function syncContentToServer(storeName, id) {
+      withServerQueue(id, function () {
+        return get(storeName, id).then(function (entity) {
+          if (!entity) return;
+          if (entity._pendingCreate) return;
+          if (entity._contentLocalTs && entity._contentSyncedTs && entity._contentLocalTs <= entity._contentSyncedTs) return;
+          var fns = storeNameToServerFns(storeName);
+          var content = entity.content || "";
+          return retryWithBackoff(function () {
+            return serverCall(fns.update, id, { content: content });
+          }).then(function (result) {
+            if (!result || !result.updatedAt) return;
+            return withLock(id, function () {
+              return get(storeName, id).then(function (latest) {
+                if (!latest) return;
+                latest._contentSyncedTs = entity._contentLocalTs;
+                latest._lastServerUpdatedAt = result.updatedAt;
+                return put(storeName, latest);
+              });
+            });
+          });
+        });
+      }).catch(function (err) {
+        console.error("[TaskStore] syncContentToServer failed:", storeName, id, err);
+      });
+    }
+
+    function scheduleReorderSync(storeName, args) {
+      var state = _reorderState[storeName];
+      state.pending = args;
+      if (_reorderDebounces[storeName]) clearTimeout(_reorderDebounces[storeName]);
+      _reorderDebounces[storeName] = setTimeout(function () {
+        delete _reorderDebounces[storeName];
+        flushReorderSync(storeName);
+      }, 5000);
+    }
+
+    function flushReorderSync(storeName) {
+      var state = _reorderState[storeName];
+      if (state.saving) return;
+      if (!state.pending) return;
+      var args = state.pending;
+      state.pending = null;
+      state.saving = true;
+      var fns = storeNameToServerFns(storeName);
+      serverCall.apply(null, [fns.reorder].concat(args))
+        .catch(function (err) {
+          console.error("[TaskStore] reorder sync failed:", storeName, err);
+        })
+        .then(function () {
+          state.saving = false;
+          if (state.pending) flushReorderSync(storeName);
+        });
+    }
+
+    function flushAllSyncs() {
+      // Flush metadata debounces
+      Object.keys(_metaDebounces).forEach(function (id) {
+        clearTimeout(_metaDebounces[id]);
+        delete _metaDebounces[id];
+        var storeName = _entityStoreMap[id];
+        if (storeName) syncMetadataToServer(storeName, id);
+      });
+      // Flush content sync debounces
+      Object.keys(_contentSyncDebounces).forEach(function (id) {
+        clearTimeout(_contentSyncDebounces[id]);
+        delete _contentSyncDebounces[id];
+        var storeName = _entityStoreMap[id];
+        if (storeName) syncContentToServer(storeName, id);
+      });
+      // Flush reorder debounces
+      ["projects", "cases", "tasks"].forEach(function (sn) {
+        if (_reorderDebounces[sn]) {
+          clearTimeout(_reorderDebounces[sn]);
+          delete _reorderDebounces[sn];
+        }
+        flushReorderSync(sn);
+      });
+    }
+
+    // =========================================================
+    // Read Sync: Server → IDB
+    // =========================================================
+    function mergeServerData(serverData) {
+      var storeNames = ["projects", "cases", "tasks"];
+      var serverSets = {
+        projects: serverData.projects || [],
+        cases: serverData.cases || [],
+        tasks: serverData.tasks || []
+      };
+      return Promise.all(storeNames.map(function (storeName) {
+        return mergeEntityStore(storeName, serverSets[storeName]);
+      })).then(function () {
+        emit("dataChanged", { entityType: "all", op: "serverSync" });
+      });
+    }
+
+    function mergeEntityStore(storeName, serverEntities) {
+      return getAll(storeName).then(function (localEntities) {
+        var localMap = {};
+        localEntities.forEach(function (e) { localMap[e.id] = e; });
+        var serverMap = {};
+        serverEntities.forEach(function (e) { serverMap[e.id] = e; });
+
+        var ops = [];
+
+        // 1. Server only → insert into IDB
+        serverEntities.forEach(function (se) {
+          if (!localMap[se.id]) {
+            se._lastServerUpdatedAt = se.updatedAt;
+            se.content = se.content || "";
+            ops.push(put(storeName, se));
+          }
+        });
+
+        // 2. Local only
+        localEntities.forEach(function (le) {
+          if (!serverMap[le.id]) {
+            if (!le._lastServerUpdatedAt) {
+              // Never synced — set _pendingCreate flag and push to server
+              ops.push(withLock(le.id, function () {
+                return get(storeName, le.id).then(function (latest) {
+                  if (!latest) return;
+                  latest._pendingCreate = true;
+                  latest._dirty = true;
+                  if (latest.content == null) latest.content = "";
+                  return put(storeName, latest);
+                });
+              }).then(function () {
+                syncCreateToServer(storeName, le.id);
+              }));
+            } else {
+              // Was synced before but gone from server — remove locally
+              ops.push(remove(storeName, le.id));
+            }
+          }
+        });
+
+        // 3. Both exist
+        serverEntities.forEach(function (se) {
+          var le = localMap[se.id];
+          if (!le) return;
+          _entityStoreMap[se.id] = storeName;
+          if (!le._dirty) {
+            // No local changes — take server metadata, preserve local content and _ fields
+            var merged = {};
+            Object.keys(se).forEach(function (k) { merged[k] = se[k]; });
+            // Preserve local-only fields
+            Object.keys(le).forEach(function (k) {
+              if (k.charAt(0) === "_" || k === "content") {
+                merged[k] = le[k];
+              }
+            });
+            merged._lastServerUpdatedAt = se.updatedAt;
+            merged._dirty = false;
+            ops.push(put(storeName, merged));
+          } else {
+            // Local is dirty — just update server timestamp, keep local data, re-push
+            ops.push(withLock(se.id, function () {
+              return get(storeName, se.id).then(function (latest) {
+                if (!latest) return;
+                latest._lastServerUpdatedAt = se.updatedAt;
+                return put(storeName, latest);
+              });
+            }));
+            scheduleMetadataSync(storeName, se.id);
+          }
+        });
+
+        return Promise.all(ops);
+      });
+    }
+
+    function requeueDirtyRecords() {
+      var storeNames = ["projects", "cases", "tasks"];
+      storeNames.forEach(function (storeName) {
+        getAll(storeName).then(function (entities) {
+          entities.forEach(function (entity) {
+            _entityStoreMap[entity.id] = storeName;
+            if (entity._pendingCreate) {
+              syncCreateToServer(storeName, entity.id);
+            } else if (entity._dirty) {
+              scheduleMetadataSync(storeName, entity.id);
+            }
+            if (entity._contentLocalTs && (!entity._contentSyncedTs || entity._contentLocalTs > entity._contentSyncedTs)) {
+              scheduleContentSync(storeName, entity.id);
+            }
+          });
+        }).catch(function (err) {
+          console.warn("[TaskStore] requeueDirtyRecords error:", storeName, err);
+        });
+      });
+    }
+
+    // =========================================================
+    // Content Conflict Resolution
+    // =========================================================
+    function applyServerContent(id, storeName, content, serverTs) {
+      return withLock(id, function () {
+        return get(storeName, id).then(function (entity) {
+          if (!entity) return;
+          entity.content = content;
+          entity._contentSyncedTs = serverTs;
+          entity._contentLocalTs = serverTs;
+          return put(storeName, entity);
+        });
+      });
+    }
+
+    function resolveContentConflict(id, storeName, serverResult) {
+      return get(storeName, id).then(function (entity) {
+        if (!entity) return null;
+        var localContent = entity.content || "";
+        var serverContent = (serverResult && serverResult.content) || "";
+        var serverTs = (serverResult && serverResult.updatedAt) || "";
+        var syncedTs = entity._contentSyncedTs || "";
+        var localTs = entity._contentLocalTs || "";
+
+        if (!syncedTs) {
+          // First sync — no synced timestamp
+          if (localTs && localContent) {
+            // Local has edits — push to server
+            scheduleContentSync(storeName, id);
+            return withLock(id, function () {
+              return get(storeName, id).then(function (latest) {
+                if (!latest) return null;
+                latest._contentSyncedTs = localTs;
+                return put(storeName, latest).then(function () {
+                  return { useServer: false };
+                });
+              });
+            });
+          } else {
+            // No local edits — use server
+            return applyServerContent(id, storeName, serverContent, serverTs).then(function () {
+              return { useServer: true, content: serverContent };
+            });
+          }
+        }
+
+        var hasLocalEdits = !!(localTs && syncedTs && localTs > syncedTs);
+        var serverIsNewer = !!(serverTs && serverTs !== syncedTs);
+
+        if (hasLocalEdits && serverIsNewer) {
+          // Conflict
+          var useServer = confirm("サーバーに新しいバージョンがあります。サーバーの内容を使用しますか？\n（キャンセルでローカルの変更を維持）");
+          if (useServer) {
+            return applyServerContent(id, storeName, serverContent, serverTs).then(function () {
+              return { useServer: true, content: serverContent };
+            });
+          } else {
+            scheduleContentSync(storeName, id);
+            return Promise.resolve({ useServer: false });
+          }
+        } else if (hasLocalEdits) {
+          // Local only changed — push
+          scheduleContentSync(storeName, id);
+          return Promise.resolve({ useServer: false });
+        } else if (serverIsNewer) {
+          // Server only changed — use server
+          return applyServerContent(id, storeName, serverContent, serverTs).then(function () {
+            return { useServer: true, content: serverContent };
+          });
+        } else {
+          // No changes
+          return Promise.resolve({ useServer: false });
+        }
+      });
+    }
+
+    function resolveWithServer(id, storeName) {
+      var fns = storeNameToServerFns(storeName);
+      return withTimeout(serverCall(fns.getContent, id), 5000)
+        .then(function (serverResult) {
+          return resolveContentConflict(id, storeName, serverResult);
+        })
+        .catch(function () {
+          return null;
+        });
     }
 
     // =========================================================
@@ -411,7 +941,7 @@
       });
     }
 
-    var STATUS_ORDER = { doing: 0, todo: 1, review: 2, pending: 3, docs: 4, done: 5 };
+    var STATUS_ORDER = { docs: 0, doing: 1, review: 2, todo: 3, pending: 4, done: 5 };
 
     function getTasks(projectId, caseId) {
       var indexName = caseId ? "caseId" : "projectId";
@@ -453,6 +983,7 @@
       });
       return updateSortOrders("projects", entries).then(function () {
         emit("dataChanged", { entityType: "project", op: "reorder" });
+        scheduleReorderSync("projects", [orderedIds]);
       });
     }
 
@@ -462,6 +993,7 @@
       });
       return updateSortOrders("cases", entries).then(function () {
         emit("dataChanged", { entityType: "case", op: "reorder" });
+        scheduleReorderSync("cases", [projectId, orderedIds]);
       });
     }
 
@@ -471,6 +1003,7 @@
       });
       return updateSortOrders("tasks", entries).then(function () {
         emit("dataChanged", { entityType: "task", op: "reorder" });
+        scheduleReorderSync("tasks", [parentId, orderedIds]);
       });
     }
 
@@ -478,7 +1011,23 @@
     // Init
     // =========================================================
     function init() {
-      return openDB();
+      return openDB().then(function () {
+        return migrateContentsToEntities();
+      }).then(function () {
+        // Background: requeue dirty records and pull server data
+        requeueDirtyRecords();
+        serverCall("getAllTaskData").then(function (data) {
+          return mergeServerData(data);
+        }).catch(function (err) {
+          console.warn("[TaskStore] server sync failed:", err);
+        });
+
+        // Flush on page close / tab hide
+        window.addEventListener("beforeunload", flushAllSyncs);
+        document.addEventListener("visibilitychange", function () {
+          if (document.visibilityState === "hidden") flushAllSyncs();
+        });
+      });
     }
 
     // =========================================================
@@ -513,6 +1062,9 @@
       put: put,
       updateEntity: updateEntity,
       updateSortOrders: updateSortOrders,
+      flushContentSync: flushContentSync,
+      flushAllSyncs: flushAllSyncs,
+      resolveWithServer: resolveWithServer,
     };
   })();
 </script>

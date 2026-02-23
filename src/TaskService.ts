@@ -247,7 +247,7 @@ function addProject(
   id: string,
   name: string,
   color: string,
-): { success: boolean; id: string } {
+): { success: boolean; id: string; updatedAt: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Projects")!;
   const now = new Date().toISOString();
@@ -255,14 +255,14 @@ function addProject(
   const nextOrder = lastRow;
   sheet.appendRow([id, name, "", color, nextOrder, true, now, now]);
   invalidateTaskCache();
-  return { success: true, id };
+  return { success: true, id, updatedAt: now };
 }
 
 function addCase(
   id: string,
   projectId: string,
   name: string,
-): { success: boolean; id: string } {
+): { success: boolean; id: string; updatedAt: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Cases")!;
   const now = new Date().toISOString();
@@ -270,7 +270,7 @@ function addCase(
   const nextOrder = lastRow;
   sheet.appendRow([id, projectId, name, "", nextOrder, true, now, now]);
   invalidateTaskCache();
-  return { success: true, id };
+  return { success: true, id, updatedAt: now };
 }
 
 function addTask(
@@ -278,7 +278,7 @@ function addTask(
   projectId: string,
   caseId: string,
   name: string,
-): { success: boolean; id: string } {
+): { success: boolean; id: string; updatedAt: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Tasks")!;
   const now = new Date().toISOString();
@@ -300,13 +300,13 @@ function addTask(
     now,
   ]);
   invalidateTaskCache();
-  return { success: true, id };
+  return { success: true, id, updatedAt: now };
 }
 
 function updateProject(
   id: string,
   fields: { name?: string; color?: string; content?: string },
-): { success: boolean } {
+): { success: boolean; updatedAt?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Projects")!;
   const lastRow = sheet.getLastRow();
@@ -321,9 +321,10 @@ function updateProject(
         sheet.getRange(row, 3).setValue(fields.content);
       if (fields.color !== undefined)
         sheet.getRange(row, 4).setValue(fields.color);
-      sheet.getRange(row, 8).setValue(new Date().toISOString());
+      const updatedAt = new Date().toISOString();
+      sheet.getRange(row, 8).setValue(updatedAt);
       invalidateTaskCache();
-      return { success: true };
+      return { success: true, updatedAt };
     }
   }
   return { success: false };
@@ -332,7 +333,7 @@ function updateProject(
 function updateCase(
   id: string,
   fields: { name?: string; content?: string },
-): { success: boolean } {
+): { success: boolean; updatedAt?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Cases")!;
   const lastRow = sheet.getLastRow();
@@ -345,9 +346,10 @@ function updateCase(
       if (fields.name !== undefined) sheet.getRange(row, 3).setValue(fields.name);
       if (fields.content !== undefined)
         sheet.getRange(row, 4).setValue(fields.content);
-      sheet.getRange(row, 8).setValue(new Date().toISOString());
+      const updatedAt = new Date().toISOString();
+      sheet.getRange(row, 8).setValue(updatedAt);
       invalidateTaskCache();
-      return { success: true };
+      return { success: true, updatedAt };
     }
   }
   return { success: false };
@@ -362,7 +364,7 @@ function updateTask(
     startedAt?: string;
     dueDate?: string;
   },
-): { success: boolean } {
+): { success: boolean; updatedAt?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Tasks")!;
   const lastRow = sheet.getLastRow();
@@ -388,9 +390,10 @@ function updateTask(
         sheet.getRange(row, 11).setValue(fields.startedAt);
       if (fields.dueDate !== undefined)
         sheet.getRange(row, 12).setValue(fields.dueDate);
-      sheet.getRange(row, 13).setValue(new Date().toISOString());
+      const updatedAt = new Date().toISOString();
+      sheet.getRange(row, 13).setValue(updatedAt);
       invalidateTaskCache();
-      return { success: true };
+      return { success: true, updatedAt };
     }
   }
   return { success: false };

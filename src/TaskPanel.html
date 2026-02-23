@@ -70,8 +70,16 @@
         }
       } catch (e) {}
 
-      TaskStore.on("dataChanged", function () {
+      TaskStore.on("dataChanged", function (detail) {
         render();
+        // Re-render task table when a task is updated and table view is visible
+        if (detail && detail.entityType === "task" && selectedNode &&
+            (selectedNode.type === "project" || selectedNode.type === "case")) {
+          var tableContent = document.querySelector(".task-table-content");
+          if (tableContent && tableContent.style.display !== "none") {
+            renderTaskTable(tableContent, selectedNode.type, selectedNode.id);
+          }
+        }
       });
 
       // Render content after init
@@ -100,6 +108,7 @@
         }
         if (taskWikiDocId) {
           flushWikiSave(taskWikiDocId);
+          TaskStore.flushContentSync(taskWikiStoreName, taskWikiDocId);
         }
       }
       window.addEventListener("beforeunload", flushWikiOnUnload);
@@ -653,7 +662,7 @@
       _wikiContainer = document.createElement("div");
       _wikiContainer.style.height = "100%";
 
-      taskWikiEditorRef = window.mountMemoEditor(_wikiContainer, {
+      var editorOpts = {
         initialValue: initialContent || "",
         initialDocumentId: initialDocId,
         onChange: function (md) {
@@ -667,7 +676,12 @@
         placeholder: "ドキュメントを入力...",
         defaultMode: "wysiwyg",
         style: { height: "100%" },
-      });
+      };
+      if (typeof MemoEditor !== "undefined" && MemoEditor.getMentionsConfig) {
+        var mc = MemoEditor.getMentionsConfig();
+        if (mc) editorOpts.mentions = mc;
+      }
+      taskWikiEditorRef = window.mountMemoEditor(_wikiContainer, editorOpts);
     }
 
     function attachWikiEditor(target, id, storeName) {
@@ -726,24 +740,29 @@
         return;
       }
 
-      // Cache miss: load from IndexedDB
+      // Cache miss: 2-phase load (IDB first, then server check)
       taskWikiEditorRef.setEditable(false);
 
+      // Phase 1: show IDB content immediately (read-only)
       TaskStore.getContent(id, storeName).then(function (content) {
-        if (taskWikiDocId !== id) return; // stale
-
+        if (taskWikiDocId !== id) return;
         taskWikiEditorRef.switchDocument(id, content || "");
         restoreWikiScroll(id);
+      });
 
-        // Wait for any pending lock on this id before enabling edit
-        TaskStore.withLock(id, function () {}).then(function () {
-          if (taskWikiDocId === id) taskWikiEditorRef.setEditable(true);
-        });
-      }).catch(function () {
-        if (taskWikiDocId === id) {
-          taskWikiEditorRef.switchDocument(id, "");
-          taskWikiEditorRef.setEditable(true);
+      // Phase 2: compare with server, then enable editing
+      TaskStore.withLock(id, function () {}).then(function () {
+        if (taskWikiDocId !== id) return;
+        return TaskStore.resolveWithServer(id, storeName);
+      }).then(function (resolution) {
+        if (taskWikiDocId !== id) return;
+        if (resolution && resolution.useServer) {
+          taskWikiEditorRef.switchDocument(id, resolution.content || "");
+          restoreWikiScroll(id);
         }
+        taskWikiEditorRef.setEditable(true);
+      }).catch(function () {
+        if (taskWikiDocId === id) taskWikiEditorRef.setEditable(true);
       });
     }
 
@@ -858,27 +877,16 @@
     }
 
     function createDateCell(td, dateValue, onChange) {
-      var display = document.createElement("span");
-      display.className = "task-table-date-display";
-      display.textContent = dateValue ? dateValue.slice(0, 10) : "-";
-      td.appendChild(display);
+      td.onclick = function (e) { e.stopPropagation(); };
 
       var input = document.createElement("input");
       input.type = "date";
-      input.className = "task-table-date";
+      input.className = "task-table-date-input";
       input.value = dateValue ? dateValue.slice(0, 10) : "";
-      input.onkeydown = function (e) { e.preventDefault(); };
-      td.appendChild(input);
-
-      display.onclick = function (e) {
-        e.stopPropagation();
-        input.showPicker();
-      };
-      input.onclick = function (e) { e.stopPropagation(); };
       input.onchange = function () {
-        display.textContent = input.value || "-";
         onChange(input.value || "");
       };
+      td.appendChild(input);
     }
 
     function createTaskTableGroup(title, tasks, projectId, caseId) {
