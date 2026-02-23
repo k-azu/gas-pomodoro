@@ -17,8 +17,6 @@
     var _wikiPending = false;    // initial mount in progress (prevents re-entry)
     var contextMenuEl = null;
     var dragState = null;
-    var pendingOrder = null;
-    var savingOrder = false;
 
     // Status config
     var STATUS_CONFIG = {
@@ -480,7 +478,7 @@
         var titleEl = document.createElement("h3");
         titleEl.className = "task-detail-title";
         titleEl.textContent = data.name;
-        titleEl.onclick = function () { startInlineRename(titleEl, type, id, data.name); };
+        titleEl.onclick = function () { bindTitleRename(titleEl, type, id, data.name); };
         header.appendChild(titleEl);
 
         if (data._cachedTimeSeconds) {
@@ -563,7 +561,7 @@
         var titleEl = document.createElement("h3");
         titleEl.className = "task-detail-title";
         titleEl.textContent = data.name;
-        titleEl.onclick = function () { startInlineRename(titleEl, "task", id, data.name); };
+        titleEl.onclick = function () { bindTitleRename(titleEl, "task", id, data.name); };
         header.appendChild(titleEl);
 
         if (data._cachedTimeSeconds) {
@@ -740,19 +738,14 @@
         return;
       }
 
-      // Cache miss: 2-phase load (IDB first, then server check)
+      // Cache miss: 2-phase load (IDB → read-only display → server check → editable)
       taskWikiEditorRef.setEditable(false);
 
-      // Phase 1: show IDB content immediately (read-only)
       TaskStore.getContent(id, storeName).then(function (content) {
         if (taskWikiDocId !== id) return;
         taskWikiEditorRef.switchDocument(id, content || "");
         restoreWikiScroll(id);
-      });
-
-      // Phase 2: compare with server, then enable editing
-      TaskStore.withLock(id, function () {}).then(function () {
-        if (taskWikiDocId !== id) return;
+        // Now compare with server
         return TaskStore.resolveWithServer(id, storeName);
       }).then(function (resolution) {
         if (taskWikiDocId !== id) return;
@@ -1097,12 +1090,19 @@
     }
 
     // =========================================================
-    // Inline Rename
+    // Inline Rename (shared by content header and tree)
     // =========================================================
-    function startInlineRename(el, type, id, currentName) {
+    function bindTitleRename(el, type, id, currentName) {
+      startRename(el, type, id, currentName, function (newName) {
+        el.textContent = newName;
+        el.onclick = function () { bindTitleRename(el, type, id, newName); };
+      });
+    }
+
+    function startRename(el, type, id, currentName, onDone) {
       var input = document.createElement("input");
       input.type = "text";
-      input.className = "task-inline-rename";
+      input.className = el.closest(".task-tree-item") ? "task-tree-rename-input" : "task-inline-rename";
       input.value = currentName;
 
       function finish() {
@@ -1112,8 +1112,11 @@
           else if (type === "case") TaskStore.updateCase(id, { name: newName });
           else TaskStore.updateTask(id, { name: newName });
         }
-        el.textContent = newName;
-        el.onclick = function () { startInlineRename(el, type, id, newName); };
+        if (onDone) {
+          onDone(newName);
+        } else {
+          render();
+        }
       }
 
       input.addEventListener("blur", finish);
@@ -1147,7 +1150,7 @@
       renameBtn.onclick = function () {
         hideContextMenu();
         var el = document.querySelector('.task-tree-item[data-id="' + data.id + '"] .task-tree-name');
-        if (el) startTreeRename(el, type, data.id, data.name);
+        if (el) startRename(el, type, data.id, data.name);
       };
       contextMenuEl.appendChild(renameBtn);
 
@@ -1246,34 +1249,6 @@
         contextMenuEl.remove();
         contextMenuEl = null;
       }
-    }
-
-    function startTreeRename(el, type, id, currentName) {
-      var input = document.createElement("input");
-      input.type = "text";
-      input.className = "task-tree-rename-input";
-      input.value = currentName;
-
-      function finish() {
-        var newName = input.value.trim() || currentName;
-        if (newName !== currentName) {
-          if (type === "project") TaskStore.updateProject(id, { name: newName });
-          else if (type === "case") TaskStore.updateCase(id, { name: newName });
-          else TaskStore.updateTask(id, { name: newName });
-        }
-        render();
-      }
-
-      input.addEventListener("blur", finish);
-      input.addEventListener("keydown", function (e) {
-        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-        if (e.key === "Escape") { input.value = currentName; input.blur(); }
-      });
-
-      el.textContent = "";
-      el.appendChild(input);
-      input.focus();
-      input.select();
     }
 
     // =========================================================
