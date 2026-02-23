@@ -539,6 +539,7 @@
       withServerQueue(id, function () {
         return get(storeName, id).then(function (entity) {
           if (!entity || !entity._pendingCreate) return;
+          var capturedUpdatedAt = entity.updatedAt;
           var fns = storeNameToServerFns(storeName);
           var callFn;
           if (storeName === "projects") {
@@ -553,8 +554,11 @@
               return get(storeName, id).then(function (latest) {
                 if (!latest) return;
                 latest._pendingCreate = false;
-                latest._dirty = false;
                 latest._lastServerUpdatedAt = result.updatedAt;
+                // Only clear dirty if entity hasn't been modified since we read it
+                if (latest.updatedAt === capturedUpdatedAt) {
+                  latest._dirty = false;
+                }
                 return put(storeName, latest);
               });
             });
@@ -578,6 +582,7 @@
         return get(storeName, id).then(function (entity) {
           if (!entity) return;
           if (entity._pendingCreate) return;
+          var capturedUpdatedAt = entity.updatedAt;
           var clean = stripLocalFields(entity);
           delete clean.id;
           delete clean.createdAt;
@@ -590,8 +595,11 @@
             return withLock(id, function () {
               return get(storeName, id).then(function (latest) {
                 if (!latest) return;
-                latest._dirty = false;
                 latest._lastServerUpdatedAt = result.updatedAt;
+                // Only clear dirty if entity hasn't been modified since we read it
+                if (latest.updatedAt === capturedUpdatedAt) {
+                  latest._dirty = false;
+                }
                 return put(storeName, latest);
               });
             });
