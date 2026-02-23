@@ -36,7 +36,7 @@ interface TaskMetadata {
   _cachedTimeSeconds?: number;
 }
 
-const TASK_CACHE_KEY = "task_data_v1";
+const TASK_CACHE_KEY = "task_data_v2";
 const TASK_CACHE_TTL = 300;
 
 function getAllTaskData(): {

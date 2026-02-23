@@ -12,6 +12,7 @@
     var memoScrollCache = {}; // documentId -> scrollTop
     var currentMemoDocId = null;
     var _navigateBack = null;
+    var _mentionsConfig = null;
 
     function ls(key) {
       try { return localStorage.getItem(key) || ""; } catch (e) { return ""; }
@@ -384,6 +385,7 @@
           onClick: entityMentionClick,
         },
       ];
+      _mentionsConfig = mentionsConfig;
 
       // 1. Memo editor
       var memoContainer = document.getElementById("memo-editor-container");
@@ -595,6 +597,7 @@
       setViewerValue: setViewerValue,
       clearViewer: clearViewer,
       navigateBack: function () { if (_navigateBack) _navigateBack(); },
+      getMentionsConfig: function () { return _mentionsConfig; },
     };
   })();
 </script>

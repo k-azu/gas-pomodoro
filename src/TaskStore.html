@@ -1,11 +1,10 @@
 <script>
   var TaskStore = (function () {
     var DB_NAME = "gas_pomodoro";
-    var DB_VERSION = 1;
+    var DB_VERSION = 2;
     var _db = null;
     var _listeners = {};
     var _entityStoreMap = {};
-    var _serverQueues = {};
     var _metaDebounces = {};
     var _contentSyncDebounces = {};
     var _reorderState = {
@@ -14,6 +13,7 @@
       tasks: { pending: null, saving: false }
     };
     var _reorderDebounces = {};
+    var _pendingServerContent = {}; // id -> { storeName, content, serverTs }
 
     // =========================================================
     // Per-ID operation lock (serializes read-modify-write)
@@ -58,11 +58,12 @@
             ts.createIndex("caseId", "caseId", { unique: false });
             ts.createIndex("status", "status", { unique: false });
           }
-          if (!db.objectStoreNames.contains("contents")) {
-            db.createObjectStore("contents", { keyPath: "id" });
+          // v2: remove obsolete stores
+          if (db.objectStoreNames.contains("contents")) {
+            db.deleteObjectStore("contents");
           }
-          if (!db.objectStoreNames.contains("syncMeta")) {
-            db.createObjectStore("syncMeta", { keyPath: "key" });
+          if (db.objectStoreNames.contains("syncMeta")) {
+            db.deleteObjectStore("syncMeta");
           }
         };
         req.onsuccess = function () {
@@ -422,9 +423,14 @@
       return withLock(id, function () {
         return get(storeName, id).then(function (existing) {
           if (!existing) return;
+          // Guard: skip empty content save for entities not yet confirmed by server
+          if (!content && !existing._serverUpdatedAt && !existing._pendingCreate) {
+            console.warn("[TaskStore] Skipping empty content save for unconfirmed entity:", id);
+            return;
+          }
           var now = new Date().toISOString();
           existing.content = content;
-          existing._contentLocalTs = now;
+          existing._contentDirtyAt = now;
           return put(storeName, existing).then(function () {
             scheduleContentSync(storeName, id);
           });
@@ -439,46 +445,6 @@
       });
     }
 
-    // =========================================================
-    // Migration: contents store → entity stores
-    // =========================================================
-    function migrateContentsToEntities() {
-      if (localStorage.getItem("gas_pomodoro_contents_migrated") === "1") {
-        return Promise.resolve();
-      }
-      return getAll("contents").then(function (records) {
-        if (!records || records.length === 0) {
-          localStorage.setItem("gas_pomodoro_contents_migrated", "1");
-          return;
-        }
-        var ops = records.map(function (record) {
-          var targetStore = record._storeName;
-          if (!targetStore) return Promise.resolve();
-          return get(targetStore, record.id).then(function (entity) {
-            if (!entity) return;
-            if (entity.content == null || entity.content === "") {
-              entity.content = record.content || "";
-              entity._contentLocalTs = record.updatedAt || new Date().toISOString();
-              return put(targetStore, entity);
-            }
-          });
-        });
-        return Promise.all(ops).then(function () {
-          return openDB().then(function (db) {
-            return new Promise(function (resolve, reject) {
-              var tx = db.transaction("contents", "readwrite");
-              tx.objectStore("contents").clear();
-              tx.oncomplete = function () { resolve(); };
-              tx.onerror = function () { reject(tx.error); };
-            });
-          });
-        }).then(function () {
-          localStorage.setItem("gas_pomodoro_contents_migrated", "1");
-        });
-      }).catch(function (err) {
-        console.warn("[TaskStore] migration error:", err);
-      });
-    }
 
     // =========================================================
     // Sync Utilities
@@ -497,16 +463,6 @@
         promise.then(function (v) { clearTimeout(timer); resolve(v); },
                      function (e) { clearTimeout(timer); reject(e); });
       });
-    }
-
-    function withServerQueue(id, fn) {
-      var prev = _serverQueues[id] || Promise.resolve();
-      var next = prev.then(fn, fn);
-      _serverQueues[id] = next;
-      next.then(function () {
-        if (_serverQueues[id] === next) delete _serverQueues[id];
-      });
-      return next;
     }
 
     function retryWithBackoff(fn, maxRetries) {
@@ -536,31 +492,29 @@
     // Write Sync: IDB → Server
     // =========================================================
     function syncCreateToServer(storeName, id) {
-      withServerQueue(id, function () {
-        return get(storeName, id).then(function (entity) {
-          if (!entity || !entity._pendingCreate) return;
-          var capturedUpdatedAt = entity.updatedAt;
-          var fns = storeNameToServerFns(storeName);
-          var callFn;
-          if (storeName === "projects") {
-            callFn = function () { return serverCall(fns.add, entity.id, entity.name, entity.color || "#4285f4"); };
-          } else if (storeName === "cases") {
-            callFn = function () { return serverCall(fns.add, entity.id, entity.projectId, entity.name); };
-          } else {
-            callFn = function () { return serverCall(fns.add, entity.id, entity.projectId, entity.caseId || "", entity.name); };
-          }
-          return retryWithBackoff(callFn).then(function (result) {
-            return withLock(id, function () {
-              return get(storeName, id).then(function (latest) {
-                if (!latest) return;
-                latest._pendingCreate = false;
-                latest._lastServerUpdatedAt = result.updatedAt;
-                // Only clear dirty if entity hasn't been modified since we read it
-                if (latest.updatedAt === capturedUpdatedAt) {
-                  latest._dirty = false;
-                }
-                return put(storeName, latest);
-              });
+      get(storeName, id).then(function (entity) {
+        if (!entity || !entity._pendingCreate) return;
+        var capturedUpdatedAt = entity.updatedAt;
+        var fns = storeNameToServerFns(storeName);
+        var callFn;
+        if (storeName === "projects") {
+          callFn = function () { return serverCall(fns.add, entity.id, entity.name, entity.color || "#4285f4"); };
+        } else if (storeName === "cases") {
+          callFn = function () { return serverCall(fns.add, entity.id, entity.projectId, entity.name); };
+        } else {
+          callFn = function () { return serverCall(fns.add, entity.id, entity.projectId, entity.caseId || "", entity.name); };
+        }
+        return retryWithBackoff(callFn).then(function (result) {
+          return withLock(id, function () {
+            return get(storeName, id).then(function (latest) {
+              if (!latest) return;
+              latest._pendingCreate = false;
+              latest._serverUpdatedAt = result.updatedAt;
+              // Only clear dirty if entity hasn't been modified since we read it
+              if (latest.updatedAt === capturedUpdatedAt) {
+                latest._dirty = false;
+              }
+              return put(storeName, latest);
             });
           });
         });
@@ -578,30 +532,28 @@
     }
 
     function syncMetadataToServer(storeName, id) {
-      withServerQueue(id, function () {
-        return get(storeName, id).then(function (entity) {
-          if (!entity) return;
-          if (entity._pendingCreate) return;
-          var capturedUpdatedAt = entity.updatedAt;
-          var clean = stripLocalFields(entity);
-          delete clean.id;
-          delete clean.createdAt;
-          delete clean.content;
-          var fns = storeNameToServerFns(storeName);
-          return retryWithBackoff(function () {
-            return serverCall(fns.update, id, clean);
-          }).then(function (result) {
-            if (!result || !result.updatedAt) return;
-            return withLock(id, function () {
-              return get(storeName, id).then(function (latest) {
-                if (!latest) return;
-                latest._lastServerUpdatedAt = result.updatedAt;
-                // Only clear dirty if entity hasn't been modified since we read it
-                if (latest.updatedAt === capturedUpdatedAt) {
-                  latest._dirty = false;
-                }
-                return put(storeName, latest);
-              });
+      get(storeName, id).then(function (entity) {
+        if (!entity) return;
+        if (entity._pendingCreate) return;
+        var capturedUpdatedAt = entity.updatedAt;
+        var clean = stripLocalFields(entity);
+        delete clean.id;
+        delete clean.createdAt;
+        delete clean.content;
+        var fns = storeNameToServerFns(storeName);
+        return retryWithBackoff(function () {
+          return serverCall(fns.update, id, clean);
+        }).then(function (result) {
+          if (!result || !result.updatedAt) return;
+          return withLock(id, function () {
+            return get(storeName, id).then(function (latest) {
+              if (!latest) return;
+              latest._serverUpdatedAt = result.updatedAt;
+              // Only clear dirty if entity hasn't been modified since we read it
+              if (latest.updatedAt === capturedUpdatedAt) {
+                latest._dirty = false;
+              }
+              return put(storeName, latest);
             });
           });
         });
@@ -611,20 +563,18 @@
     }
 
     function syncArchiveToServer(storeName, id) {
-      withServerQueue(id, function () {
-        return get(storeName, id).then(function (entity) {
-          if (!entity) return;
-          if (entity._pendingCreate) return;
-          var fns = storeNameToServerFns(storeName);
-          return retryWithBackoff(function () {
-            return serverCall(fns.archive, id);
-          }).then(function () {
-            return withLock(id, function () {
-              return get(storeName, id).then(function (latest) {
-                if (!latest) return;
-                latest._dirty = false;
-                return put(storeName, latest);
-              });
+      get(storeName, id).then(function (entity) {
+        if (!entity) return;
+        if (entity._pendingCreate) return;
+        var fns = storeNameToServerFns(storeName);
+        return retryWithBackoff(function () {
+          return serverCall(fns.archive, id);
+        }).then(function () {
+          return withLock(id, function () {
+            return get(storeName, id).then(function (latest) {
+              if (!latest) return;
+              latest._dirty = false;
+              return put(storeName, latest);
             });
           });
         });
@@ -650,24 +600,25 @@
     }
 
     function syncContentToServer(storeName, id) {
-      withServerQueue(id, function () {
-        return get(storeName, id).then(function (entity) {
-          if (!entity) return;
-          if (entity._pendingCreate) return;
-          if (entity._contentLocalTs && entity._contentSyncedTs && entity._contentLocalTs <= entity._contentSyncedTs) return;
-          var fns = storeNameToServerFns(storeName);
-          var content = entity.content || "";
-          return retryWithBackoff(function () {
-            return serverCall(fns.update, id, { content: content });
-          }).then(function (result) {
-            if (!result || !result.updatedAt) return;
-            return withLock(id, function () {
-              return get(storeName, id).then(function (latest) {
-                if (!latest) return;
-                latest._contentSyncedTs = entity._contentLocalTs;
-                latest._lastServerUpdatedAt = result.updatedAt;
-                return put(storeName, latest);
-              });
+      get(storeName, id).then(function (entity) {
+        if (!entity) return;
+        if (entity._pendingCreate) return;
+        if (!entity._contentDirtyAt) return; // null = already synced
+        var fns = storeNameToServerFns(storeName);
+        var content = entity.content || "";
+        return retryWithBackoff(function () {
+          return serverCall(fns.update, id, { content: content });
+        }).then(function (result) {
+          if (!result || !result.updatedAt) return;
+          return withLock(id, function () {
+            return get(storeName, id).then(function (latest) {
+              if (!latest) return;
+              // Clear dirty only if no new edits happened since we started syncing
+              if (latest._contentDirtyAt === entity._contentDirtyAt) {
+                latest._contentDirtyAt = null;
+              }
+              latest._serverUpdatedAt = result.updatedAt;
+              return put(storeName, latest);
             });
           });
         });
@@ -755,11 +706,19 @@
 
         var ops = [];
 
-        // 1. Server only → insert into IDB
+        // 1. Server only → insert into IDB (metadata only, content fetched on demand)
         serverEntities.forEach(function (se) {
           if (!localMap[se.id]) {
-            se._lastServerUpdatedAt = se.updatedAt;
-            se.content = se.content || "";
+            se._serverUpdatedAt = se.updatedAt;
+            se._contentDirtyAt = null;
+            // Apply pending server content from resolveWithServer (IDB was empty at that time)
+            var pending = _pendingServerContent[se.id];
+            if (pending) {
+              se.content = pending.content;
+              delete _pendingServerContent[se.id];
+            } else {
+              se.content = "";
+            }
             ops.push(put(storeName, se));
           }
         });
@@ -767,7 +726,7 @@
         // 2. Local only
         localEntities.forEach(function (le) {
           if (!serverMap[le.id]) {
-            if (!le._lastServerUpdatedAt) {
+            if (!le._serverUpdatedAt) {
               // Never synced — set _pendingCreate flag and push to server
               ops.push(withLock(le.id, function () {
                 return get(storeName, le.id).then(function (latest) {
@@ -793,16 +752,15 @@
           if (!le) return;
           _entityStoreMap[se.id] = storeName;
           if (!le._dirty) {
-            // No local changes — take server metadata, preserve local content and _ fields
+            // No local changes — take server metadata, preserve local-only _ fields and content
             var merged = {};
             Object.keys(se).forEach(function (k) { merged[k] = se[k]; });
-            // Preserve local-only fields
             Object.keys(le).forEach(function (k) {
               if (k.charAt(0) === "_" || k === "content") {
                 merged[k] = le[k];
               }
             });
-            merged._lastServerUpdatedAt = se.updatedAt;
+            merged._serverUpdatedAt = se.updatedAt;
             merged._dirty = false;
             ops.push(put(storeName, merged));
           } else {
@@ -810,7 +768,7 @@
             ops.push(withLock(se.id, function () {
               return get(storeName, se.id).then(function (latest) {
                 if (!latest) return;
-                latest._lastServerUpdatedAt = se.updatedAt;
+                latest._serverUpdatedAt = se.updatedAt;
                 return put(storeName, latest);
               });
             }));
@@ -833,7 +791,7 @@
             } else if (entity._dirty) {
               scheduleMetadataSync(storeName, entity.id);
             }
-            if (entity._contentLocalTs && (!entity._contentSyncedTs || entity._contentLocalTs > entity._contentSyncedTs)) {
+            if (entity._contentDirtyAt) {
               scheduleContentSync(storeName, entity.id);
             }
           });
@@ -851,83 +809,81 @@
         return get(storeName, id).then(function (entity) {
           if (!entity) return;
           entity.content = content;
-          entity._contentSyncedTs = serverTs;
-          entity._contentLocalTs = serverTs;
+          entity._contentDirtyAt = null; // synced
+          entity._serverUpdatedAt = serverTs;
           return put(storeName, entity);
         });
       });
     }
 
     function resolveContentConflict(id, storeName, serverResult) {
-      return get(storeName, id).then(function (entity) {
-        if (!entity) return null;
-        var localContent = entity.content || "";
-        var serverContent = (serverResult && serverResult.content) || "";
-        var serverTs = (serverResult && serverResult.updatedAt) || "";
-        var syncedTs = entity._contentSyncedTs || "";
-        var localTs = entity._contentLocalTs || "";
-
-        if (!syncedTs) {
-          // First sync — no synced timestamp
-          if (localTs && localContent) {
-            // Local has edits — push to server
-            scheduleContentSync(storeName, id);
-            return withLock(id, function () {
-              return get(storeName, id).then(function (latest) {
-                if (!latest) return null;
-                latest._contentSyncedTs = localTs;
-                return put(storeName, latest).then(function () {
-                  return { useServer: false };
-                });
-              });
-            });
-          } else {
-            // No local edits — use server
-            return applyServerContent(id, storeName, serverContent, serverTs).then(function () {
-              return { useServer: true, content: serverContent };
-            });
+      // serverResult is null/undefined when server call returned null (row not found,
+      // GAS glitch, google.script.run resolving with undefined, etc.)
+      // Distinguish this from {content: ""} (genuinely empty content on server).
+      console.log("[TaskStore] resolveContentConflict:", id, "serverResult:", serverResult == null ? "null" : JSON.stringify({ contentLen: (serverResult.content || "").length, updatedAt: serverResult.updatedAt }));
+      if (serverResult == null) {
+        return get(storeName, id).then(function (entity) {
+          console.log("[TaskStore] serverResult null, entity:", entity ? "exists, content=" + JSON.stringify((entity.content || "").slice(0, 40)) : "null");
+          // If we have local content, keep using it
+          if (entity && entity.content) {
+            return { useServer: false };
           }
+          // No local content either — signal failure so caller shows retry banner
+          return null;
+        });
+      }
+
+      var serverContent = serverResult.content || "";
+      var serverTs = serverResult.updatedAt || "";
+
+      return get(storeName, id).then(function (entity) {
+        if (!entity) {
+          console.log("[TaskStore] entity not in IDB, serverContent len:", serverContent.length);
+          // Entity not in IDB yet (fresh DB) — use server content if available
+          if (!serverContent) return { useServer: false };
+          // Store for mergeEntityStore to apply when entity is created
+          _pendingServerContent[id] = { storeName: storeName, content: serverContent, serverTs: serverTs };
+          return { useServer: true, content: serverContent };
         }
 
-        var hasLocalEdits = !!(localTs && syncedTs && localTs > syncedTs);
-        var serverIsNewer = !!(serverTs && serverTs !== syncedTs);
+        var localContent = entity.content || "";
+        console.log("[TaskStore] both exist — local:", localContent.length, "server:", serverContent.length, "_contentDirtyAt:", entity._contentDirtyAt);
 
-        if (hasLocalEdits && serverIsNewer) {
-          // Conflict
-          var useServer = confirm("サーバーに新しいバージョンがあります。サーバーの内容を使用しますか？\n（キャンセルでローカルの変更を維持）");
-          if (useServer) {
-            return applyServerContent(id, storeName, serverContent, serverTs).then(function () {
-              return { useServer: true, content: serverContent };
-            });
-          } else {
-            scheduleContentSync(storeName, id);
-            return Promise.resolve({ useServer: false });
-          }
-        } else if (hasLocalEdits) {
-          // Local only changed — push
+        // Content identical → align timestamp only
+        if (localContent === serverContent) {
+          return applyServerContent(id, storeName, localContent, serverTs).then(function () {
+            return { useServer: false };
+          });
+        }
+
+        // Local has unsync'd edits → keep local, push to server
+        if (entity._contentDirtyAt) {
           scheduleContentSync(storeName, id);
           return Promise.resolve({ useServer: false });
-        } else if (serverIsNewer) {
-          // Server only changed — use server
-          return applyServerContent(id, storeName, serverContent, serverTs).then(function () {
-            return { useServer: true, content: serverContent };
-          });
-        } else {
-          // No changes
-          return Promise.resolve({ useServer: false });
         }
+
+        // No local edits → accept server content
+        return applyServerContent(id, storeName, serverContent, serverTs).then(function () {
+          return { useServer: true, content: serverContent };
+        });
       });
     }
 
     function resolveWithServer(id, storeName) {
       var fns = storeNameToServerFns(storeName);
-      return withTimeout(serverCall(fns.getContent, id), 5000)
-        .then(function (serverResult) {
-          return resolveContentConflict(id, storeName, serverResult);
-        })
-        .catch(function () {
-          return null;
-        });
+      function attempt() {
+        return withTimeout(serverCall(fns.getContent, id), 30000)
+          .then(function (serverResult) {
+            return resolveContentConflict(id, storeName, serverResult);
+          });
+      }
+      return attempt().catch(function (err) {
+        console.warn("[TaskStore] resolveWithServer attempt 1 failed, retrying:", id, err);
+        return attempt();
+      }).catch(function (err) {
+        console.error("[TaskStore] resolveWithServer failed after retry:", id, err);
+        return null;
+      });
     }
 
     // =========================================================
@@ -1020,21 +976,20 @@
     // =========================================================
     function init() {
       return openDB().then(function () {
-        return migrateContentsToEntities();
-      }).then(function () {
-        // Background: requeue dirty records and pull server data
-        requeueDirtyRecords();
-        serverCall("getAllTaskData").then(function (data) {
-          return mergeServerData(data);
-        }).catch(function (err) {
-          console.warn("[TaskStore] server sync failed:", err);
-        });
-
         // Flush on page close / tab hide
         window.addEventListener("beforeunload", flushAllSyncs);
         document.addEventListener("visibilitychange", function () {
           if (document.visibilityState === "hidden") flushAllSyncs();
         });
+        // Phase 2: async server sync (not awaited — UI renders from IDB immediately)
+        serverCall("getAllTaskData").then(function (data) {
+          return mergeServerData(data);
+        }).then(function () {
+          requeueDirtyRecords();
+        }).catch(function (err) {
+          console.warn("[TaskStore] server sync failed, using IDB cache:", err);
+        });
+        // Phase 1 complete: IDB ready, resolve now
       });
     }
 

@@ -15,6 +15,8 @@
     var _wikiContainer = null;   // persistent DOM container (survives innerHTML wipe)
     var _userHasEdited = false;  // edit flag for current document
     var _wikiPending = false;    // initial mount in progress (prevents re-entry)
+    var _suppressOnChange = false; // suppress onChange during programmatic switchDocument
+    var _resolvedDocs = {};  // docId -> true when server content resolution completed
     var contextMenuEl = null;
     var dragState = null;
     var _renderDebounce = null;
@@ -74,6 +76,11 @@
 
       TaskStore.on("dataChanged", function (detail) {
         render();
+        // After server sync, if wiki editor was never created (entity wasn't in IDB on first render),
+        // re-render content now that entities exist
+        if (!_wikiContainer && !_wikiPending && selectedNode && detail && detail.op === "serverSync") {
+          renderContent(selectedNode.type, selectedNode.id);
+        }
         // Re-render task table when a task is updated and table view is visible
         if (detail && detail.entityType === "task" && selectedNode &&
             (selectedNode.type === "project" || selectedNode.type === "case")) {
@@ -679,11 +686,14 @@
         initialValue: initialContent || "",
         initialDocumentId: initialDocId,
         onChange: function (md) {
+          if (_suppressOnChange) return;
           _userHasEdited = true;
+          var docId = taskWikiDocId;
+          var sn = taskWikiStoreName;
           if (taskWikiDebounce) clearTimeout(taskWikiDebounce);
           taskWikiDebounce = setTimeout(function () {
             taskWikiDebounce = null;
-            TaskStore.saveContent(taskWikiDocId, md, taskWikiStoreName);
+            TaskStore.saveContent(docId, md, sn);
           }, 2000);
         },
         placeholder: "ドキュメントを入力...",
@@ -697,15 +707,92 @@
       taskWikiEditorRef = window.mountMemoEditor(_wikiContainer, editorOpts);
     }
 
+    // --- Wiki load retry banner ---
+    var _wikiRetryBanner = null;
+
+    function showWikiLoadRetry(target, id, storeName) {
+      hideWikiLoadRetry();
+      _wikiRetryBanner = document.createElement("div");
+      _wikiRetryBanner.style.cssText = "padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:4px;display:flex;align-items:center;gap:8px;font-size:13px;margin:8px;";
+      var msg = document.createElement("span");
+      msg.textContent = "コンテンツの読み込みに失敗しました";
+      var btn = document.createElement("button");
+      btn.textContent = "再試行";
+      btn.style.cssText = "padding:4px 12px;border:1px solid #ddd;border-radius:4px;background:white;cursor:pointer;font-size:13px;";
+      btn.addEventListener("click", function () {
+        btn.disabled = true;
+        btn.textContent = "読み込み中...";
+        TaskStore.resolveWithServer(id, storeName).then(function (resolution) {
+          if (taskWikiDocId !== id) { hideWikiLoadRetry(); return; }
+          if (resolution && resolution.useServer) {
+            taskWikiEditorRef.setValue(resolution.content || "");
+          }
+          // Check if content is still empty after retry
+          var val = (taskWikiEditorRef.getValue ? taskWikiEditorRef.getValue() : "") || "";
+          if (resolution === null && !val.trim()) {
+            btn.disabled = false;
+            btn.textContent = "再試行";
+            return;
+          }
+          hideWikiLoadRetry();
+          taskWikiEditorRef.setEditable(true);
+        });
+      });
+      _wikiRetryBanner.appendChild(msg);
+      _wikiRetryBanner.appendChild(btn);
+      target.appendChild(_wikiRetryBanner);
+    }
+
+    function hideWikiLoadRetry() {
+      if (_wikiRetryBanner && _wikiRetryBanner.parentNode) {
+        _wikiRetryBanner.parentNode.removeChild(_wikiRetryBanner);
+      }
+      _wikiRetryBanner = null;
+    }
+
+    function handleWikiResolution(target, id, storeName, resolution) {
+      if (taskWikiDocId !== id) return;
+      if (resolution && resolution.useServer) {
+        // Use setValue (not switchDocument) because the document ID is already current.
+        // switchDocument(sameId) is unreliable: MemoEditor's document-switch effect
+        // skips same-id transitions, and the controlled-sync effect may not fire
+        // depending on React batching timing.
+        taskWikiEditorRef.setValue(resolution.content || "");
+      }
+      // If server check failed and content is empty, show retry instead of editable empty editor
+      if (resolution === null) {
+        var val = (taskWikiEditorRef.getValue ? taskWikiEditorRef.getValue() : "") || "";
+        if (!val.trim()) {
+          showWikiLoadRetry(target, id, storeName);
+          return;
+        }
+      }
+      hideWikiLoadRetry();
+      taskWikiEditorRef.setEditable(true);
+    }
+
     function attachWikiEditor(target, id, storeName) {
-      // --- Initial mount: load content first, then create editor ---
+      // --- Initial mount: resolve content with server FIRST, then create editor ---
+      // This avoids switchDocument(sameId) which doesn't reliably update content
+      // because the MemoEditor's document-switch effect skips same-id transitions.
       if (!_wikiContainer && !_wikiPending) {
         _wikiPending = true;
         taskWikiDocId = id;
         taskWikiStoreName = storeName;
         _userHasEdited = false;
 
-        TaskStore.getContent(id, storeName).then(function (content) {
+        // Fetch IDB content and server content in parallel, then create editor with resolved content
+        var idbPromise = TaskStore.getContent(id, storeName);
+        var serverPromise = TaskStore.resolveWithServer(id, storeName).catch(function () { return null; });
+
+        Promise.all([idbPromise, serverPromise]).then(function (results) {
+          var idbContent = results[0] || "";
+          var resolution = results[1];
+
+          console.log("[WikiEditor] initial mount resolved:", id,
+            "idbContent:", JSON.stringify((idbContent || "").slice(0, 80)),
+            "resolution:", JSON.stringify(resolution && { useServer: resolution.useServer, contentLen: (resolution.content || "").length }));
+
           _wikiPending = false;
           if (taskWikiDocId !== id) {
             // Node switched during initial mount — re-render for current selection
@@ -713,22 +800,28 @@
             return;
           }
 
-          ensureWikiEditor(id, content || "");
+          // Determine content to use for initial editor creation
+          var content = idbContent;
+          if (resolution && resolution.useServer) {
+            content = resolution.content || "";
+          }
+
+          console.log("[WikiEditor] creating editor with contentLen:", content.length);
+
+          ensureWikiEditor(id, content);
           if (!_wikiContainer || !taskWikiEditorRef) return;
 
-          taskWikiEditorRef.setEditable(false);
           target.appendChild(_wikiContainer);
 
-          // Compare with server (same 2-phase as cache-miss path)
-          TaskStore.resolveWithServer(id, storeName).then(function (resolution) {
-            if (taskWikiDocId !== id) return;
-            if (resolution && resolution.useServer) {
-              taskWikiEditorRef.switchDocument(id, resolution.content || "");
-            }
+          // If server resolution failed and content is empty, show retry banner
+          if (resolution === null && !content.trim()) {
+            console.warn("[WikiEditor] resolution null + empty content → showing retry banner");
+            taskWikiEditorRef.setEditable(false);
+            showWikiLoadRetry(target, id, storeName);
+          } else {
+            _resolvedDocs[id] = true;
             taskWikiEditorRef.setEditable(true);
-          }).catch(function () {
-            if (taskWikiDocId === id) taskWikiEditorRef.setEditable(true);
-          });
+          }
         });
         return;
       }
@@ -751,6 +844,7 @@
       }
 
       // Different document — save scroll & flush BEFORE reattach (reattach resets scrollTop)
+      hideWikiLoadRetry();
       saveWikiScroll();
       if (taskWikiDebounce) {
         clearTimeout(taskWikiDebounce);
@@ -760,38 +854,77 @@
         flushWikiSave(taskWikiDocId);
       }
 
+      // Suppress onChange BEFORE changing taskWikiDocId and reattaching DOM.
+      // DOM reattach (appendChild) can trigger React async onChange with the OLD
+      // document's content; if taskWikiDocId is already the NEW id, that stale
+      // content would be saved to the wrong document.
+      _suppressOnChange = true;
+
       taskWikiDocId = id;
       taskWikiStoreName = storeName;
       _userHasEdited = false;
 
       target.appendChild(_wikiContainer);
 
-      // Cache hit: editor already has this document loaded (undo/cursor preserved)
-      if (typeof taskWikiEditorRef.hasDocument === "function" && taskWikiEditorRef.hasDocument(id)) {
+      // Cache hit: editor has this document AND it was fully resolved previously
+      if (_resolvedDocs[id] && typeof taskWikiEditorRef.hasDocument === "function" && taskWikiEditorRef.hasDocument(id)) {
+        console.log("[WikiEditor] cache hit (resolved):", id);
         taskWikiEditorRef.switchDocument(id, "");
         restoreWikiScroll(id);
         taskWikiEditorRef.setEditable(true);
+        // Clear suppress only if this document is still active
+        var cacheHitId = id;
+        setTimeout(function () {
+          if (taskWikiDocId === cacheHitId) _suppressOnChange = false;
+        }, 0);
         return;
       }
 
-      // Cache miss: 2-phase load (IDB → read-only display → server check → editable)
+      // Cache miss (or previously interrupted load):
+      // Switch document context with empty content first, then fetch
+      // IDB + server in parallel and apply the final content via setValue.
+      // This avoids the stale cached EditorState issue: switchDocument("") lets
+      // React process the document switch, then setValue(content) in a separate
+      // render cycle correctly detects prevValueRef ("") !== value (content).
+      console.log("[WikiEditor] cache miss, starting parallel load:", id);
       taskWikiEditorRef.setEditable(false);
+      taskWikiEditorRef.switchDocument(id, "");
 
-      TaskStore.getContent(id, storeName).then(function (content) {
-        if (taskWikiDocId !== id) return;
-        taskWikiEditorRef.switchDocument(id, content || "");
-        restoreWikiScroll(id);
-        // Now compare with server
-        return TaskStore.resolveWithServer(id, storeName);
-      }).then(function (resolution) {
-        if (taskWikiDocId !== id) return;
+      var loadId = id;
+      var idbP = TaskStore.getContent(loadId, storeName);
+      var srvP = TaskStore.resolveWithServer(loadId, storeName).catch(function () { return null; });
+
+      Promise.all([idbP, srvP]).then(function (results) {
+        if (taskWikiDocId !== loadId) return;
+        var idbContent = results[0] || "";
+        var resolution = results[1];
+        var finalContent = idbContent;
         if (resolution && resolution.useServer) {
-          taskWikiEditorRef.switchDocument(id, resolution.content || "");
-          restoreWikiScroll(id);
+          finalContent = resolution.content || "";
         }
-        taskWikiEditorRef.setEditable(true);
-      }).catch(function () {
-        if (taskWikiDocId === id) taskWikiEditorRef.setEditable(true);
+        console.log("[WikiEditor] cache miss resolved:", loadId,
+          "idb:", idbContent.length, "resolution:", JSON.stringify(resolution && { useServer: resolution.useServer, contentLen: (resolution.content || "").length }),
+          "final:", finalContent.length);
+
+        // Use setTimeout to ensure React has processed the switchDocument("")
+        // render cycle before we set the final content. React 18 batches state
+        // updates across microtasks but not across macrotasks.
+        setTimeout(function () {
+          if (taskWikiDocId !== loadId) return;
+          taskWikiEditorRef.setValue(finalContent);
+          restoreWikiScroll(loadId);
+
+          if (resolution === null && !finalContent.trim()) {
+            showWikiLoadRetry(target, loadId, storeName);
+          } else {
+            _resolvedDocs[loadId] = true;
+            hideWikiLoadRetry();
+            taskWikiEditorRef.setEditable(true);
+          }
+          setTimeout(function () {
+            if (taskWikiDocId === loadId) _suppressOnChange = false;
+          }, 0);
+        }, 0);
       });
     }
 

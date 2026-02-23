@@ -163,6 +163,12 @@
     border-bottom: 1px solid var(--border-subtle);
   }
 
+  .toolbar-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
   .panel-toolbar select {
     padding: 6px 10px;
     border: 1px solid var(--border);
@@ -2106,8 +2112,11 @@
   .task-tree-icon {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     flex-shrink: 0;
     line-height: 0;
+    width: 16px;
+    min-width: 16px;
   }
 
   /* Status dot */
@@ -2119,6 +2128,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    margin: 0 3px;
   }
 
   /* Name */
@@ -2411,9 +2421,9 @@
   .task-table th:nth-child(2),
   .task-table td:nth-child(2) { width: 100px; }
   .task-table th:nth-child(3),
-  .task-table td:nth-child(3) { width: 100px; }
+  .task-table td:nth-child(3) { width: 140px; }
   .task-table th:nth-child(4),
-  .task-table td:nth-child(4) { width: 100px; }
+  .task-table td:nth-child(4) { width: 140px; }
   .task-table th:nth-child(5),
   .task-table td:nth-child(5) { width: 100px; }
   .task-table th:nth-child(6),
@@ -2515,20 +2525,24 @@
     font-size: 0.8rem;
   }
 
-  .task-table-date-display {
-    font-size: 14px;
-    cursor: pointer;
-  }
-
-  .task-table-date {
+  .task-table-date-input {
     border: none;
     background: transparent;
-    font-size: 0;
-    width: 0;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--text);
+    cursor: pointer;
+    width: 100%;
     padding: 0;
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
+  }
+
+  .task-table-date-input::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.5;
+  }
+
+  .task-table-date-input::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
   }
 
   .task-table-completed {
@@ -2625,38 +2639,4 @@
     flex-shrink: 0;
   }
 
-  /* Task picker in record form */
-  .task-picker {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-wrap: wrap;
-  }
-
-  .task-picker-label {
-    font-size: 0.78rem;
-    color: var(--text-secondary);
-    white-space: nowrap;
-  }
-
-  .task-picker-select {
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 2px 6px;
-    font-size: 0.78rem;
-    font-family: inherit;
-    background: var(--surface);
-    max-width: 140px;
-  }
-
-  .task-picker-clear {
-    font-size: 0.7rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 2px 4px;
-  }
-
-  .task-picker-clear:hover {
-    color: var(--text);
-  }
 </style>

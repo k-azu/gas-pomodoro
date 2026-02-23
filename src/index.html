@@ -198,11 +198,13 @@
       <div class="tab-content" data-tab-content="record" style="display:none">
         <div class="record-panel">
           <div class="panel-toolbar">
-            <div id="record-category-area"></div>
-            <div id="record-task-area"></div>
             <button class="btn-small btn-secondary"
                     onclick="RecordForm.copyFromPrevious()"
                     title="直前の作業記録の内容をコピー">前回をコピー</button>
+            <span class="toolbar-label">カテゴリ</span>
+            <div id="record-category-area"></div>
+            <span class="toolbar-label">タスク</span>
+            <div id="record-task-area"></div>
           </div>
           <div id="record-editor-container" class="editor-flex-container"></div>
           <div class="panel-footer">
