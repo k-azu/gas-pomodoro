@@ -2,7 +2,18 @@
 
 Google Apps Script + Spreadsheet で動くポモドーロタイマー。
 
-![ホーム画面](docs/pomodoro_home.png)
+## アーキテクチャ
+
+```
+client/          React クライアントアプリ (Vite + TypeScript)
+src/             GAS サーバーサイド (clasp push 対象)
+scripts/         ビルドスクリプト
+```
+
+- **クライアント**: `client/` 配下の React アプリを Vite で IIFE バンドルにビルドし、`src/ClientBundle.html` として GAS に配信
+- **React**: esbuild で別途バンドルし `src/ReactVendor.html` として分離配信
+- **エディタ**: [tiptap-markdown-editor](https://tiptap-markdown-editor.pages.dev/) を CDN から読み込み
+- **サーバー**: `src/*.ts` を clasp が GAS にトランスパイル
 
 ## セットアップ
 
@@ -10,7 +21,6 @@ Google Apps Script + Spreadsheet で動くポモドーロタイマー。
 
 - Node.js
 - Google アカウント
-- [clasp](https://github.com/nicholaschiang/clasp) がインストール済み (`npm install -g @google/clasp`)
 
 ### 1. 依存パッケージのインストール
 
@@ -21,7 +31,7 @@ npm install
 ### 2. clasp にログイン
 
 ```bash
-npx clasp login
+npm run login
 ```
 
 ブラウザが開くので Google アカウントで認証する。
@@ -49,17 +59,17 @@ npx clasp create --type sheets --rootDir src/ --title "Pomodoro Timer"
 
 スクリプトIDは GAS エディタの「プロジェクトの設定」から確認できる。
 
-### 4. コードをプッシュ
+### 4. デプロイ
 
 ```bash
-npm run push
+npm run deploy
 ```
 
 初回プッシュでシート（PomodoroLog, Categories, TimerConfig 等）が自動作成される。
 
-### 5. Web アプリとしてデプロイ
+### 5. Web アプリとして公開
 
-1. `npx clasp open` で GAS エディタを開く
+1. `npm run open` で GAS エディタを開く
 2. 「デプロイ」→「新しいデプロイ」
 3. 種類：「ウェブアプリ」を選択
 4. 次のユーザーとして実行：「自分」
@@ -69,14 +79,27 @@ npm run push
 
 デプロイ後に表示される URL でタイマーにアクセスできる。
 
-### 開発時のワークフロー
+## npm scripts
 
-```bash
-# コードを変更後にプッシュ
-npm run push
+| コマンド | 説明 |
+|---------|------|
+| `npm run dev` | Vite 開発サーバー起動（ローカル開発用） |
+| `npm run build:gas` | クライアントビルド → GAS 用 HTML 生成 |
+| `npm run deploy` | ビルド + clasp push（**通常はこれを使う**） |
+| `npm run push` | clasp push のみ（ビルド済みの場合） |
+| `npm run open` | GAS エディタを開く |
+| `npm run typecheck` | TypeScript 型チェック |
+| `npm run format` | Prettier でフォーマット |
 
-# Web アプリを開く
-npm run open
+### ビルドパイプライン
+
+```
+npm run deploy
+  ├─ vite build          → dist/assets/index.js, dist/assets/gas-pomodoro.css
+  ├─ tsx build-gas.ts
+  │   ├─ esbuild         → src/ReactVendor.html  (React + jsx-runtime IIFE)
+  │   └─ wrap + transform → src/ClientBundle.html (CSS + JS, テンプレートリテラル変換)
+  └─ clasp push          → GAS にアップロード
 ```
 
 `clasp push` はデプロイ済みの Web アプリには自動反映されない。開発中は GAS エディタの「デプロイをテスト」から最新コードで動作確認できる。本番 URL に反映するには新しいデプロイを作成する。
