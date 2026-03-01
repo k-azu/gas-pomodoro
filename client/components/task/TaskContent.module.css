@@ -1,0 +1,114 @@
+.task-content-placeholder { display: flex; align-items: center; justify-content: center; color: var(--text-secondary); font-size: 0.9rem; height: 100%; }
+
+.task-detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+
+.meta-color-dot {
+  display: inline-block;
+  position: relative;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  cursor: pointer;
+  margin-left: 8px;
+  vertical-align: middle;
+  transition: transform 0.1s;
+}
+
+.meta-color-dot:hover {
+  transform: scale(1.3);
+}
+
+.task-detail-time {
+  font-size: 0.82rem;
+  color: rgba(55, 53, 47, 0.65);
+}
+
+.task-date-input {
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 0.82rem;
+  font-family: inherit;
+  background: transparent;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.task-date-input:hover {
+  background: rgba(55, 53, 47, 0.04);
+}
+
+.task-date-input:focus {
+  border-color: var(--border);
+  background: var(--surface);
+  outline: none;
+}
+
+.task-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  color: #374151;
+  cursor: pointer;
+  transition: background-color 0.1s, border-color 0.1s;
+}
+
+.task-view-toggle:hover { background: #e5e7eb; border-color: #d1d5db; }
+
+.task-wiki-container { min-height: 200px; }
+
+/* ===== Records section (fixed at bottom) ===== */
+.task-records-section {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+}
+
+.task-records-section summary {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.task-records-section summary:hover { color: var(--text); }
+
+.task-records-list { padding: 0 16px 8px; max-height: 200px; overflow-y: auto; }
+
+.task-records-loading,
+.task-records-empty {
+  padding: 12px 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.task-record-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+  font-size: 0.78rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.task-record-row:hover { background: var(--bg); }
+
+.task-record-date { color: var(--text-secondary); flex-shrink: 0; width: 80px; }
+.task-record-desc { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-record-dur { color: var(--text-secondary); flex-shrink: 0; }

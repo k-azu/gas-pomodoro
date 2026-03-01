@@ -140,3 +140,13 @@ vite.config.ts.timestamp-*
 
 # clasp
 .clasp.json
+
+# Generated bundles (rebuilt by npm run build:gas)
+src/ReactVendor.html
+src/ClientBundle.html
+
+# Tool configs
+.claude/
+.mcp.json
+.playwright-mcp/
+playwright.config.json

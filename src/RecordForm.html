@@ -2,6 +2,19 @@
   var RecordForm = (function () {
     var recordPicker = null;
     var selectedTaskId = null;
+    var _recordEditor = null; // EditorManager ephemeral instance
+
+    function initEditor() {
+      if (_recordEditor) return;
+      _recordEditor = EditorManager.create({
+        type: "ephemeral",
+        storageKey: "gas_pomodoro_record_desc",
+        saveDebounceMs: 500,
+        placeholder: "何に取り組みましたか？",
+      });
+      var container = document.getElementById("record-editor-container");
+      if (container) _recordEditor.mount(container);
+    }
 
     function initPicker() {
       if (recordPicker) return;
@@ -21,7 +34,7 @@
     }
 
     function clearForm() {
-      MemoEditor.clearRecord();
+      if (_recordEditor) _recordEditor.clear();
       if (recordPicker) {
         recordPicker.setSelected([]);
       }
@@ -160,7 +173,7 @@
       if (state.phase !== "work") return;
 
       var endTime = new Date();
-      var description = (MemoEditor.getRecordValue() || "").trim();
+      var description = (_recordEditor ? _recordEditor.getValue() : "").trim();
       var category = recordPicker ? (recordPicker.getSelected()[0] || "") : "";
       var startTime = new Date(state.startTimestamp);
       var actualSeconds = Math.round(
@@ -242,7 +255,7 @@
         }, 0);
 
       return {
-        id: generateUUID(),
+        id: crypto.randomUUID(),
         date: formatDate(endTime),
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
@@ -284,17 +297,6 @@
       return cat ? cat.color : "";
     }
 
-    function generateUUID() {
-      return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
-        /[xy]/g,
-        function (c) {
-          var r = (Math.random() * 16) | 0;
-          var v = c === "x" ? r : (r & 0x3) | 0x8;
-          return v.toString(16);
-        },
-      );
-    }
-
     function formatDate(d) {
       var y = d.getFullYear();
       var m = String(d.getMonth() + 1).padStart(2, "0");
@@ -323,7 +325,7 @@
       serverCall("getLastWorkRecord")
         .then(function (result) {
           if (!result) return;
-          if (result.description) MemoEditor.setRecordValue(result.description);
+          if (result.description && _recordEditor) _recordEditor.setValue(result.description);
           if (result.category && recordPicker) recordPicker.setSelected([result.category]);
           selectedTaskId = result.taskId || null;
           if (taskPicker) {
@@ -386,7 +388,7 @@
     function refreshTaskPickerItems() {
       if (!taskPicker || typeof TaskStore === "undefined") return;
 
-      var sc = (typeof TaskPanel !== "undefined" && TaskPanel.STATUS_CONFIG) ? TaskPanel.STATUS_CONFIG : {};
+      var sc = (typeof TaskTab !== "undefined" && TaskTab.STATUS_CONFIG) ? TaskTab.STATUS_CONFIG : {};
 
       Promise.all([
         TaskStore.getAllTasks(),
@@ -432,13 +434,13 @@
     }
 
     return {
+      initEditor: initEditor,
       submitAndDo: submitAndDo,
       clearForm: clearForm,
       renderInterruptionList: renderInterruptionList,
       openInterruptionInViewer: openInterruptionInViewer,
       populateCategories: populateCategories,
       ensureCategory: ensureCategory,
-      generateUUID: generateUUID,
       formatDate: formatDate,
       copyFromPrevious: copyFromPrevious,
       renderTaskPicker: renderTaskPicker,

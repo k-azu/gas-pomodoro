@@ -1,0 +1,115 @@
+/* ===== Variables & Reset ===== */
+:root {
+  --work-color: #e53935;
+  --break-color: #43a047;
+  --long-break-color: #1e88e5;
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --text: #212121;
+  --text-secondary: #757575;
+  --border: #e0e0e0;
+  --border-subtle: #eeeeee;
+  --radius: 12px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  margin: 0;
+}
+
+/* ===== Shared Buttons ===== */
+.btn {
+  padding: 10px 24px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+}
+
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-primary { background: var(--work-color); color: white; border-color: var(--work-color); }
+.btn-primary:hover { background: #c62828; border-color: #c62828; }
+.btn-secondary { background: transparent; color: var(--text-secondary); border-color: var(--border); }
+.btn-secondary:hover { background: var(--bg); color: var(--text); border-color: var(--text-secondary); }
+.btn-danger { background: transparent; color: var(--work-color); border-color: var(--work-color); }
+.btn-danger:hover { background: #ffebee; }
+.btn-warning { background: transparent; color: #e65100; border-color: #e65100; }
+.btn-warning:hover { background: #fff3e0; }
+
+/* ===== Shared: Pomodoro Dot (used by TimerCard & CollapsedStrip) ===== */
+.pomodoro-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  transition: all 0.3s;
+}
+
+.pomodoro-dot.completed {
+  background: var(--work-color);
+  border-color: var(--work-color);
+}
+
+.pomodoro-dot.current {
+  border-color: var(--work-color);
+  box-shadow: 0 0 0 3px rgba(229, 57, 53, 0.2);
+}
+
+
+/* ===== Editor integration overrides (3rd-party) ===== */
+.editor-full-container {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-full-container .mdg-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.editor-full-container .mdg-editor-body {
+  flex: 1;
+}
+
+.editor-full-container .mdg-editor { border: none; border-radius: 0; min-height: 0; }
+.editor-full-container .mdg-editor-header { background: transparent; border-radius: 0; border-bottom: 1px solid var(--border-subtle); }
+.editor-full-container .mdg-toolbar-btn:hover { background: #ffebee; border-color: #ffcdd2; }
+
+/* Toolbar row: [left slot] [editor toolbar] [right slot] */
+.mdg-editor-toolbar-row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.mdg-editor-toolbar-row > .mdg-editor-header {
+  flex: 1;
+  min-width: 0;
+  border-bottom: none;
+}
+
+/* ===== Shared: memo-tag-dot (used by MemoTab & ContextMenu) ===== */
+.memo-tag-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+

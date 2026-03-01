@@ -1,0 +1,125 @@
+.task-table-content { flex: 1; overflow: auto; padding: 8px 0; }
+.task-table-group { margin-bottom: 16px; min-width: 700px; }
+.task-table-group-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 6px 16px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.task-table-group-header:hover .task-table-edit-btn { opacity: 1; }
+.task-table-group-name { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; line-height: 1; }
+.task-table-group-name svg { flex-shrink: 0; }
+.task-table-group-name:hover { color: #1976d2; text-decoration: underline; }
+
+.task-table {
+  width: 100%;
+  min-width: 700px;
+  border-collapse: collapse;
+  font-size: 14px;
+  table-layout: fixed;
+}
+
+.task-table th {
+  text-align: left;
+  padding: 6px 8px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.task-table th:first-child { padding-left: 16px; min-width: 150px; }
+
+.task-table th:nth-child(2), .task-table td:nth-child(2) { width: 100px; }
+.task-table th:nth-child(3), .task-table td:nth-child(3) { width: 140px; }
+.task-table th:nth-child(4), .task-table td:nth-child(4) { width: 140px; }
+.task-table th:nth-child(5), .task-table td:nth-child(5) { width: 100px; }
+.task-table th:nth-child(6), .task-table td:nth-child(6) { width: 70px; }
+
+.task-table-row { cursor: pointer; transition: background 0.1s; }
+.task-table-row:hover { background: var(--bg); }
+
+.task-table-row td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+  position: relative;
+}
+
+.task-table-row td:first-child { padding-left: 16px; }
+
+.task-table-name-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-table-name-cell > * { vertical-align: middle; }
+.task-table-name-cell .task-table-edit-btn { margin-left: 4px; }
+
+.task-table-edit-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #bdbdbd;
+  padding: 2px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.task-table-row:hover .task-table-edit-btn { opacity: 1; }
+.task-table-edit-btn:hover { color: #1976d2; background: #e3f2fd; }
+
+.task-table-name {
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-table-name:hover { color: #1976d2; text-decoration: underline; }
+
+.task-table-name-input {
+  border: none;
+  border-bottom: 1px solid #1976d2;
+  background: transparent;
+  font-size: inherit;
+  font-family: inherit;
+  width: 100%;
+  padding: 2px 0;
+  outline: none;
+  flex: 1;
+}
+
+.task-table-status-area { display: inline-block; }
+
+.task-table-date-input {
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+  width: 100%;
+  padding: 0;
+}
+
+.task-table-date-input::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.5; }
+.task-table-date-input::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+
+.task-table-completed { font-size: 14px; color: var(--text-secondary); white-space: nowrap; }
+.task-table-time { font-size: 14px; color: var(--text-secondary); white-space: nowrap; }
+
+.task-table-add {
+  padding: 6px 16px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.task-table-add:hover { color: var(--text); background: var(--bg); }
+.task-table-add-disabled { opacity: 0.4; pointer-events: none; cursor: default; }

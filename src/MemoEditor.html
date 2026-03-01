@@ -9,9 +9,8 @@
     var memoDebounce = null;
     var recordDebounce = null;
     var intDebounce = null;
-    var memoScrollCache = {}; // documentId -> scrollTop
+    var memoScrollCache = {};
     var currentMemoDocId = null;
-    var _navigateBack = null;
     var _mentionsConfig = null;
 
     function ls(key) {
@@ -21,164 +20,10 @@
       try { localStorage.setItem(key, val); } catch (e) {}
     }
 
-    // =========================================================
-    // Drive image proxy: IndexedDB cache + pre-resolve
-    // =========================================================
-    // Markdown persists Drive file URLs (https://drive.google.com/file/d/{ID}/view).
-    // Display uses blob URLs created from cached / fetched image data.
-    var DRIVE_FILE_RE = /drive\.google\.com\/file\/d\/([^/]+)\/view/;
-    var DRIVE_URL_GLOBAL_RE = /https:\/\/drive\.google\.com\/file\/d\/([^/\s)"]+)\/view/g;
-    var blobToDriveUrl = {}; // blobUrl -> driveFileUrl
-    var fileIdToBlobUrl = {}; // fileId -> blobUrl
-
-    function driveFileUrl(fileId) {
-      return "https://drive.google.com/file/d/" + fileId + "/view";
-    }
-
-    // Replace blob URLs with Drive URLs in markdown for persistence
-    function blobUrlsToDrive(md) {
-      for (var blobUrl in blobToDriveUrl) {
-        md = md.split(blobUrl).join(blobToDriveUrl[blobUrl]);
-      }
-      return md;
-    }
-
-    // --- IndexedDB cache ---
-    var DB_NAME = "gas_pomodoro_images";
-    var DB_VERSION = 1;
-    var STORE_NAME = "images";
-    var _dbInstance = null;
-
-    function openImageDB() {
-      if (_dbInstance) return Promise.resolve(_dbInstance);
-      return new Promise(function (resolve, reject) {
-        var req = indexedDB.open(DB_NAME, DB_VERSION);
-        req.onupgradeneeded = function () {
-          req.result.createObjectStore(STORE_NAME);
-        };
-        req.onsuccess = function () { _dbInstance = req.result; resolve(_dbInstance); };
-        req.onerror = function () { reject(req.error); };
-      });
-    }
-
-    function getCachedImage(fileId) {
-      return openImageDB().then(function (db) {
-        return new Promise(function (resolve, reject) {
-          var tx = db.transaction(STORE_NAME, "readonly");
-          var req = tx.objectStore(STORE_NAME).get(fileId);
-          req.onsuccess = function () { resolve(req.result || null); };
-          req.onerror = function () { reject(req.error); };
-        });
-      });
-    }
-
-    function setCachedImage(fileId, blob) {
-      return openImageDB().then(function (db) {
-        return new Promise(function (resolve, reject) {
-          var tx = db.transaction(STORE_NAME, "readwrite");
-          tx.objectStore(STORE_NAME).put(blob, fileId);
-          tx.oncomplete = function () { resolve(); };
-          tx.onerror = function () { reject(tx.error); };
-        });
-      });
-    }
-
-    // --- Resolve helpers ---
-    function base64ToBlob(base64, mimeType) {
-      var byteChars = atob(base64);
-      var bytes = new Uint8Array(byteChars.length);
-      for (var i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
-      return new Blob([bytes], { type: mimeType });
-    }
-
-    function registerBlobUrl(fileId, blobUrl) {
-      fileIdToBlobUrl[fileId] = blobUrl;
-      blobToDriveUrl[blobUrl] = driveFileUrl(fileId);
-      return blobUrl;
-    }
-
-    function resolveFileId(fileId) {
-      if (fileIdToBlobUrl[fileId]) return Promise.resolve(fileIdToBlobUrl[fileId]);
-      return getCachedImage(fileId).then(function (cached) {
-        if (cached) {
-          return registerBlobUrl(fileId, URL.createObjectURL(cached));
-        }
-        return serverCall("getImageBase64", fileId).then(function (result) {
-          var blob = base64ToBlob(result.base64, result.mimeType);
-          setCachedImage(fileId, blob);
-          return registerBlobUrl(fileId, URL.createObjectURL(blob));
-        });
-      }).catch(function (err) {
-        console.error("画像の解決に失敗:", fileId, err);
-        return driveFileUrl(fileId);
-      });
-    }
-
-    // Replace all Drive thumbnail URLs in markdown with blob URLs
-    function resolveDriveUrls(md) {
-      if (!md) return Promise.resolve(md);
-      var ids = {};
-      var match;
-      DRIVE_URL_GLOBAL_RE.lastIndex = 0;
-      while ((match = DRIVE_URL_GLOBAL_RE.exec(md)) !== null) {
-        ids[match[1]] = match[0];
-      }
-      var keys = Object.keys(ids);
-      if (keys.length === 0) return Promise.resolve(md);
-      return Promise.all(keys.map(function (fileId) {
-        return resolveFileId(fileId).then(function (blobUrl) {
-          return { driveUrl: ids[fileId], blobUrl: blobUrl };
-        });
-      })).then(function (results) {
-        results.forEach(function (r) {
-          md = md.split(r.driveUrl).join(r.blobUrl);
-        });
-        return md;
-      });
-    }
-
-    // =========================================================
-    // Image upload
-    // =========================================================
-    var MAX_CLIENT_BYTES = 10 * 1024 * 1024; // 10 MB (same as server limit)
-
-    function handleImageUpload(file) {
-      if (file.size > MAX_CLIENT_BYTES) {
-        var sizeMB = (file.size / 1024 / 1024).toFixed(1);
-        return Promise.reject(new Error("画像サイズが上限(10MB)を超えています: " + sizeMB + "MB"));
-      }
-      var mimeType = file.type || "image/jpeg";
-      var ext = {"image/jpeg":"jpg","image/png":"png","image/gif":"gif","image/webp":"webp"}[mimeType] || "jpg";
-      var now = new Date();
-      var ts = now.getFullYear()
-        + ("0"+(now.getMonth()+1)).slice(-2)
-        + ("0"+now.getDate()).slice(-2)
-        + "_"
-        + ("0"+now.getHours()).slice(-2)
-        + ("0"+now.getMinutes()).slice(-2)
-        + ("0"+now.getSeconds()).slice(-2);
-      var uploadName = "pomodoro_" + ts + "." + ext;
-
-      return new Promise(function (resolve, reject) {
-        var reader = new FileReader();
-        reader.onload = function () {
-          var base64 = reader.result.split(",")[1];
-          serverCall("uploadImage", base64, uploadName, mimeType)
-            .then(function (result) {
-              var blob = new Blob([file], { type: mimeType });
-              var blobUrl = URL.createObjectURL(blob);
-              registerBlobUrl(result.fileId, blobUrl);
-              setCachedImage(result.fileId, blob);
-              resolve(blobUrl);
-            })
-            .catch(reject);
-        };
-        reader.onerror = function () {
-          reject(new Error("ファイルの読み込みに失敗しました"));
-        };
-        reader.readAsDataURL(file);
-      });
-    }
+    // Delegate to EditorManager for shared functions
+    var blobUrlsToDrive = EditorManager.blobUrlsToDrive;
+    var resolveDriveUrls = EditorManager.resolveDriveUrls;
+    var handleImageUpload = EditorManager.handleImageUpload;
 
     // =========================================================
     // Init: pre-resolve Drive URLs, then mount editors
@@ -200,11 +45,9 @@
 
     function mountEditors(memoMd, recordMd, intMd) {
       // --- Mention navigation ---
-      var navStack = []; // [{ tab, memoId }]
-
       function mentionItems(query) {
-        if (typeof MemoSidebar === "undefined") return [];
-        var allMemos = MemoSidebar.getAllMemos();
+        if (typeof MemoTab === "undefined") return [];
+        var allMemos = MemoTab.getAllMemos();
         var q = query.toLowerCase();
         return allMemos
           .filter(function (m) { return m.name.toLowerCase().indexOf(q) !== -1; })
@@ -213,48 +56,18 @@
       }
 
       function mentionClick(id) {
-        if (typeof MemoSidebar === "undefined") return;
+        if (typeof MemoTab === "undefined") return;
         var currentTab = TabPanel.getActiveTab();
-        var currentMemoId = MemoSidebar.getActiveId();
+        var currentMemoId = MemoTab.getActiveId();
 
-        navStack.push({ tab: currentTab, memoId: currentMemoId });
-        history.pushState({ mentionNav: true }, "");
-
+        EditorManager.pushNavStack({ tab: currentTab, memoId: currentMemoId });
         TabPanel.switchTab("memo");
-        MemoSidebar.selectMemo(id);
-        updateBackButton();
+        MemoTab.selectMemo(id);
       }
 
-      _navigateBack = function () {
-        if (navStack.length === 0) return;
-        var prev = navStack.pop();
-        TabPanel.switchTab(prev.tab);
-        if (prev.memoId && prev.tab === "memo") {
-          MemoSidebar.selectMemo(prev.memoId);
-        }
-        if (prev.taskNode && prev.tab === "task" && typeof TaskPanel !== "undefined") {
-          TaskPanel.selectNode(prev.taskNode.type, prev.taskNode.id);
-        }
-        updateBackButton();
-      };
-
-      function updateBackButton() {
-        var btn = document.getElementById("memo-back-btn");
-        if (btn) btn.style.display = navStack.length > 0 ? "" : "none";
-      }
-
-      window.addEventListener("popstate", function (e) {
-        if (navStack.length > 0) {
-          _navigateBack();
-        }
-      });
-
-      // --- Task mention navigation ---
       function taskMentionItems(query) {
         if (typeof TaskStore === "undefined") return [];
         var q = query.toLowerCase();
-        // Synchronous cache fallback: we need items right away
-        // TaskStore returns promises; we pre-cache data for mentions
         var items = _taskMentionCache || [];
         return items
           .filter(function (m) { return m.label.toLowerCase().indexOf(q) !== -1; })
@@ -264,15 +77,12 @@
       function taskMentionClick(id) {
         if (typeof TaskPanel === "undefined") return;
         var currentTab = TabPanel.getActiveTab();
-        var currentMemoId = typeof MemoSidebar !== "undefined" ? MemoSidebar.getActiveId() : null;
+        var currentMemoId = typeof MemoTab !== "undefined" ? MemoTab.getActiveId() : null;
         var taskNode = typeof TaskPanel !== "undefined" ? TaskPanel.getSelectedNode() : null;
 
-        navStack.push({ tab: currentTab, memoId: currentMemoId, taskNode: taskNode });
-        history.pushState({ mentionNav: true }, "");
-
+        EditorManager.pushNavStack({ tab: currentTab, memoId: currentMemoId, taskNode: taskNode });
         TabPanel.switchTab("task");
         TaskPanel.selectNode("task", id);
-        updateBackButton();
       }
 
       function entityMentionItems(query) {
@@ -287,23 +97,20 @@
       function entityMentionClick(id) {
         if (typeof TaskPanel === "undefined") return;
         var currentTab = TabPanel.getActiveTab();
-        var currentMemoId = typeof MemoSidebar !== "undefined" ? MemoSidebar.getActiveId() : null;
+        var currentMemoId = typeof MemoTab !== "undefined" ? MemoTab.getActiveId() : null;
         var taskNode = typeof TaskPanel !== "undefined" ? TaskPanel.getSelectedNode() : null;
 
-        navStack.push({ tab: currentTab, memoId: currentMemoId, taskNode: taskNode });
-        history.pushState({ mentionNav: true }, "");
+        EditorManager.pushNavStack({ tab: currentTab, memoId: currentMemoId, taskNode: taskNode });
 
-        // Parse type from id: "project:uuid" or "case:uuid"
         var parts = id.split(":");
         var type = parts[0];
         var entityId = parts.slice(1).join(":");
 
         TabPanel.switchTab("task");
         TaskPanel.selectNode(type, entityId);
-        updateBackButton();
       }
 
-      // Pre-cache mention data (refreshed periodically)
+      // Pre-cache mention data
       var _taskMentionCache = [];
       var _entityMentionCache = [];
 
@@ -318,31 +125,22 @@
           var projects = results[1];
           var cases = results[2];
 
-          // Build project name map
           var projMap = {};
           projects.forEach(function (p) { projMap[p.id] = p.name; });
           var caseMap = {};
           cases.forEach(function (c) { caseMap[c.id] = c; });
 
-          // Task mention cache
           _taskMentionCache = tasks.map(function (t) {
             var path = projMap[t.projectId] || "";
             if (t.caseId && caseMap[t.caseId]) {
               path += " > " + caseMap[t.caseId].name;
             }
-            return {
-              id: t.id,
-              label: t.name + (path ? " (" + path + ")" : ""),
-            };
+            return { id: t.id, label: t.name + (path ? " (" + path + ")" : "") };
           });
 
-          // Entity mention cache (projects + cases)
           _entityMentionCache = [];
           projects.forEach(function (p) {
-            _entityMentionCache.push({
-              id: "project:" + p.id,
-              label: p.name,
-            });
+            _entityMentionCache.push({ id: "project:" + p.id, label: p.name });
           });
           cases.forEach(function (c) {
             var projName = projMap[c.projectId] || "";
@@ -354,7 +152,6 @@
         }).catch(function () {});
       }
 
-      // Refresh caches on init and on TaskStore changes
       setTimeout(refreshMentionCaches, 500);
       if (typeof TaskStore !== "undefined") {
         TaskStore.on("dataChanged", function () {
@@ -363,29 +160,12 @@
       }
 
       var mentionsConfig = [
-        {
-          char: "@",
-          scheme: "mention",
-          prefix: "@",
-          items: mentionItems,
-          onClick: mentionClick,
-        },
-        {
-          char: "#",
-          scheme: "task",
-          prefix: "#",
-          items: taskMentionItems,
-          onClick: taskMentionClick,
-        },
-        {
-          char: "!",
-          scheme: "entity",
-          prefix: "!",
-          items: entityMentionItems,
-          onClick: entityMentionClick,
-        },
+        { char: "@", scheme: "mention", prefix: "@", items: mentionItems, onClick: mentionClick },
+        { char: "#", scheme: "task", prefix: "#", items: taskMentionItems, onClick: taskMentionClick },
+        { char: "!", scheme: "entity", prefix: "!", items: entityMentionItems, onClick: entityMentionClick },
       ];
       _mentionsConfig = mentionsConfig;
+      EditorManager.setMentionConfig(mentionsConfig);
 
       // 1. Memo editor
       var memoContainer = document.getElementById("memo-editor-container");
@@ -395,7 +175,7 @@
           onChange: function (md) {
             if (memoDebounce) clearTimeout(memoDebounce);
             memoDebounce = setTimeout(function () {
-              if (typeof MemoSidebar !== "undefined") MemoSidebar.saveCurrent();
+              if (typeof MemoTab !== "undefined") MemoTab.saveCurrent();
             }, 500);
           },
           onImageUpload: handleImageUpload,
@@ -454,12 +234,7 @@
       }
 
       // Open original Drive image on double-click
-      document.addEventListener("dblclick", function (e) {
-        var img = e.target;
-        if (img.tagName !== "IMG") return;
-        var dUrl = blobToDriveUrl[img.src];
-        if (dUrl) window.open(dUrl, "_blank");
-      });
+      EditorManager.bindDblclick();
     }
 
     // =========================================================
@@ -596,8 +371,11 @@
       getViewerValue: getViewerValue,
       setViewerValue: setViewerValue,
       clearViewer: clearViewer,
-      navigateBack: function () { if (_navigateBack) _navigateBack(); },
+      navigateBack: function () { EditorManager.navigateBack(); },
       getMentionsConfig: function () { return _mentionsConfig; },
+      handleImageUpload: EditorManager.handleImageUpload,
+      blobUrlsToDrive: EditorManager.blobUrlsToDrive,
+      resolveDriveUrls: EditorManager.resolveDriveUrls,
     };
   })();
 </script>

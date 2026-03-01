@@ -693,9 +693,11 @@
           if (taskWikiDebounce) clearTimeout(taskWikiDebounce);
           taskWikiDebounce = setTimeout(function () {
             taskWikiDebounce = null;
-            TaskStore.saveContent(docId, md, sn);
+            var saveMd = typeof MemoEditor !== "undefined" ? MemoEditor.blobUrlsToDrive(md) : md;
+            TaskStore.saveContent(docId, saveMd, sn);
           }, 2000);
         },
+        onImageUpload: typeof MemoEditor !== "undefined" ? MemoEditor.handleImageUpload : undefined,
         placeholder: "ドキュメントを入力...",
         defaultMode: "wysiwyg",
         style: { height: "100%" },
@@ -808,20 +810,26 @@
 
           console.log("[WikiEditor] creating editor with contentLen:", content.length);
 
-          ensureWikiEditor(id, content);
-          if (!_wikiContainer || !taskWikiEditorRef) return;
+          // Drive URL → blob URL変換
+          var resolveP = typeof MemoEditor !== "undefined" ? MemoEditor.resolveDriveUrls(content) : Promise.resolve(content);
+          resolveP.then(function (resolved) {
+            if (taskWikiDocId !== id) return;
 
-          target.appendChild(_wikiContainer);
+            ensureWikiEditor(id, resolved);
+            if (!_wikiContainer || !taskWikiEditorRef) return;
 
-          // If server resolution failed and content is empty, show retry banner
-          if (resolution === null && !content.trim()) {
-            console.warn("[WikiEditor] resolution null + empty content → showing retry banner");
-            taskWikiEditorRef.setEditable(false);
-            showWikiLoadRetry(target, id, storeName);
-          } else {
-            _resolvedDocs[id] = true;
-            taskWikiEditorRef.setEditable(true);
-          }
+            target.appendChild(_wikiContainer);
+
+            // If server resolution failed and content is empty, show retry banner
+            if (resolution === null && !resolved.trim()) {
+              console.warn("[WikiEditor] resolution null + empty content → showing retry banner");
+              taskWikiEditorRef.setEditable(false);
+              showWikiLoadRetry(target, id, storeName);
+            } else {
+              _resolvedDocs[id] = true;
+              taskWikiEditorRef.setEditable(true);
+            }
+          });
         });
         return;
       }
@@ -911,19 +919,24 @@
         // updates across microtasks but not across macrotasks.
         setTimeout(function () {
           if (taskWikiDocId !== loadId) return;
-          taskWikiEditorRef.setValue(finalContent);
-          restoreWikiScroll(loadId);
+          // Drive URL → blob URL変換
+          var resolveP = typeof MemoEditor !== "undefined" ? MemoEditor.resolveDriveUrls(finalContent) : Promise.resolve(finalContent);
+          resolveP.then(function (resolved) {
+            if (taskWikiDocId !== loadId) return;
+            taskWikiEditorRef.setValue(resolved);
+            restoreWikiScroll(loadId);
 
-          if (resolution === null && !finalContent.trim()) {
-            showWikiLoadRetry(target, loadId, storeName);
-          } else {
-            _resolvedDocs[loadId] = true;
-            hideWikiLoadRetry();
-            taskWikiEditorRef.setEditable(true);
-          }
-          setTimeout(function () {
-            if (taskWikiDocId === loadId) _suppressOnChange = false;
-          }, 0);
+            if (resolution === null && !finalContent.trim()) {
+              showWikiLoadRetry(target, loadId, storeName);
+            } else {
+              _resolvedDocs[loadId] = true;
+              hideWikiLoadRetry();
+              taskWikiEditorRef.setEditable(true);
+            }
+            setTimeout(function () {
+              if (taskWikiDocId === loadId) _suppressOnChange = false;
+            }, 0);
+          });
         }, 0);
       });
     }
@@ -956,7 +969,8 @@
       // Guard: don't save empty content when editor is not ready
       if (!md && taskWikiEditorRef.isReady && !taskWikiEditorRef.isReady()) return;
       if (md != null) {
-        TaskStore.saveContent(id, md, taskWikiStoreName);
+        var saveMd = typeof MemoEditor !== "undefined" ? MemoEditor.blobUrlsToDrive(md) : md;
+        TaskStore.saveContent(id, saveMd, taskWikiStoreName);
       }
     }
 

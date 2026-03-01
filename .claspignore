@@ -2,7 +2,13 @@ node_modules/**
 package.json
 package-lock.json
 tsconfig.json
+tsconfig.client.json
+vite.config.ts
 .git/**
 eslint.config.mjs
 .prettierignore
 scripts/**
+client/**
+dist/**
+docs/**
+*.md

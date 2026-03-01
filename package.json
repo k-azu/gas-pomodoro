@@ -2,23 +2,39 @@
   "name": "gas-pomodoro",
   "version": "1.0.0",
   "description": "Pomodoro Timer powered by Google Apps Script + Spreadsheet",
+  "type": "module",
   "scripts": {
-    "deploy": "npm run push",
+    "dev": "vite",
+    "build": "vite build",
+    "build:gas": "vite build && tsx scripts/build-gas.ts",
+    "deploy": "npm run build:gas && clasp push",
     "push": "clasp push",
     "open": "clasp open --webapp",
     "login": "clasp login",
+    "typecheck": "tsc --noEmit -p tsconfig.client.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
-    "format": "prettier --write src/**/*.ts",
-    "format:check": "prettier --check src/**/*.ts"
+    "format": "prettier --write \"src/**/*.ts\" \"client/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"client/**/*.{ts,tsx}\""
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tiptap-markdown-editor": "file:../tiptap-markdown-editor"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@google/clasp": "^2.4.2",
     "@types/google-apps-script": "^1.0.83",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.5.2",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.8.1",
-    "typescript-eslint": "^8.54.0"
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.54.0",
+    "vite": "^6.3.5"
   }
 }

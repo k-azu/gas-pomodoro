@@ -45,6 +45,7 @@
     };
 
     var timerInterval = null;
+    var _intEditor = null; // EditorManager ephemeral instance for interruption notes
 
     // --- DOM Cache ---
     var dom = {};
@@ -204,7 +205,7 @@
     function startInterruption() {
       if (state.phase !== "work") return;
 
-      var id = RecordForm.generateUUID();
+      var id = crypto.randomUUID();
       state.currentInterruption = {
         id: id,
         startTimestamp: Date.now(),
@@ -214,7 +215,7 @@
       // Reset form fields
       var typeCheckbox = document.getElementById("int-type-work");
       if (typeCheckbox) typeCheckbox.checked = true;
-      MemoEditor.clearInterruption();
+      if (_intEditor) _intEditor.clear();
       populateInterruptionCategorySelect();
 
       saveState();
@@ -277,7 +278,7 @@
       var typeCheckbox = document.getElementById("int-type-work");
       var type = typeCheckbox && typeCheckbox.checked ? "work" : "nonWork";
       var category = intPicker ? (intPicker.getSelected()[0] || "") : "";
-      var note = (MemoEditor.getInterruptionValue() || "").trim();
+      var note = (_intEditor ? _intEditor.getValue() : "").trim();
 
       state.interruptions.push({
         id: state.currentInterruption.id,
@@ -342,7 +343,7 @@
           ? state.config.shortBreakMinutes
           : state.config.longBreakMinutes) * 60;
       var record = {
-        id: RecordForm.generateUUID(),
+        id: crypto.randomUUID(),
         date: RecordForm.formatDate(now),
         startTime: startTime.toISOString(),
         endTime: now.toISOString(),
@@ -727,6 +728,129 @@
       startInterval();
     }
 
+    // --- Mention config setup (shared across all editors) ---
+    function setupMentionConfig() {
+      var _taskMentionCache = [];
+      var _entityMentionCache = [];
+
+      function refreshMentionCaches() {
+        if (typeof TaskStore === "undefined") return;
+        Promise.all([
+          TaskStore.getAllTasks(),
+          TaskStore.getAllProjects(),
+          TaskStore.getAllCases(),
+        ]).then(function (results) {
+          var tasks = results[0];
+          var projects = results[1];
+          var cases = results[2];
+
+          var projMap = {};
+          projects.forEach(function (p) { projMap[p.id] = p.name; });
+          var caseMap = {};
+          cases.forEach(function (c) { caseMap[c.id] = c; });
+
+          _taskMentionCache = tasks.map(function (t) {
+            var path = projMap[t.projectId] || "";
+            if (t.caseId && caseMap[t.caseId]) {
+              path += " > " + caseMap[t.caseId].name;
+            }
+            return { id: t.id, label: t.name + (path ? " (" + path + ")" : "") };
+          });
+
+          _entityMentionCache = [];
+          projects.forEach(function (p) {
+            _entityMentionCache.push({ id: "project:" + p.id, label: p.name });
+          });
+          cases.forEach(function (c) {
+            var projName = projMap[c.projectId] || "";
+            _entityMentionCache.push({
+              id: "case:" + c.id,
+              label: projName ? projName + "::" + c.name : c.name,
+            });
+          });
+        }).catch(function () {});
+      }
+
+      function mentionItems(query) {
+        if (typeof MemoTab === "undefined") return [];
+        var allMemos = MemoTab.getAllMemos();
+        var q = query.toLowerCase();
+        return allMemos
+          .filter(function (m) { return m.name.toLowerCase().indexOf(q) !== -1; })
+          .slice(0, 8)
+          .map(function (m) { return { id: m.id, label: m.name }; });
+      }
+
+      function mentionClick(id) {
+        if (typeof MemoTab === "undefined") return;
+        var currentTab = TabPanel.getActiveTab();
+        var currentMemoId = MemoTab.getActiveId();
+        EditorManager.pushNavStack({ tab: currentTab, memoId: currentMemoId });
+        TabPanel.switchTab("memo");
+        MemoTab.selectMemo(id);
+      }
+
+      function taskMentionItems(query) {
+        var q = query.toLowerCase();
+        return _taskMentionCache
+          .filter(function (m) { return m.label.toLowerCase().indexOf(q) !== -1; })
+          .slice(0, 8);
+      }
+
+      function taskMentionClick(id) {
+        if (typeof TaskTab === "undefined") return;
+        var currentTab = TabPanel.getActiveTab();
+        var currentMemoId = typeof MemoTab !== "undefined" ? MemoTab.getActiveId() : null;
+        var taskNode = TaskTab.getSelectedNode();
+        EditorManager.pushNavStack({ tab: currentTab, memoId: currentMemoId, taskNode: taskNode });
+        TabPanel.switchTab("task");
+        TaskTab.selectNode("task", id);
+      }
+
+      function entityMentionItems(query) {
+        var q = query.toLowerCase();
+        return _entityMentionCache
+          .filter(function (m) { return m.label.toLowerCase().indexOf(q) !== -1; })
+          .slice(0, 8);
+      }
+
+      function entityMentionClick(id) {
+        if (typeof TaskTab === "undefined") return;
+        var currentTab = TabPanel.getActiveTab();
+        var currentMemoId = typeof MemoTab !== "undefined" ? MemoTab.getActiveId() : null;
+        var taskNode = TaskTab.getSelectedNode();
+        EditorManager.pushNavStack({ tab: currentTab, memoId: currentMemoId, taskNode: taskNode });
+        var parts = id.split(":");
+        var type = parts[0];
+        var entityId = parts.slice(1).join(":");
+        TabPanel.switchTab("task");
+        TaskTab.selectNode(type, entityId);
+      }
+
+      setTimeout(refreshMentionCaches, 500);
+      if (typeof TaskStore !== "undefined") {
+        TaskStore.on("dataChanged", function () { refreshMentionCaches(); });
+      }
+
+      EditorManager.setMentionConfig([
+        { char: "@", scheme: "mention", prefix: "@", items: mentionItems, onClick: mentionClick },
+        { char: "#", scheme: "task", prefix: "#", items: taskMentionItems, onClick: taskMentionClick },
+        { char: "!", scheme: "entity", prefix: "!", items: entityMentionItems, onClick: entityMentionClick },
+      ]);
+    }
+
+    // --- Setup interruption editor ---
+    function setupInterruptionEditor() {
+      _intEditor = EditorManager.create({
+        type: "ephemeral",
+        storageKey: "gas_pomodoro_int_note",
+        saveDebounceMs: 500,
+        placeholder: "中断メモ...",
+      });
+      var container = document.getElementById("int-note-editor-container");
+      if (container) _intEditor.mount(container);
+    }
+
     // --- Init ---
     function init() {
       loadState();
@@ -767,22 +891,24 @@
           setSpreadsheetLink(data.spreadsheetUrl);
           DateSelector.init();
           DateSelector.loadWeekCounts();
-          MemoSidebar.init(data.memos, data.memoTags);
 
-          // Init TaskStore + TaskPanel
-          if (typeof TaskStore !== "undefined") {
-            TaskStore.init().then(function () {
-              if (typeof TaskPanel !== "undefined") TaskPanel.init();
-              if (typeof RecordForm !== "undefined") RecordForm.renderTaskPicker();
-            }).catch(function (err) {
-              console.error("TaskStore init failed:", err);
-              if (typeof TaskPanel !== "undefined") TaskPanel.init();
-            });
-          }
+          // Register memos entity type BEFORE EntityStore.init (called inside TaskStore.init)
+          MemoStore.init(data.memos, data.memoTags);
 
           restoreTimer();
           updateDisplay();
           updateControls();
+
+          // Open DB (v3, creates memos store), merge data, then init UIs
+          return TaskStore.init().then(function () {
+            return MemoStore.loadData();
+          }).then(function () {
+            if (typeof TaskTab !== "undefined") TaskTab.init();
+            if (typeof RecordForm !== "undefined") RecordForm.renderTaskPicker();
+          }).catch(function (err) {
+            console.error("DB init failed:", err);
+            if (typeof TaskTab !== "undefined") TaskTab.init();
+          });
         })
         .catch(function (err) {
           console.error("Init failed:", err);
@@ -792,14 +918,14 @@
         .finally(function () {
           showLoading(false);
           TabPanel.init();
-          var memoActiveId = localStorage.getItem("gas_pomodoro_memo_active") || "";
-          var memoInitContent = memoActiveId ? (localStorage.getItem("gas_pomodoro_memo_" + memoActiveId) || "") : "";
-          MemoEditor.init(memoInitContent).then(function () {
-            MemoSidebar.initAfterEditorMount();
-          }).catch(function (err) {
-            console.error("MemoEditor init failed:", err);
-            MemoSidebar.initAfterEditorMount();
-          });
+          // Set up mention config for all editors
+          setupMentionConfig();
+          // Mount ephemeral/transient editors
+          RecordForm.initEditor();
+          setupInterruptionEditor();
+          TabPanel.initViewerEditor();
+          // Mount memo persistent editor + initialize tab
+          MemoTab.init();
         });
     }
 

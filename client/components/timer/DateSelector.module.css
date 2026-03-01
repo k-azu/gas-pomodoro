@@ -1,0 +1,49 @@
+.date-selector { padding: 16px 24px 12px; border-bottom: 1px solid var(--border-subtle); }
+.date-header { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; }
+.date-header-label { flex: 1; text-align: left; font-weight: 700; font-size: 0.95rem; }
+
+.date-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.date-today-btn {
+  height: 26px; padding: 0 8px; font-size: 0.75rem; font-weight: 600;
+  border: 1px solid var(--border); border-radius: 6px; background: none;
+  color: var(--text-secondary); cursor: pointer; flex-shrink: 0;
+  display: inline-flex; align-items: center;
+}
+
+.date-calendar-wrapper {
+  position: relative; flex-shrink: 0;
+}
+
+.date-calendar-btn {
+  width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); cursor: pointer; color: var(--text-secondary);
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+.date-calendar-btn:hover { background: var(--bg); color: var(--text); }
+
+.date-calendar-input {
+  position: absolute;
+  top: 3px; left: 50%;
+  transform: translateX(-50%);
+  width: 280px; height: 100%;
+  opacity: 0; border: none; padding: 0;
+  pointer-events: none;
+}
+
+.week-strip-container { display: flex; align-items: center; gap: 2px; }
+.week-nav-btn {
+  padding: 4px;
+  font-size: 1.2rem;
+  line-height: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.week-nav-btn:hover { color: var(--text); }

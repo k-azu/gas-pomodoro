@@ -1,0 +1,70 @@
+/* Root: scrollable page container (replaces global .notion-page) */
+.page-root {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.page-root :global(.editor-full-container) {
+  flex: initial;
+  overflow: visible;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.page-root :global(.mdg-editor) {
+  height: auto;
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.page-root :global(.mdg-editor-header),
+.page-root :global(.mdg-editor-toolbar-row) {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.page-root :global(.mdg-editor-body) {
+  overflow: visible;
+  margin-top: 4px;
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.page-root :global(.mdg-editor-body)::before {
+  content: "";
+  display: block;
+  border-top: 1px solid #d1d5db;
+  margin: 0 20px;
+}
+.page-root :global(.mdg-editor-content:not(.mdg-sticky-header-clone)) {
+  overflow: visible;
+  flex: 1 0 auto;
+}
+
+/* Meta section — rendered between toolbar and editor body */
+.meta-section {
+  padding: 16px 0 4px;
+}
+
+/* Shared: toolbar slot (used by multiple tabs) */
+.toolbar-slot {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+/* Shared: meta title row (used by Task/Memo tabs) */
+.meta-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px;
+  margin-bottom: 4px;
+  font-size: 2rem;
+  line-height: 1.2;
+}

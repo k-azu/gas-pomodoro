@@ -57,16 +57,12 @@ function saveRecord(record: PomodoroRecord): { success: boolean } {
     if (tasksSheet) {
       const tasksLastRow = tasksSheet.getLastRow();
       if (tasksLastRow > 1) {
-        const taskIds = tasksSheet
-          .getRange(2, 1, tasksLastRow - 1, 1)
-          .getValues();
+        const taskIds = tasksSheet.getRange(2, 1, tasksLastRow - 1, 1).getValues();
         for (let i = taskIds.length - 1; i >= 0; i--) {
           if (String(taskIds[i][0]) === taskId) {
             const startedAt = tasksSheet.getRange(i + 2, 11).getValue();
             if (!startedAt) {
-              tasksSheet
-                .getRange(i + 2, 11)
-                .setValue(record.startTime);
+              tasksSheet.getRange(i + 2, 11).setValue(record.startTime);
               invalidateTaskCache();
             }
             break;
@@ -100,10 +96,7 @@ function saveInterruptions(interruptions: InterruptionRecord[]): {
   return { success: true };
 }
 
-function updateRecordDescription(
-  recordId: string,
-  description: string,
-): { success: boolean } {
+function updateRecordDescription(recordId: string, description: string): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("PomodoroLog")!;
   const lastRow = sheet.getLastRow();
@@ -119,10 +112,7 @@ function updateRecordDescription(
   return { success: false };
 }
 
-function updateInterruptionNote(
-  interruptionId: string,
-  note: string,
-): { success: boolean } {
+function updateInterruptionNote(interruptionId: string, note: string): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Interruptions")!;
   const lastRow = sheet.getLastRow();
@@ -138,10 +128,7 @@ function updateInterruptionNote(
   return { success: false };
 }
 
-function updateRecordCategory(
-  recordId: string,
-  category: string,
-): { success: boolean } {
+function updateRecordCategory(recordId: string, category: string): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("PomodoroLog")!;
   const lastRow = sheet.getLastRow();
@@ -176,10 +163,7 @@ function updateInterruptionCategory(
   return { success: false };
 }
 
-function updateInterruptionType(
-  interruptionId: string,
-  type: string,
-): { success: boolean } {
+function updateInterruptionType(interruptionId: string, type: string): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Interruptions")!;
   const lastRow = sheet.getLastRow();
@@ -212,16 +196,26 @@ function updateInterruptionTimes(
       const row = i + 2;
       if (startTimeISO) sheet.getRange(row, 4).setValue(startTimeISO); // column 4 = startTime
       if (endTimeISO) sheet.getRange(row, 5).setValue(endTimeISO); // column 5 = endTime
-      const start = new Date(
-        startTimeISO || String(sheet.getRange(row, 4).getValue()),
-      );
-      const end = new Date(
-        endTimeISO || String(sheet.getRange(row, 5).getValue()),
-      );
-      const durationSeconds = Math.round(
-        (end.getTime() - start.getTime()) / 1000,
-      );
+      const start = new Date(startTimeISO || String(sheet.getRange(row, 4).getValue()));
+      const end = new Date(endTimeISO || String(sheet.getRange(row, 5).getValue()));
+      const durationSeconds = Math.round((end.getTime() - start.getTime()) / 1000);
       sheet.getRange(row, 6).setValue(durationSeconds); // column 6 = durationSeconds
+      return { success: true };
+    }
+  }
+  return { success: false };
+}
+
+function updateRecordTaskId(recordId: string, taskId: string): { success: boolean } {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("PomodoroLog")!;
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { success: false };
+
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let i = ids.length - 1; i >= 0; i--) {
+    if (String(ids[i][0]) === recordId) {
+      sheet.getRange(i + 2, 16).setValue(taskId); // column 16 = taskId
       return { success: true };
     }
   }
@@ -245,15 +239,9 @@ function updateRecordTimes(
       const row = i + 2;
       if (startTimeISO) sheet.getRange(row, 3).setValue(startTimeISO);
       if (endTimeISO) sheet.getRange(row, 4).setValue(endTimeISO);
-      const start = new Date(
-        startTimeISO || String(sheet.getRange(row, 3).getValue()),
-      );
-      const end = new Date(
-        endTimeISO || String(sheet.getRange(row, 4).getValue()),
-      );
-      const actualSeconds = Math.round(
-        (end.getTime() - start.getTime()) / 1000,
-      );
+      const start = new Date(startTimeISO || String(sheet.getRange(row, 3).getValue()));
+      const end = new Date(endTimeISO || String(sheet.getRange(row, 4).getValue()));
+      const actualSeconds = Math.round((end.getTime() - start.getTime()) / 1000);
       sheet.getRange(row, 6).setValue(actualSeconds);
       return { success: true };
     }
@@ -267,11 +255,7 @@ function getRecentRecords(limit: number = 10): PomodoroRecord[] {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
 
-  const today = Utilities.formatDate(
-    new Date(),
-    Session.getScriptTimeZone(),
-    "yyyy-MM-dd",
-  );
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
   const TAIL_ROWS = 100;
   const startRow = Math.max(2, lastRow - TAIL_ROWS + 1);
   const numRows = lastRow - startRow + 1;
@@ -332,11 +316,7 @@ function getTodayStats(): TodayStats {
 
   if (lastRow <= 1) return stats;
 
-  const today = Utilities.formatDate(
-    new Date(),
-    Session.getScriptTimeZone(),
-    "yyyy-MM-dd",
-  );
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
   const TAIL_ROWS = 100;
   const startRow = Math.max(2, lastRow - TAIL_ROWS + 1);
   const numRows = lastRow - startRow + 1;
@@ -346,11 +326,7 @@ function getTodayStats(): TodayStats {
     const dateVal = row[1];
     const dateStr =
       dateVal instanceof Date
-        ? Utilities.formatDate(
-            dateVal,
-            Session.getScriptTimeZone(),
-            "yyyy-MM-dd",
-          )
+        ? Utilities.formatDate(dateVal, Session.getScriptTimeZone(), "yyyy-MM-dd")
         : String(dateVal);
     if (dateStr !== today) return;
 
@@ -367,8 +343,7 @@ function getTodayStats(): TodayStats {
         stats.abandonedPomodoros++;
       }
       // Work time = actual duration minus ALL interruptions (pure focus)
-      stats.totalWorkSeconds +=
-        actualSeconds - workIntSeconds - nonWorkIntSeconds;
+      stats.totalWorkSeconds += actualSeconds - workIntSeconds - nonWorkIntSeconds;
       stats.totalWorkInterruptionSeconds += workIntSeconds;
       stats.totalNonWorkInterruptionSeconds += nonWorkIntSeconds;
     } else if (type === "shortBreak" || type === "longBreak") {
@@ -411,9 +386,7 @@ function getRefreshData(): {
     logData.forEach((row) => {
       const dateVal = row[1];
       const dateStr =
-        dateVal instanceof Date
-          ? Utilities.formatDate(dateVal, tz, "yyyy-MM-dd")
-          : String(dateVal);
+        dateVal instanceof Date ? Utilities.formatDate(dateVal, tz, "yyyy-MM-dd") : String(dateVal);
       if (dateStr !== today) return;
 
       const type = String(row[6]);
@@ -425,8 +398,7 @@ function getRefreshData(): {
       if (type === "work") {
         if (status === "completed") stats.completedPomodoros++;
         else if (status === "abandoned") stats.abandonedPomodoros++;
-        stats.totalWorkSeconds +=
-          actualSeconds - workIntSeconds - nonWorkIntSeconds;
+        stats.totalWorkSeconds += actualSeconds - workIntSeconds - nonWorkIntSeconds;
         stats.totalWorkInterruptionSeconds += workIntSeconds;
         stats.totalNonWorkInterruptionSeconds += nonWorkIntSeconds;
       } else if (type === "shortBreak" || type === "longBreak") {
@@ -463,9 +435,7 @@ function getRefreshData(): {
     const INT_TAIL = 200;
     const intStartRow = Math.max(2, intLastRow - INT_TAIL + 1);
     const intNumRows = intLastRow - intStartRow + 1;
-    const intData = intSheet
-      .getRange(intStartRow, 1, intNumRows, 8)
-      .getValues();
+    const intData = intSheet.getRange(intStartRow, 1, intNumRows, 8).getValues();
     todayInterruptions = intData
       .filter((row) => {
         const raw = row[3];
@@ -520,9 +490,7 @@ function getDataForDate(dateStr: string): {
     logData.forEach((row) => {
       const dateVal = row[1];
       const rowDateStr =
-        dateVal instanceof Date
-          ? Utilities.formatDate(dateVal, tz, "yyyy-MM-dd")
-          : String(dateVal);
+        dateVal instanceof Date ? Utilities.formatDate(dateVal, tz, "yyyy-MM-dd") : String(dateVal);
       if (rowDateStr !== dateStr) return;
 
       const type = String(row[6]);
@@ -534,8 +502,7 @@ function getDataForDate(dateStr: string): {
       if (type === "work") {
         if (status === "completed") stats.completedPomodoros++;
         else if (status === "abandoned") stats.abandonedPomodoros++;
-        stats.totalWorkSeconds +=
-          actualSeconds - workIntSeconds - nonWorkIntSeconds;
+        stats.totalWorkSeconds += actualSeconds - workIntSeconds - nonWorkIntSeconds;
         stats.totalWorkInterruptionSeconds += workIntSeconds;
         stats.totalNonWorkInterruptionSeconds += nonWorkIntSeconds;
       } else if (type === "shortBreak" || type === "longBreak") {
@@ -624,9 +591,7 @@ function getWeekRecordCounts(weekStartDate: string): {
 
     const dateVal = row[1];
     const rowDateStr =
-      dateVal instanceof Date
-        ? Utilities.formatDate(dateVal, tz, "yyyy-MM-dd")
-        : String(dateVal);
+      dateVal instanceof Date ? Utilities.formatDate(dateVal, tz, "yyyy-MM-dd") : String(dateVal);
     if (dateSet.has(rowDateStr)) {
       dateCounts[rowDateStr]++;
     }
@@ -665,11 +630,7 @@ function getTodayInterruptions(): InterruptionRecord[] {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
 
-  const today = Utilities.formatDate(
-    new Date(),
-    Session.getScriptTimeZone(),
-    "yyyy-MM-dd",
-  );
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
   const TAIL_ROWS = 200;
   const startRow = Math.max(2, lastRow - TAIL_ROWS + 1);
   const numRows = lastRow - startRow + 1;
@@ -679,11 +640,7 @@ function getTodayInterruptions(): InterruptionRecord[] {
     .filter((row) => {
       const raw = row[3];
       const d = raw instanceof Date ? raw : new Date(String(raw));
-      const dateStr = Utilities.formatDate(
-        d,
-        Session.getScriptTimeZone(),
-        "yyyy-MM-dd",
-      );
+      const dateStr = Utilities.formatDate(d, Session.getScriptTimeZone(), "yyyy-MM-dd");
       return dateStr === today;
     })
     .map((row) => ({

@@ -1,0 +1,17 @@
+.week-strip { display: flex; flex: 1; gap: 2px; }
+
+.week-day-btn {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  gap: 1px; padding: 4px 2px; border: 1px solid transparent;
+  border-radius: 6px; background: none; cursor: pointer;
+}
+.week-day-btn:hover:not(.future) { background: var(--bg); }
+.week-day-btn.selected { background: var(--work-color); color: white; border-color: var(--work-color); }
+.week-day-btn.today:not(.selected) { border-color: var(--work-color); }
+.week-day-btn.future { opacity: 0.3; cursor: not-allowed; }
+.week-day-label { font-size: 0.65rem; font-weight: 600; color: var(--text-secondary); }
+.week-day-btn.selected .week-day-label { color: rgba(255, 255, 255, 0.8); }
+.week-day-num { font-size: 0.85rem; font-weight: 700; line-height: 1; }
+.week-day-indicator { width: 5px; height: 5px; border-radius: 50%; background: var(--work-color); }
+.week-day-btn.selected .week-day-indicator { background: white; }
+.week-day-indicator-spacer { width: 5px; height: 5px; }

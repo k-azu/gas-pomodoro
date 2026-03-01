@@ -1,0 +1,21 @@
+.record-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 20px;
+  min-height: 30px;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+
+.record-field:hover {
+  background: var(--bg);
+}
+
+.record-field-label {
+  width: 96px;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: rgba(55, 53, 47, 0.5);
+  user-select: none;
+}

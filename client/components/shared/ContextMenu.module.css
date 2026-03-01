@@ -1,0 +1,10 @@
+.memo-context-menu {
+  position: fixed; z-index: 200; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); min-width: 160px; padding: 4px 0;
+}
+.memo-context-item { padding: 6px 14px; font-size: 0.82rem; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.memo-context-item:hover { background: var(--bg); }
+.memo-context-danger { color: var(--work-color); }
+.memo-context-separator { padding: 4px 14px 2px; font-size: 0.7rem; font-weight: 600; color: var(--text-secondary); border-top: 1px solid var(--border-subtle); margin-top: 2px; }
+.memo-context-check { margin-left: auto; display: flex; align-items: center; }

@@ -70,6 +70,18 @@
       window.dispatchEvent(new Event("resize"));
     }
 
+    var _viewerEditor = null; // EditorManager transient instance
+
+    function initViewerEditor() {
+      if (_viewerEditor) return;
+      _viewerEditor = EditorManager.create({
+        type: "transient",
+        placeholder: "",
+      });
+      var container = document.getElementById("viewer-editor-container");
+      if (container) _viewerEditor.mount(container);
+    }
+
     var settingsOpen = false;
 
     var viewerOpen = false;
@@ -202,7 +214,8 @@
       if (saveBtn) saveBtn.style.display = (viewerRecordId || viewerSaveCallback) ? "" : "none";
 
       // Set editor content
-      MemoEditor.setViewerValue(markdown || "");
+      initViewerEditor();
+      if (_viewerEditor) _viewerEditor.setValue(markdown || "");
 
       // Switch to viewer tab
       switchTab("viewer");
@@ -214,7 +227,7 @@
     }
 
     function saveViewer() {
-      var markdown = MemoEditor.getViewerValue();
+      var markdown = _viewerEditor ? _viewerEditor.getValue() : "";
       var saveBtn = document.getElementById("viewer-save-btn");
       var newCategory = viewerPicker ? (viewerPicker.getSelected()[0] || "") : "";
       var categoryChanged = viewerSheetType && newCategory !== viewerOriginalCategory;
@@ -337,7 +350,7 @@
       if (viewerBtn) viewerBtn.style.display = "none";
       viewerOpen = false;
 
-      MemoEditor.clearViewer();
+      if (_viewerEditor) _viewerEditor.clear();
 
       // Fall back to memo tab
       switchTab("memo");
@@ -409,6 +422,7 @@
 
     return {
       init: init,
+      initViewerEditor: initViewerEditor,
       switchTab: switchTab,
       update: update,
       getActiveTab: getActiveTab,
