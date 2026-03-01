@@ -150,3 +150,6 @@ src/ClientBundle.html
 .mcp.json
 .playwright-mcp/
 playwright.config.json
+
+# Docs (design specs, not tracked)
+docs/
