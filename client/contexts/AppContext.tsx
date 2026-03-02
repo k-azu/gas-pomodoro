@@ -74,36 +74,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await refreshAllRef.current();
   }, []);
 
-  const saveBreakRecord = useCallback(
-    async (timerState: import("../types").TimerState) => {
-      const now = new Date();
-      const startTime = new Date(timerState.startTimestamp!);
-      const breakType = timerState.breakType || timerState.phase;
-      const durationSeconds =
-        (breakType === "shortBreak"
-          ? timerState.config.shortBreakMinutes
-          : timerState.config.longBreakMinutes) * 60;
-      const record = {
-        id: crypto.randomUUID(),
-        date: formatDate(now),
-        startTime: startTime.toISOString(),
-        endTime: now.toISOString(),
-        durationSeconds,
-        actualDurationSeconds: Math.round((now.getTime() - startTime.getTime()) / 1000),
-        type: breakType,
-        description: "",
-        category: "",
-        workInterruptions: 0,
-        nonWorkInterruptions: 0,
-        workInterruptionSeconds: 0,
-        nonWorkInterruptionSeconds: 0,
-        completionStatus: "completed",
-        pomodoroSetIndex: timerState.pomodoroSetIndex,
-      };
-      await serverCall("saveRecord", record);
-    },
-    [],
-  );
+  const saveBreakRecord = useCallback(async (timerState: import("../types").TimerState) => {
+    const now = new Date();
+    const startTime = new Date(timerState.startTimestamp!);
+    const breakType = timerState.breakType || timerState.phase;
+    const durationSeconds =
+      (breakType === "shortBreak"
+        ? timerState.config.shortBreakMinutes
+        : timerState.config.longBreakMinutes) * 60;
+    const record = {
+      id: crypto.randomUUID(),
+      date: formatDate(now),
+      startTime: startTime.toISOString(),
+      endTime: now.toISOString(),
+      durationSeconds,
+      actualDurationSeconds: Math.round((now.getTime() - startTime.getTime()) / 1000),
+      type: breakType,
+      description: "",
+      category: "",
+      workInterruptions: 0,
+      nonWorkInterruptions: 0,
+      workInterruptionSeconds: 0,
+      nonWorkInterruptionSeconds: 0,
+      completionStatus: "completed",
+      pomodoroSetIndex: timerState.pomodoroSetIndex,
+    };
+    await serverCall("saveRecord", record);
+  }, []);
 
   const onTargetReached = useCallback((_phase: Phase) => {
     // Tab switching will be handled by NavigationContext
@@ -132,8 +129,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Initialize stores: MemoStore.init registers "memos" store,
         // then TaskStore.init registers task stores + opens IDB (EntityStore.init)
         MemoStore.init(d.memos || [], d.memoTags || []);
-        await TaskStore.init();
+        await TaskStore.init({ projects: d.projects, cases: d.cases, tasks: d.tasks });
         await MemoStore.loadData();
+        await TaskStore.loadData();
       })
       .catch((e) => {
         console.error("Init failed:", e);

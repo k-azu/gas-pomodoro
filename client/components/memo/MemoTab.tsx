@@ -15,6 +15,7 @@ import { ContentHeaderName } from "../shared/ContentHeader";
 import { RecordField } from "../shared/RecordField";
 import { MemoIcon } from "../shared/Icons";
 import { DocumentEditor, ToolbarSlot, MetaTitle } from "../shared/DocumentEditor";
+import { SyncIndicator } from "../shared/SyncIndicator";
 import * as MemoStore from "../../lib/memoStore";
 import s from "./MemoTab.module.css";
 
@@ -34,12 +35,15 @@ export function MemoTab() {
     editorRef,
     initialContent,
     onChange: handleEditorChange,
+    syncStatus,
+    readOnly,
   } = useDocumentEditor({
     id: memo.activeId || "",
     loadContent: useCallback((id: string) => MemoStore.getContent(id), []),
     saveContent: useCallback((id: string, md: string) => {
       MemoStore.saveContent(id, md);
     }, []),
+    resolveContent: useCallback((id: string) => MemoStore.resolveWithServer(id), []),
   });
 
   const toggleSidebar = useCallback(() => {
@@ -178,10 +182,18 @@ export function MemoTab() {
               onChange={handleEditorChange}
               placeholder="メモを入力..."
               editorRef={editorRef}
+              readOnly={readOnly}
               toolbarLeft={
                 sidebarCollapsed ? (
                   <ToolbarSlot>
                     <SidebarExpandButton onClick={toggleSidebar} />
+                  </ToolbarSlot>
+                ) : undefined
+              }
+              toolbarRight={
+                syncStatus !== "idle" && syncStatus !== "synced" ? (
+                  <ToolbarSlot>
+                    <SyncIndicator status={syncStatus} />
                   </ToolbarSlot>
                 ) : undefined
               }

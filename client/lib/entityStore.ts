@@ -50,7 +50,8 @@ type EventCallback = (data: any) => void;
 let _db: IDBDatabase | null = null;
 let _dbName: string | null = null;
 let _dbVersion: number | null = null;
-let _onUpgrade: ((db: IDBDatabase, oldVersion: number, newVersion: number | null) => void) | null = null;
+let _onUpgrade: ((db: IDBDatabase, oldVersion: number, newVersion: number | null) => void) | null =
+  null;
 
 const _listeners: Record<string, EventCallback[]> = {};
 const _entityStoreMap: Record<string, string> = {}; // id -> storeName
@@ -128,7 +129,12 @@ function openDB(): Promise<IDBDatabase> {
           });
         }
       });
-      if (_onUpgrade) _onUpgrade(db, (event as IDBVersionChangeEvent).oldVersion, (event as IDBVersionChangeEvent).newVersion);
+      if (_onUpgrade)
+        _onUpgrade(
+          db,
+          (event as IDBVersionChangeEvent).oldVersion,
+          (event as IDBVersionChangeEvent).newVersion,
+        );
     };
     req.onsuccess = () => {
       _db = req.result;
@@ -394,8 +400,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("timeout")), ms);
     promise.then(
-      (v) => { clearTimeout(timer); resolve(v); },
-      (e) => { clearTimeout(timer); reject(e); },
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
     );
   });
 }
@@ -626,9 +638,13 @@ export function flushAllSyncs(): void {
 export function mergeServerData(storeName: string, serverEntities: any[]): Promise<void> {
   return getAll(storeName).then((localEntities) => {
     const localMap: Record<string, any> = {};
-    localEntities.forEach((e) => { localMap[e.id] = e; });
+    localEntities.forEach((e) => {
+      localMap[e.id] = e;
+    });
     const serverMap: Record<string, any> = {};
-    serverEntities.forEach((e) => { serverMap[e.id] = e; });
+    serverEntities.forEach((e) => {
+      serverMap[e.id] = e;
+    });
 
     const ops: Promise<any>[] = [];
 
@@ -728,7 +744,12 @@ export function requeueDirtyRecords(storeName: string): void {
 // Content Conflict Resolution
 // =========================================================
 
-function applyServerContent(storeName: string, id: string, content: string, serverTs: string): Promise<void> {
+function applyServerContent(
+  storeName: string,
+  id: string,
+  content: string,
+  serverTs: string,
+): Promise<void> {
   return withLock(id, () =>
     get(storeName, id).then((entity) => {
       if (!entity) return;
@@ -804,7 +825,7 @@ export function resolveWithServer(
     })
     .catch((err) => {
       console.error("[EntityStore] resolveWithServer failed after retry:", id, err);
-      return null;
+      throw err;
     });
 }
 

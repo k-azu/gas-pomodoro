@@ -1,0 +1,30 @@
+.sync-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px 12px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.sync-indicator[data-status="syncing"] {
+  color: #1a73e8;
+  background: #e8f0fe;
+}
+
+.sync-indicator[data-status="error"] {
+  color: #c5221f;
+  background: #fce8e6;
+}
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}

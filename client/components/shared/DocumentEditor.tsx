@@ -4,7 +4,7 @@
  * Wraps: page-root > editor-full-container > MarkdownEditorWrapper
  * Children are rendered as the meta section between toolbar and editor body.
  */
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { MarkdownEditorWrapper } from "./MarkdownEditorWrapper";
 import type { MarkdownEditorRef } from "./MarkdownEditorWrapper";
 import type { MentionTrigger } from "tiptap-markdown-editor";
@@ -32,11 +32,13 @@ export function DocumentEditor({
   className,
   ...editorProps
 }: DocumentEditorProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   return (
-    <div className={s["page-root"]}>
+    <div ref={scrollRef} className={s["page-root"]}>
       <div className={`editor-full-container${className ? ` ${className}` : ""}`}>
         <MarkdownEditorWrapper
           {...editorProps}
+          scrollContainerRef={scrollRef}
           toolbarLeft={toolbarLeft}
           toolbarRight={toolbarRight}
         >

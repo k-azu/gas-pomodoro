@@ -15,7 +15,9 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write \"src/**/*.ts\" \"client/**/*.{ts,tsx}\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"client/**/*.{ts,tsx}\""
+    "format:check": "prettier --check \"src/**/*.ts\" \"client/**/*.{ts,tsx}\"",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "react": "^19.1.0",
@@ -23,6 +25,7 @@
     "tiptap-markdown-editor": "file:../tiptap-markdown-editor"
   },
   "devDependencies": {
+    "@playwright/test": "^1.50.0",
     "@eslint/js": "^9.39.2",
     "@google/clasp": "^2.4.2",
     "@types/google-apps-script": "^1.0.83",

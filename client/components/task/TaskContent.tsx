@@ -1,6 +1,9 @@
 /**
  * TaskContent — Content area for project/case/task
- * Notion-like layout: toolbar(sticky) → meta → editor body in single scroll
+ *
+ * Single DocumentEditor instance shared across all node types.
+ * Meta section (name, status, dates, etc.) varies per type via keyed child components.
+ * Tiptap undo history and cursor position are preserved across type switches.
  */
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { UseTasksReturn } from "../../hooks/useTasks";
@@ -11,6 +14,7 @@ import { ContentHeaderName } from "../shared/ContentHeader";
 import { SidebarExpandButton } from "../shared/Sidebar";
 import { RecordField } from "../shared/RecordField";
 import { DocumentEditor, ToolbarSlot, MetaTitle, pageRootClass } from "../shared/DocumentEditor";
+import { SyncIndicator } from "../shared/SyncIndicator";
 import { TaskTableView } from "./TaskTableView";
 import s from "./TaskContent.module.css";
 import * as TaskStore from "../../lib/taskStore";
@@ -23,58 +27,29 @@ interface TaskContentProps {
   onExpandSidebar?: () => void;
 }
 
+function storeNameFor(type: string): string {
+  if (type === "case") return "cases";
+  if (type === "task") return "tasks";
+  return "projects";
+}
+
 export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskContentProps) {
   const { selectedNode } = tasks;
   if (!selectedNode) return null;
 
-  if (selectedNode.type === "project" || selectedNode.type === "case") {
-    return (
-      <ProjectOrCaseContent
-        tasks={tasks}
-        type={selectedNode.type}
-        id={selectedNode.id}
-        sidebarCollapsed={sidebarCollapsed}
-        onExpandSidebar={onExpandSidebar}
-      />
-    );
-  }
+  const id = selectedNode.id;
+  const type = selectedNode.type;
+  const storeName = storeNameFor(type);
+  const isContainerType = type === "project" || type === "case";
+  const showingDoc = isContainerType ? (tasks.viewModes[id] || "doc") !== "table" : true;
 
-  return (
-    <TaskDetailContent
-      tasks={tasks}
-      id={selectedNode.id}
-      sidebarCollapsed={sidebarCollapsed}
-      onExpandSidebar={onExpandSidebar}
-    />
-  );
-}
-
-// =========================================================
-// Project / Case Content
-// =========================================================
-
-function ProjectOrCaseContent({
-  tasks,
-  type,
-  id,
-  sidebarCollapsed,
-  onExpandSidebar,
-}: {
-  tasks: UseTasksReturn;
-  type: "project" | "case";
-  id: string;
-  sidebarCollapsed?: boolean;
-  onExpandSidebar?: () => void;
-}) {
-  const [entity, setEntity] = useState<any>(null);
-  const colorRef = useRef<HTMLInputElement>(null);
-  const showingDoc = (tasks.viewModes[id] || "doc") !== "table";
-  const storeName = type === "project" ? "projects" : "cases";
-
+  // --- Single useDocumentEditor instance ---
   const {
     editorRef,
     initialContent,
     onChange: handleEditorChange,
+    syncStatus,
+    readOnly,
   } = useDocumentEditor({
     id,
     loadContent: useCallback((id: string) => TaskStore.getContent(id, storeName), [storeName]),
@@ -82,35 +57,23 @@ function ProjectOrCaseContent({
       (id: string, md: string) => TaskStore.saveContent(id, md, storeName),
       [storeName],
     ),
+    resolveContent: useCallback(
+      (id: string) => TaskStore.resolveWithServer(id, storeName),
+      [storeName],
+    ),
   });
 
-  // Load entity data
-  useEffect(() => {
-    EntityStore.get(storeName, id).then((data) => setEntity(data));
-  }, [storeName, id]);
-
-  // Reload entity on dataChanged (e.g. color update from another source)
-  useEffect(() => {
-    const handler = (detail: { entityType?: string }) => {
-      const matchType = type === "project" ? "project" : "case";
-      if (!detail || detail.entityType === matchType || detail.entityType === "all") {
-        EntityStore.get(storeName, id).then((data) => {
-          if (data) setEntity(data);
-        });
-      }
-    };
-    EntityStore.on("dataChanged", handler);
-    return () => EntityStore.off("dataChanged", handler);
-  }, [type, storeName, id]);
-
+  // --- Toggle view (project/case only) ---
   const toggleView = useCallback(() => {
     editorRef.current?.flushSave();
     tasks.setViewMode(id, showingDoc ? "table" : "doc");
   }, [id, showingDoc, tasks, editorRef]);
 
-  if (!entity || initialContent === null)
+  // --- Loading guard ---
+  if (initialContent === null)
     return <div className={s["task-content-placeholder"]}>読み込み中...</div>;
 
+  // --- Toolbar slots ---
   const toolbarLeftSlot =
     sidebarCollapsed && onExpandSidebar ? (
       <ToolbarSlot>
@@ -118,49 +81,127 @@ function ProjectOrCaseContent({
       </ToolbarSlot>
     ) : undefined;
 
-  const toolbarRightSlot = (
+  const hasRightContent = isContainerType || (syncStatus !== "idle" && syncStatus !== "synced");
+  const toolbarRightSlot = hasRightContent ? (
     <ToolbarSlot>
-      <button className={s["task-view-toggle"]} onClick={toggleView}>
-        {showingDoc ? "タスク" : "ドキュメント"}
-      </button>
+      {isContainerType ? (
+        <SyncIndicator status={syncStatus} />
+      ) : (
+        syncStatus !== "idle" && syncStatus !== "synced" && <SyncIndicator status={syncStatus} />
+      )}
+      {isContainerType && (
+        <button className={s["task-view-toggle"]} onClick={toggleView}>
+          {showingDoc ? "タスク" : "ドキュメント"}
+        </button>
+      )}
     </ToolbarSlot>
-  );
+  ) : undefined;
 
-  const metaChildren = (
+  return (
+    <div className={s["task-detail"]}>
+      {/* Doc view — always mounted, hidden when table view active */}
+      <div style={{ display: showingDoc ? "contents" : "none" }}>
+        <DocumentEditor
+          initialValue={initialContent}
+          documentId={id}
+          onChange={handleEditorChange}
+          placeholder="ドキュメントを入力..."
+          editorRef={editorRef}
+          readOnly={readOnly}
+          toolbarLeft={toolbarLeftSlot}
+          toolbarRight={toolbarRightSlot}
+          className={s["task-wiki-container"]}
+        >
+          {/* Meta section — keyed to remount per type+id */}
+          {type === "project" && <ProjectMeta key={`p-${id}`} id={id} tasks={tasks} />}
+          {type === "case" && <CaseMeta key={`c-${id}`} id={id} tasks={tasks} />}
+          {type === "task" && <TaskMeta key={`t-${id}`} id={id} tasks={tasks} />}
+        </DocumentEditor>
+      </div>
+
+      {/* Table view — project/case only */}
+      {!showingDoc && isContainerType && (
+        <div className={pageRootClass}>
+          <div className="mdg-editor-toolbar-row">
+            {toolbarLeftSlot}
+            <div style={{ flex: 1, minHeight: 38 }} />
+            {toolbarRightSlot}
+          </div>
+          <TaskTableView tasks={tasks} parentType={type as "project" | "case"} parentId={id} />
+        </div>
+      )}
+
+      {/* Work records — task only */}
+      {type === "task" && <TaskWorkRecords key={id} id={id} />}
+    </div>
+  );
+}
+
+// =========================================================
+// Meta Components
+// =========================================================
+
+function useEntity(storeName: string, entityType: string, id: string) {
+  const [entity, setEntity] = useState<any>(null);
+
+  useEffect(() => {
+    EntityStore.get(storeName, id).then((data) => setEntity(data));
+  }, [storeName, id]);
+
+  useEffect(() => {
+    const handler = (detail: { entityType?: string }) => {
+      if (!detail || detail.entityType === entityType || detail.entityType === "all") {
+        EntityStore.get(storeName, id).then((data) => {
+          if (data) setEntity(data);
+        });
+      }
+    };
+    EntityStore.on("dataChanged", handler);
+    return () => EntityStore.off("dataChanged", handler);
+  }, [entityType, storeName, id]);
+
+  return [entity, setEntity] as const;
+}
+
+function ProjectMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
+  const [entity, setEntity] = useEntity("projects", "project", id);
+  const colorRef = useRef<HTMLInputElement>(null);
+
+  if (!entity) return null;
+
+  return (
     <>
       <MetaTitle>
         <ContentHeaderName
           name={entity.name}
           onRename={(name) => {
             setEntity((prev: any) => ({ ...prev, name }));
-            tasks.rename(type, id, name);
+            tasks.rename("project", id, name);
           }}
           suffix={
-            type === "project" ? (
-              <span
-                className={s["meta-color-dot"]}
-                style={{ background: entity.color || "#4285f4" }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  colorRef.current?.click();
+            <span
+              className={s["meta-color-dot"]}
+              style={{ background: entity.color || "#4285f4" }}
+              onClick={(e) => {
+                e.stopPropagation();
+                colorRef.current?.click();
+              }}
+            >
+              <input
+                ref={colorRef}
+                type="color"
+                value={entity.color || "#4285f4"}
+                onChange={(e) => tasks.updateProjectFields(id, { color: e.target.value })}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  opacity: 0,
+                  cursor: "pointer",
+                  width: "100%",
+                  height: "100%",
                 }}
-              >
-                <input
-                  ref={colorRef}
-                  type="color"
-                  value={entity.color || "#4285f4"}
-                  onChange={(e) => tasks.updateProjectFields(id, { color: e.target.value })}
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    opacity: 0,
-                    cursor: "pointer",
-                    width: "100%",
-                    height: "100%",
-                  }}
-                />
-              </span>
-            ) : undefined
+              />
+            </span>
           }
         />
       </MetaTitle>
@@ -171,122 +212,41 @@ function ProjectOrCaseContent({
       ) : null}
     </>
   );
+}
+
+function CaseMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
+  const [entity, setEntity] = useEntity("cases", "case", id);
+
+  if (!entity) return null;
 
   return (
-    <div className={s["task-detail"]}>
-      {/* Doc view */}
-      <div style={{ display: showingDoc ? "contents" : "none" }}>
-        <DocumentEditor
-          initialValue={initialContent}
-          documentId={id}
-          onChange={handleEditorChange}
-          placeholder="ドキュメントを入力..."
-          editorRef={editorRef}
-          toolbarLeft={toolbarLeftSlot}
-          toolbarRight={toolbarRightSlot}
-          className={s["task-wiki-container"]}
-        >
-          {metaChildren}
-        </DocumentEditor>
-      </div>
-
-      {/* Table view — reuse editor toolbar-row class for identical height/position */}
-      {!showingDoc && (
-        <div className={pageRootClass}>
-          <div className="mdg-editor-toolbar-row">
-            {toolbarLeftSlot}
-            {/* spacer matching mdg-editor-header height (28px btn + 4px*2 pad) */}
-            <div style={{ flex: 1, minHeight: 38 }} />
-            {toolbarRightSlot}
-          </div>
-          <TaskTableView tasks={tasks} parentType={type} parentId={id} />
-        </div>
-      )}
-    </div>
+    <>
+      <MetaTitle>
+        <ContentHeaderName
+          name={entity.name}
+          onRename={(name) => {
+            setEntity((prev: any) => ({ ...prev, name }));
+            tasks.rename("case", id, name);
+          }}
+        />
+      </MetaTitle>
+      {entity._cachedTimeSeconds ? (
+        <RecordField label="作業時間">
+          <span className={s["task-detail-time"]}>{formatTime(entity._cachedTimeSeconds)}</span>
+        </RecordField>
+      ) : null}
+    </>
   );
 }
 
-// =========================================================
-// Task Detail Content
-// =========================================================
+function TaskMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
+  const [entity, setEntity] = useEntity("tasks", "task", id);
 
-function TaskDetailContent({
-  tasks,
-  id,
-  sidebarCollapsed,
-  onExpandSidebar,
-}: {
-  tasks: UseTasksReturn;
-  id: string;
-  sidebarCollapsed?: boolean;
-  onExpandSidebar?: () => void;
-}) {
-  const [entity, setEntity] = useState<any>(null);
-  const [recordsOpen, setRecordsOpen] = useState(false);
-  const [records, setRecords] = useState<any[] | null>(null);
-  const [recordsLoading, setRecordsLoading] = useState(false);
-
-  const {
-    editorRef,
-    initialContent,
-    onChange: handleEditorChange,
-  } = useDocumentEditor({
-    id,
-    loadContent: useCallback((id: string) => TaskStore.getContent(id, "tasks"), []),
-    saveContent: useCallback(
-      (id: string, md: string) => TaskStore.saveContent(id, md, "tasks"),
-      [],
-    ),
-  });
-
-  // Load entity data
-  useEffect(() => {
-    EntityStore.get("tasks", id).then((data) => setEntity(data));
-  }, [id]);
-
-  // Reset records state on id change
-  useEffect(() => {
-    setRecords(null);
-    setRecordsOpen(false);
-  }, [id]);
-
-  // Reload entity on dataChanged
-  useEffect(() => {
-    const handler = (detail: { entityType?: string }) => {
-      if (!detail || detail.entityType === "task" || detail.entityType === "all") {
-        EntityStore.get("tasks", id).then((data) => {
-          if (data) setEntity(data);
-        });
-      }
-    };
-    EntityStore.on("dataChanged", handler);
-    return () => EntityStore.off("dataChanged", handler);
-  }, [id]);
-
-  // Load work records
-  useEffect(() => {
-    if (recordsOpen && records === null) {
-      setRecordsLoading(true);
-      serverCall("getTaskPomodoroRecords", id)
-        .then((data) => setRecords((data as any[]) || []))
-        .catch(() => setRecords([]))
-        .finally(() => setRecordsLoading(false));
-    }
-  }, [recordsOpen, records, id]);
-
-  if (!entity || initialContent === null)
-    return <div className={s["task-content-placeholder"]}>読み込み中...</div>;
+  if (!entity) return null;
 
   const sc = STATUS_CONFIG[entity.status] || STATUS_CONFIG.todo;
 
-  const toolbarLeftSlot =
-    sidebarCollapsed && onExpandSidebar ? (
-      <ToolbarSlot>
-        <SidebarExpandButton onClick={onExpandSidebar} />
-      </ToolbarSlot>
-    ) : undefined;
-
-  const metaChildren = (
+  return (
     <>
       <MetaTitle>
         <ContentHeaderName
@@ -335,40 +295,45 @@ function TaskDetailContent({
       ) : null}
     </>
   );
+}
+
+// =========================================================
+// Work Records
+// =========================================================
+
+function TaskWorkRecords({ id }: { id: string }) {
+  const [recordsOpen, setRecordsOpen] = useState(false);
+  const [records, setRecords] = useState<any[] | null>(null);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+
+  useEffect(() => {
+    if (recordsOpen && records === null) {
+      setRecordsLoading(true);
+      serverCall("getTaskPomodoroRecords", id)
+        .then((data) => setRecords((data as any[]) || []))
+        .catch(() => setRecords([]))
+        .finally(() => setRecordsLoading(false));
+    }
+  }, [recordsOpen, records, id]);
 
   return (
-    <div className={s["task-detail"]}>
-      <DocumentEditor
-        initialValue={initialContent}
-        documentId={id}
-        onChange={handleEditorChange}
-        placeholder="ドキュメントを入力..."
-        editorRef={editorRef}
-        toolbarLeft={toolbarLeftSlot}
-        className={s["task-wiki-container"]}
-      >
-        {metaChildren}
-      </DocumentEditor>
-
-      {/* Work records — fixed at bottom, outside scroll area */}
-      <details
-        className={s["task-records-section"]}
-        open={recordsOpen}
-        onToggle={(e) => setRecordsOpen((e.target as HTMLDetailsElement).open)}
-      >
-        <summary>作業記録</summary>
-        <div className={s["task-records-list"]}>
-          {recordsLoading && <div className={s["task-records-loading"]}>読み込み中...</div>}
-          {!recordsLoading && records && records.length === 0 && (
-            <div className={s["task-records-empty"]}>作業記録がありません</div>
-          )}
-          {!recordsLoading &&
-            records
-              ?.filter((r) => r.type === "work")
-              .map((r) => <TaskRecordRow key={r.id} record={r} />)}
-        </div>
-      </details>
-    </div>
+    <details
+      className={s["task-records-section"]}
+      open={recordsOpen}
+      onToggle={(e) => setRecordsOpen((e.target as HTMLDetailsElement).open)}
+    >
+      <summary>作業記録</summary>
+      <div className={s["task-records-list"]}>
+        {recordsLoading && <div className={s["task-records-loading"]}>読み込み中...</div>}
+        {!recordsLoading && records && records.length === 0 && (
+          <div className={s["task-records-empty"]}>作業記録がありません</div>
+        )}
+        {!recordsLoading &&
+          records
+            ?.filter((r) => r.type === "work")
+            .map((r) => <TaskRecordRow key={r.id} record={r} />)}
+      </div>
+    </details>
   );
 }
 

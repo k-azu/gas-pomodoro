@@ -25,6 +25,9 @@ export interface InitData {
   todayInterruptions: import("./records").InterruptionRecord[];
   memos: MemoMetadata[];
   memoTags: import("./categories").MemoTag[];
+  projects?: import("./entities").Project[];
+  cases?: import("./entities").Case[];
+  tasks?: import("./entities").Task[];
 }
 
 /** Shape of getAllTaskData response */

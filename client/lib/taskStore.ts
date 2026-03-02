@@ -4,7 +4,6 @@
  */
 
 import * as EntityStore from "./entityStore";
-import { serverCall } from "./serverCall";
 import type { TaskStatus } from "../types/entities";
 
 const STATUS_ORDER: Record<string, number> = {
@@ -17,10 +16,16 @@ const STATUS_ORDER: Record<string, number> = {
 };
 
 // =========================================================
-// Init: register entity types and start sync
+// Init: register entity types and open IDB
 // =========================================================
 
-export function init(): Promise<void> {
+let _serverData: { projects: any[]; cases: any[]; tasks: any[] } | null = null;
+
+export function init(serverData?: {
+  projects?: any[];
+  cases?: any[];
+  tasks?: any[];
+}): Promise<void> {
   EntityStore.register("projects", {
     entityType: "project",
     keyPath: "id",
@@ -74,30 +79,39 @@ export function init(): Promise<void> {
     },
   });
 
+  if (serverData) {
+    _serverData = {
+      projects: serverData.projects || [],
+      cases: serverData.cases || [],
+      tasks: serverData.tasks || [],
+    };
+  }
+
   return EntityStore.init("gas_pomodoro", 3, {
     onUpgrade: (db) => {
       if (db.objectStoreNames.contains("contents")) db.deleteObjectStore("contents");
       if (db.objectStoreNames.contains("syncMeta")) db.deleteObjectStore("syncMeta");
     },
-  }).then(() => {
-    // Phase 2: async server sync (not awaited — UI renders from IDB immediately)
-    serverCall("getAllTaskData")
-      .then((data: any) =>
-        Promise.all([
-          EntityStore.mergeServerData("projects", data.projects || []),
-          EntityStore.mergeServerData("cases", data.cases || []),
-          EntityStore.mergeServerData("tasks", data.tasks || []),
-        ]),
-      )
-      .then(() => {
-        EntityStore.requeueDirtyRecords("projects");
-        EntityStore.requeueDirtyRecords("cases");
-        EntityStore.requeueDirtyRecords("tasks");
-        EntityStore.emit("dataChanged", { entityType: "all", op: "serverSync" });
-      })
-      .catch((err) => {
-        console.warn("[TaskStore] server sync failed, using IDB cache:", err);
-      });
+  });
+}
+
+// =========================================================
+// loadData: merge server data into IDB (symmetric with MemoStore)
+// =========================================================
+
+export function loadData(): Promise<void> {
+  const data = _serverData || { projects: [], cases: [], tasks: [] };
+  _serverData = null;
+
+  return Promise.all([
+    EntityStore.mergeServerData("projects", data.projects),
+    EntityStore.mergeServerData("cases", data.cases),
+    EntityStore.mergeServerData("tasks", data.tasks),
+  ]).then(() => {
+    EntityStore.requeueDirtyRecords("projects");
+    EntityStore.requeueDirtyRecords("cases");
+    EntityStore.requeueDirtyRecords("tasks");
+    EntityStore.emit("dataChanged", { entityType: "all", op: "serverSync" });
   });
 }
 
@@ -229,15 +243,11 @@ export function getAllProjects(): Promise<any[]> {
 }
 
 export function getAllCases(): Promise<any[]> {
-  return EntityStore.getAll("cases").then((items) =>
-    items.filter((c) => c.isActive !== false),
-  );
+  return EntityStore.getAll("cases").then((items) => items.filter((c) => c.isActive !== false));
 }
 
 export function getAllTasks(): Promise<any[]> {
-  return EntityStore.getAll("tasks").then((items) =>
-    items.filter((t) => t.isActive !== false),
-  );
+  return EntityStore.getAll("tasks").then((items) => items.filter((t) => t.isActive !== false));
 }
 
 // =========================================================

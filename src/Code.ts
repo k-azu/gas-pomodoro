@@ -3,9 +3,7 @@ function doGet(): GoogleAppsScript.HTML.HtmlOutput {
   return HtmlService.createTemplateFromFile("index")
     .evaluate()
     .setTitle("Pomodoro Timer")
-    .setFaviconUrl(
-      "https://drive.google.com/uc?id=1WaX5uI1Uxgt63EiOkIh1ZpiRmi77_w2h&.png",
-    ) // ※ 任意
+    .setFaviconUrl("https://drive.google.com/uc?id=1WaX5uI1Uxgt63EiOkIh1ZpiRmi77_w2h&.png") // ※ 任意
     .addMetaTag("viewport", "width=device-width, initial-scale=1");
 }
 
@@ -27,6 +25,9 @@ function getAllInitData(): {
   todayInterruptions: InterruptionRecord[];
   memos: MemoMetadata[];
   memoTags: MemoTag[];
+  projects: ProjectMetadata[];
+  cases: CaseMetadata[];
+  tasks: TaskMetadata[];
 } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tz = Session.getScriptTimeZone();
@@ -115,9 +116,7 @@ function getAllInitData(): {
     logData.forEach((row) => {
       const dateVal = row[1];
       const dateStr =
-        dateVal instanceof Date
-          ? Utilities.formatDate(dateVal, tz, "yyyy-MM-dd")
-          : String(dateVal);
+        dateVal instanceof Date ? Utilities.formatDate(dateVal, tz, "yyyy-MM-dd") : String(dateVal);
       if (dateStr !== today) return;
 
       // Stats
@@ -130,8 +129,7 @@ function getAllInitData(): {
       if (type === "work") {
         if (status === "completed") stats.completedPomodoros++;
         else if (status === "abandoned") stats.abandonedPomodoros++;
-        stats.totalWorkSeconds +=
-          actualSeconds - workIntSeconds - nonWorkIntSeconds;
+        stats.totalWorkSeconds += actualSeconds - workIntSeconds - nonWorkIntSeconds;
         stats.totalWorkInterruptionSeconds += workIntSeconds;
         stats.totalNonWorkInterruptionSeconds += nonWorkIntSeconds;
       } else if (type === "shortBreak" || type === "longBreak") {
@@ -169,9 +167,7 @@ function getAllInitData(): {
     const INT_TAIL = 200;
     const intStartRow = Math.max(2, intLastRow - INT_TAIL + 1);
     const intNumRows = intLastRow - intStartRow + 1;
-    const intData = intSheet
-      .getRange(intStartRow, 1, intNumRows, 8)
-      .getValues();
+    const intData = intSheet.getRange(intStartRow, 1, intNumRows, 8).getValues();
     todayInterruptions = intData
       .filter((row) => {
         const raw = row[3];
@@ -195,6 +191,9 @@ function getAllInitData(): {
   const memos = getMemos();
   const memoTags = getMemoTags();
 
+  // --- Tasks ---
+  const taskData = getAllTaskData();
+
   return {
     timerConfigs,
     categories,
@@ -205,5 +204,8 @@ function getAllInitData(): {
     todayInterruptions,
     memos,
     memoTags,
+    projects: taskData.projects,
+    cases: taskData.cases,
+    tasks: taskData.tasks,
   };
 }

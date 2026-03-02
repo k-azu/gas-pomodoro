@@ -7,6 +7,11 @@
  * 1. Without children: renders a single MarkdownEditor (toolbar + body together)
  * 2. With children: uses EditorProvider + EditorToolbar + children + EditorBody
  *    to allow inserting content between toolbar and editor body
+ *
+ * スクロール位置の保存/復元:
+ *   保存: render 中に documentId prop の変化を検出し、DOM commit 前の scrollTop を記録。
+ *   復元: useEffect で activeDocId state 変化後に scrollTop を設定。
+ *         tiptap EditorContent の DOM 再アタッチが paint 後のため useEffect で正しく動作する。
  */
 import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import { MarkdownEditor, EditorProvider, EditorToolbar, EditorBody } from "tiptap-markdown-editor";
@@ -15,7 +20,7 @@ import type { MentionTrigger } from "tiptap-markdown-editor";
 export interface MarkdownEditorRef {
   getValue: () => string;
   setValue: (markdown: string) => void;
-  switchDocument: (id: string, markdown: string) => void;
+  switchDocument: (id: string, markdown?: string) => void;
   hasDocument: (id: string) => boolean;
   clear: () => void;
   flushSave: () => void;
@@ -30,6 +35,7 @@ export function MarkdownEditorWrapper({
   mentions,
   readOnly = false,
   editorRef: externalRef,
+  scrollContainerRef,
   children,
   toolbarLeft,
   toolbarRight,
@@ -42,20 +48,39 @@ export function MarkdownEditorWrapper({
   mentions?: MentionTrigger[];
   readOnly?: boolean;
   editorRef?: React.RefObject<MarkdownEditorRef | null>;
+  scrollContainerRef?: React.RefObject<HTMLElement | null>;
   children?: ReactNode;
   toolbarLeft?: ReactNode;
   toolbarRight?: ReactNode;
 }) {
   const [content, setContent] = useState(initialValue);
   const [activeDocId, setActiveDocId] = useState(documentId);
+  const activeDocIdRef = useRef(documentId);
   const contentRef = useRef(initialValue);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const knownDocs = useRef(new Set<string>());
+  const scrollPositions = useRef(new Map<string, number>());
 
-  if (documentId) knownDocs.current.add(documentId);
+  // knownDocs is only populated via switchDocument() — NOT eagerly during render.
+  // This ensures hasDocument() returns true only for documents that have actually
+  // been opened through switchDocument, where an EditorState cache exists.
+
+  // Save scroll position when documentId prop signals an upcoming switch.
+  // This runs during render (before DOM commit), so scrollTop still reflects
+  // the pre-transition layout — the most accurate timing possible.
+  const prevDocIdPropRef = useRef(documentId);
+  if (documentId !== prevDocIdPropRef.current) {
+    const container = scrollContainerRef?.current;
+    const prevId = activeDocIdRef.current;
+    if (container && prevId) {
+      scrollPositions.current.set(prevId, container.scrollTop);
+    }
+    prevDocIdPropRef.current = documentId;
+  }
 
   const handleChange = useCallback((markdown: string) => {
+    if (markdown === contentRef.current) return;
     contentRef.current = markdown;
     setContent(markdown);
     onChangeRef.current?.(markdown);
@@ -70,11 +95,16 @@ export function MarkdownEditorWrapper({
         contentRef.current = md;
         setContent(md);
       },
-      switchDocument: (id, md) => {
+      switchDocument: (id, md?) => {
         knownDocs.current.add(id);
+        activeDocIdRef.current = id;
         setActiveDocId(id);
-        contentRef.current = md;
-        setContent(md);
+        if (md !== undefined) {
+          contentRef.current = md;
+          setContent(md);
+        }
+        // md === undefined → setContent しない → value prop 不変
+        // → ライブラリ側: value === prevValueRef → キャッシュのみ復元
       },
       hasDocument: (id) => knownDocs.current.has(id),
       clear: () => {
@@ -86,6 +116,21 @@ export function MarkdownEditorWrapper({
       },
     };
   });
+
+  // Restore scroll position after document switch.
+  // useEffect runs after paint — by this time tiptap's EditorContent has
+  // re-attached the editor DOM and the scroll container's scrollHeight is correct.
+  const prevDocIdForScroll = useRef(activeDocId);
+  useEffect(() => {
+    if (activeDocId === prevDocIdForScroll.current) return;
+    prevDocIdForScroll.current = activeDocId;
+
+    const container = scrollContainerRef?.current;
+    if (!container || !activeDocId) return;
+
+    const saved = scrollPositions.current.get(activeDocId);
+    container.scrollTop = saved ?? 0;
+  }, [activeDocId, scrollContainerRef]);
 
   // Split mode: toolbar, children slot, then editor body
   if (children) {
@@ -111,7 +156,7 @@ export function MarkdownEditorWrapper({
             <EditorToolbar />
           )}
           {children}
-          <EditorBody placeholder={placeholder} />
+          <EditorBody />
         </div>
       </EditorProvider>
     );

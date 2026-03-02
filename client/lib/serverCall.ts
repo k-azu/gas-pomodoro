@@ -22,6 +22,23 @@ declare global {
 const isDev = !window.google?.script?.run;
 
 // =========================================================
+// Mock scenario parameters (dev only)
+// =========================================================
+
+type MockScenario = "default" | "serverNewer" | "localNewer";
+
+function readMockParams(): { scenario: MockScenario; delay: number } {
+  if (!isDev) return { scenario: "default", delay: 0 };
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("mockScenario") || "default";
+  const scenario: MockScenario = raw === "serverNewer" || raw === "localNewer" ? raw : "default";
+  const delay = Math.max(0, Number(params.get("mockDelay")) || 0);
+  return { scenario, delay };
+}
+
+const mockParams = readMockParams();
+
+// =========================================================
 // Mock data helpers
 // =========================================================
 
@@ -300,6 +317,39 @@ const MOCK_TASK_RECORDS = [
 ];
 
 // =========================================================
+// Content-function names that support scenario + extra delay
+// =========================================================
+
+const CONTENT_FUNCTIONS = new Set([
+  "getProjectContent",
+  "getCaseContent",
+  "getTaskContent",
+  "getMemoContent",
+]);
+
+function getContentMockResponse(functionName: string): unknown {
+  if (typeof window !== "undefined" && (window as any).__mockContentOverride !== undefined) {
+    return (window as any).__mockContentOverride;
+  }
+  const { scenario } = mockParams;
+  if (scenario === "serverNewer") {
+    return {
+      content: `# サーバーから取得 (${functionName})\n\nこのコンテンツはサーバー側で更新されました。\n\n更新日時: ${new Date().toISOString()}`,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  if (scenario === "localNewer") {
+    // Server returns old content — resolveWithServer should keep local
+    return {
+      content: "",
+      updatedAt: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
+    };
+  }
+  // default — server has no content data (null triggers "keep local" path in resolveContentConflict)
+  return null;
+}
+
+// =========================================================
 // Mock handler — returns data based on function name
 // =========================================================
 
@@ -356,6 +406,9 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
           { name: "dev", color: "#4CAF50", sortOrder: 1, isActive: true },
           { name: "memo", color: "#2196F3", sortOrder: 2, isActive: true },
         ],
+        projects: MOCK_PROJECTS,
+        cases: MOCK_CASES,
+        tasks: MOCK_TASKS,
       };
 
     case "getRefreshData":
@@ -475,9 +528,12 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
     case "getProjectContent":
     case "getCaseContent":
     case "getTaskContent":
-      return { content: "", updatedAt: new Date().toISOString() };
+      return getContentMockResponse(functionName);
 
     // ---- Memo ----
+    case "getMemoContent":
+      return getContentMockResponse(functionName);
+
     case "saveMemoContent":
     case "renameMemo":
     case "updateMemoTags":
@@ -505,10 +561,20 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
 export function serverCall(functionName: string, ...args: unknown[]): Promise<unknown> {
   if (isDev) {
     console.log(`[mock] serverCall: ${functionName}`, args);
+    const baseDelay = 100;
+    const extraDelay = CONTENT_FUNCTIONS.has(functionName) ? mockParams.delay : 0;
+
+    if (CONTENT_FUNCTIONS.has(functionName) && (window as any).__mockContentShouldFail) {
+      return new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Mock: forced content error")), baseDelay);
+      });
+    }
+
     return new Promise((resolve) => {
       setTimeout(() => {
-        resolve(getMockResponse(functionName, args));
-      }, 100);
+        const result = getMockResponse(functionName, args);
+        resolve(result);
+      }, baseDelay + extraDelay);
     });
   }
 
