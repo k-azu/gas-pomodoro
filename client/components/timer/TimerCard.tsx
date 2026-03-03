@@ -128,37 +128,37 @@ function PatternDisplay() {
         {renderValue("short", config.shortBreakMinutes)}
         <span className={s["pattern-separator"]}>/</span>
         {renderValue("long", config.longBreakMinutes)}
-        <div className={s["pattern-dropdown-anchor"]} ref={dropdownRef}>
-          <button
-            className={s["pattern-dropdown-btn"]}
-            onClick={() => setDropdownOpen((v) => !v)}
-            aria-label="パターン切替"
-          >
-            <ChevronDownIcon size={16} />
-          </button>
-          {dropdownOpen && (
-            <div className={s["pattern-dropdown"]}>
-              {configPatterns.map((p) => (
+      </div>
+      <div className={s["pattern-dropdown-anchor"]} ref={dropdownRef}>
+        <button
+          className={s["pattern-dropdown-btn"]}
+          onClick={() => setDropdownOpen((v) => !v)}
+          aria-label="パターン切替"
+        >
+          <ChevronDownIcon size={16} />
+        </button>
+        {dropdownOpen && (
+          <div className={s["pattern-dropdown"]}>
+            {configPatterns.map((p) => {
+              const isSelected = p.patternName === config.patternName;
+              return (
                 <button
                   key={p.patternName}
-                  className={`${s["pattern-dropdown-item"]}${p.patternName === config.patternName ? ` ${s.active}` : ""}`}
+                  className={`${s["pattern-dropdown-item"]}${isSelected ? ` ${s.active}` : ""}`}
                   onClick={() => {
                     onPatternChange(p.patternName);
                     setDropdownOpen(false);
                   }}
                 >
-                  <span className={s["pattern-dropdown-check"]}>
-                    {p.patternName === config.patternName ? "✓" : ""}
-                  </span>
                   <span className={s["pattern-dropdown-name"]}>{p.patternName}</span>
                   <span className={s["pattern-dropdown-values"]}>
                     {p.workMinutes}/{p.shortBreakMinutes}/{p.longBreakMinutes}
                   </span>
                 </button>
-              ))}
-            </div>
-          )}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
