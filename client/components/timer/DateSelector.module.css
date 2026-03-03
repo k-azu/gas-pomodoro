@@ -17,23 +17,22 @@
 
 .date-calendar-wrapper {
   position: relative; flex-shrink: 0;
+  display: inline-flex;
 }
 
 .date-calendar-btn {
   width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 6px;
-  background: var(--surface); cursor: pointer; color: var(--text-secondary);
+  background: var(--surface); color: var(--text-secondary);
   display: flex; align-items: center; justify-content: center;
   transition: background 0.15s, color 0.15s;
+  pointer-events: none;
 }
-.date-calendar-btn:hover { background: var(--bg); color: var(--text); }
+.date-calendar-wrapper:hover .date-calendar-btn { background: var(--bg); color: var(--text); }
 
 .date-calendar-input {
-  position: absolute;
-  top: 3px; left: 50%;
-  transform: translateX(-50%);
-  width: 280px; height: 100%;
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
   opacity: 0; border: none; padding: 0;
-  pointer-events: none;
 }
 
 .week-strip-container { display: flex; align-items: center; gap: 2px; }
