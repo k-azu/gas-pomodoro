@@ -9,34 +9,42 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.header-name {
+.header-name-wrapper {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.header-name-input {
   font-weight: 700;
   font-size: inherit;
-  flex: 1;
+  font-family: inherit;
+  width: 100%;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
+  border: 1px solid transparent;
   border-radius: 4px;
   padding: 2px 4px;
+  background: transparent;
+  outline: none;
   transition: background 0.15s;
 }
 
-.header-name:hover {
+.header-name-input:hover {
   background: rgba(55, 53, 47, 0.04);
 }
 
-.header-rename-input {
-  flex: 1;
-  min-width: 0;
-  font-weight: 700;
-  font-size: inherit;
-  border: 1px solid var(--work-color);
-  border-radius: 4px;
-  padding: 2px 4px;
-  font-family: inherit;
-  outline: none;
+.header-name-input.editing {
+  cursor: text;
+  border-color: var(--work-color);
+  background: var(--surface);
+}
+
+.header-name-input.editing:hover {
   background: var(--surface);
 }
 

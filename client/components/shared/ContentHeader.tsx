@@ -67,6 +67,13 @@ export function ContentHeaderName({
   const [isEditing, setIsEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Sync input value when name prop changes (e.g. document switch)
+  useEffect(() => {
+    if (inputRef.current && !isEditing) {
+      inputRef.current.value = name;
+    }
+  }, [name, isEditing]);
+
   // External trigger (e.g. context menu "名前変更")
   useEffect(() => {
     if (renaming) {
@@ -92,29 +99,32 @@ export function ContentHeaderName({
   }, [name, onRename, onRenameEnd]);
 
   const cancel = useCallback(() => {
+    if (inputRef.current) inputRef.current.value = name;
     setIsEditing(false);
     onRenameEnd?.();
-  }, [onRenameEnd]);
+  }, [name, onRenameEnd]);
 
-  if (isEditing) {
-    return (
+  // Single <input> always rendered — editing state changes only CSS class
+  return (
+    <span className={s["header-name-wrapper"]}>
       <input
         ref={inputRef}
-        className={s["header-rename-input"]}
+        className={`${s["header-name-input"]} ${isEditing ? s["editing"] : ""}`}
         defaultValue={name}
-        onBlur={commit}
+        readOnly={!isEditing}
+        onClick={() => {
+          if (!isEditing && onRename) setIsEditing(true);
+        }}
+        onBlur={() => {
+          if (isEditing) commit();
+        }}
         onKeyDown={(e) => {
+          if (!isEditing) return;
           if (e.key === "Enter") commit();
           if (e.key === "Escape") cancel();
         }}
       />
-    );
-  }
-
-  return (
-    <span className={s["header-name"]} onClick={() => onRename && setIsEditing(true)}>
-      {name}
-      {suffix}
+      {!isEditing && suffix}
     </span>
   );
 }
