@@ -59,6 +59,7 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
       (id: string, md: string) => TaskStore.saveContent(id, md, storeName),
       [storeName],
     ),
+    flushSync: useCallback((id: string) => TaskStore.flushContentSync(storeName, id), [storeName]),
     resolveContent: useCallback(
       (id: string) => TaskStore.resolveWithServer(id, storeName),
       [storeName],

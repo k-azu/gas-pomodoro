@@ -45,6 +45,7 @@ export function MemoTab() {
     saveContent: useCallback((id: string, md: string) => {
       MemoStore.saveContent(id, md);
     }, []),
+    flushSync: useCallback((id: string) => MemoStore.flushContentSync(id), []),
     resolveContent: useCallback((id: string) => MemoStore.resolveWithServer(id), []),
     ...editorConfig.hookOptions,
   });

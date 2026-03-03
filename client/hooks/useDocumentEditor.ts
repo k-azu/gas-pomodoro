@@ -20,6 +20,8 @@ interface UseDocumentEditorOptions {
   id: string;
   loadContent: (id: string) => Promise<string | null>;
   saveContent: (id: string, content: string) => void;
+  /** Flush server sync for the given id (bypass 30s debounce) */
+  flushSync?: (id: string) => void;
   resolveContent?: (id: string) => Promise<{ useServer: boolean; content?: string } | null>;
   /** Transform content after loading (e.g. resolve Drive URLs to blob URLs) */
   transformOnLoad?: (content: string) => string | Promise<string>;
@@ -86,6 +88,7 @@ export function useDocumentEditor({
   id,
   loadContent,
   saveContent,
+  flushSync,
   resolveContent,
   transformOnLoad,
   transformOnSave,
@@ -97,20 +100,23 @@ export function useDocumentEditor({
   const [readOnly, setReadOnly] = useState(false);
   // Suppress saveContent during server resolve — setValue of server content shouldn't save back
   const suppressSaveRef = useRef(false);
-  // Stable ref for saveContent — avoids adding it to useEffect deps
+  // Stable refs — avoids adding to useEffect deps
   const saveContentRef = useRef(saveContent);
   saveContentRef.current = saveContent;
+  const flushSyncRef = useRef(flushSync);
+  flushSyncRef.current = flushSync;
   // 2-second debounce for IDB writes (matches old EditorManager saveDebounceMs: 2000)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingContentRef = useRef<{ id: string; content: string } | null>(null);
 
-  /** Execute save with debug log */
+  /** Execute IDB save + server sync flush with debug log */
   const doSave = useCallback((trigger: string) => {
     const pending = pendingContentRef.current;
     if (!pending) return;
     pendingContentRef.current = null;
     console.log(`[useDocumentEditor] save (${trigger}) id=${pending.id}`);
     saveContentRef.current(pending.id, pending.content);
+    flushSyncRef.current?.(pending.id);
   }, []);
 
   /** Flush debounced save immediately */
@@ -196,6 +202,7 @@ export function useDocumentEditor({
         pendingContentRef.current = null;
         console.log(`[useDocumentEditor] save (cleanup) id=${pending.id}`);
         saveContentRef.current(pending.id, pending.content);
+        flushSyncRef.current?.(pending.id);
       }
     };
   }, [id, loadContent, resolveContent, transformOnLoad]);
