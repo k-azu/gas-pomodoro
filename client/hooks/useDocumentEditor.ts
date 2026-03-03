@@ -97,6 +97,21 @@ export function useDocumentEditor({
   const [readOnly, setReadOnly] = useState(false);
   // Suppress saveContent during server resolve — setValue of server content shouldn't save back
   const suppressSaveRef = useRef(false);
+  // 2-second debounce for IDB writes (matches old EditorManager saveDebounceMs: 2000)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingContentRef = useRef<{ id: string; content: string } | null>(null);
+
+  const flushPendingSave = useCallback(() => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const pending = pendingContentRef.current;
+    if (pending) {
+      pendingContentRef.current = null;
+      saveContent(pending.id, pending.content);
+    }
+  }, [saveContent]);
 
   useEffect(() => {
     if (!id) return;
@@ -128,6 +143,7 @@ export function useDocumentEditor({
     };
 
     if (isSwitch && editorRef.current) {
+      flushPendingSave();
       if (editorRef.current.hasDocument(id)) {
         // キャッシュあり → IDB スキップ、content なしで切り替え
         editorRef.current.switchDocument(id);
@@ -151,14 +167,33 @@ export function useDocumentEditor({
 
     return () => {
       cancelledRef.current = true;
+      // Flush debounced save on unmount/id-change
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      const pending = pendingContentRef.current;
+      if (pending) {
+        pendingContentRef.current = null;
+        saveContent(pending.id, pending.content);
+      }
     };
-  }, [id, loadContent, resolveContent, transformOnLoad]);
+  }, [id, loadContent, resolveContent, transformOnLoad, saveContent]);
 
   const onChange = useCallback(
     (markdown: string) => {
       if (suppressSaveRef.current) return;
       const content = transformOnSave ? transformOnSave(markdown) : markdown;
-      saveContent(id, content);
+      pendingContentRef.current = { id, content };
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        saveTimerRef.current = null;
+        const pending = pendingContentRef.current;
+        if (pending) {
+          pendingContentRef.current = null;
+          saveContent(pending.id, pending.content);
+        }
+      }, 2000);
     },
     [id, saveContent, transformOnSave],
   );
