@@ -12,6 +12,8 @@ import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
 import { DocumentEditor } from "../shared/DocumentEditor";
 import type { MarkdownEditorRef } from "../shared/MarkdownEditorWrapper";
+import { useEditorConfig } from "../../hooks/useEditorConfig";
+import { blobUrlsToDrive, resolveDriveUrls } from "../../lib/imageCache";
 import { serverCall } from "../../lib/serverCall";
 import * as TaskStore from "../../lib/taskStore";
 import { STATUS_CONFIG } from "../../hooks/useTasks";
@@ -20,6 +22,7 @@ import s from "./RecordForm.module.css";
 export function RecordForm() {
   const { timer, refreshAll } = useApp();
   const nav = useNavigation();
+  const editorConfig = useEditorConfig();
   const { state } = timer;
 
   const editorRef = useRef<MarkdownEditorRef | null>(null);
@@ -130,7 +133,8 @@ export function RecordForm() {
       const result = (await serverCall("getLastWorkRecord")) as any;
       if (!result) return;
       if (result.description && editorRef.current) {
-        editorRef.current.setValue(result.description);
+        const resolved = await resolveDriveUrls(result.description);
+        editorRef.current.setValue(resolved);
       }
       if (result.category) {
         setSelectedCategory([result.category]);
@@ -152,7 +156,7 @@ export function RecordForm() {
 
       try {
         const endTime = new Date();
-        const description = (editorRef.current?.getValue() || "").trim();
+        const description = blobUrlsToDrive(editorRef.current?.getValue() || "").trim();
         const category = selectedCategory[0] || "";
         const startTime = new Date(state.startTimestamp!);
         const actualSeconds = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
@@ -209,6 +213,7 @@ export function RecordForm() {
   return (
     <div className={s["record-form"]}>
       <DocumentEditor
+        {...editorConfig.editorProps}
         initialValue=""
         onChange={() => {}}
         placeholder="何に取り組みましたか？"

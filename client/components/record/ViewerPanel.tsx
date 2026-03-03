@@ -12,6 +12,8 @@ import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
 import { DocumentEditor } from "../shared/DocumentEditor";
 import type { MarkdownEditorRef } from "../shared/MarkdownEditorWrapper";
+import { useEditorConfig } from "../../hooks/useEditorConfig";
+import { blobUrlsToDrive, resolveDriveUrls } from "../../lib/imageCache";
 import { serverCall } from "../../lib/serverCall";
 import * as TaskStore from "../../lib/taskStore";
 import { STATUS_CONFIG } from "../../hooks/useTasks";
@@ -29,8 +31,10 @@ export function ViewerPanel() {
 function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
   const { timer, refreshAll } = useApp();
   const { closeViewer } = useNavigation();
+  const editorConfig = useEditorConfig();
 
   const editorRef = useRef<MarkdownEditorRef | null>(null);
+  const [resolvedMarkdown, setResolvedMarkdown] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string[]>(
     vs.category ? [vs.category] : [],
   );
@@ -94,6 +98,15 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
     })();
   }, [showTaskPicker, vs.taskId]);
 
+  // Resolve Drive URLs in initial markdown
+  useEffect(() => {
+    if (vs.markdown) {
+      resolveDriveUrls(vs.markdown).then(setResolvedMarkdown);
+    } else {
+      setResolvedMarkdown(vs.markdown);
+    }
+  }, [vs.markdown]);
+
   // Track original values for change detection
   const origCategory = useRef(vs.category);
   const origType = useRef(vs.interruptionType);
@@ -109,7 +122,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
   const canSave = !!(vs.recordId || vs.onSaveMarkdown);
 
   const handleSave = useCallback(async () => {
-    const markdown = editorRef.current?.getValue() || "";
+    const markdown = blobUrlsToDrive(editorRef.current?.getValue() || "");
     const newCategory = selectedCategory[0] || "";
     const newType = intType ? "work" : "nonWork";
     const newTaskId = selectedTaskId || "";
@@ -200,10 +213,13 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
     refreshAll,
   ]);
 
+  if (resolvedMarkdown === null) return null;
+
   return (
     <div className={s["viewer-panel"]}>
       <DocumentEditor
-        initialValue={vs.markdown}
+        {...editorConfig.editorProps}
+        initialValue={resolvedMarkdown}
         onChange={() => {}}
         placeholder=""
         editorRef={editorRef}

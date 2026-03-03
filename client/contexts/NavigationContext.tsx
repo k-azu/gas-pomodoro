@@ -91,6 +91,11 @@ interface NavigationContextValue {
    * their state from localStorage (which is updated before this increments).
    */
   restoreSeq: number;
+  /** Navigate to a specific document (memo or task node) in one action */
+  navigateToDocument: (
+    tab: TabId,
+    details: { memoId?: string; taskNode?: { type: string; id: string } },
+  ) => void;
 }
 
 const NavigationContext = createContext<NavigationContextValue | null>(null);
@@ -194,6 +199,33 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
     [pushHash],
   );
 
+  // --- navigateToDocument ---
+  const navigateToDocument = useCallback(
+    (tab: TabId, details: { memoId?: string; taskNode?: { type: string; id: string } }) => {
+      // 1. Update localStorage so hooks re-read the correct state
+      if (details.memoId) {
+        lsSet(STORAGE_KEYS.MEMO_ACTIVE, details.memoId);
+      }
+      if (details.taskNode) {
+        lsSetJSON(STORAGE_KEYS.TASK_SELECTED, details.taskNode);
+      }
+
+      // 2. Update refs
+      if (details.memoId) memoIdRef.current = details.memoId;
+      if (details.taskNode) taskNodeRef.current = details.taskNode;
+
+      // 3. Switch tab (which also calls pushHash once)
+      prevTabRef.current = activeTabRef.current;
+      activeTabRef.current = tab;
+      setActiveTab(tab);
+      pushHash();
+
+      // 4. Signal hooks to re-read from localStorage
+      setRestoreSeq((s) => s + 1);
+    },
+    [pushHash],
+  );
+
   // --- popstate listener ---
   useEffect(() => {
     const handler = () => {
@@ -265,6 +297,7 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
         notifyTaskNodeChange,
         notifyMemoChange,
         restoreSeq,
+        navigateToDocument,
       }}
     >
       {children}

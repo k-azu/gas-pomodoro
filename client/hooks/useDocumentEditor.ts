@@ -21,6 +21,10 @@ interface UseDocumentEditorOptions {
   loadContent: (id: string) => Promise<string | null>;
   saveContent: (id: string, content: string) => void;
   resolveContent?: (id: string) => Promise<{ useServer: boolean; content?: string } | null>;
+  /** Transform content after loading (e.g. resolve Drive URLs to blob URLs) */
+  transformOnLoad?: (content: string) => string | Promise<string>;
+  /** Transform content before saving (e.g. convert blob URLs to Drive URLs) */
+  transformOnSave?: (content: string) => string;
 }
 
 // Track documents that have been synced in this session — skip resolve on re-open
@@ -37,23 +41,32 @@ function startResolve(
     setInitialContent?: (c: string) => void;
     suppressSaveRef: React.RefObject<boolean>;
     cancelledRef: { current: boolean };
+    transformOnLoad?: (content: string) => string | Promise<string>;
   },
 ): void {
-  const { setSyncStatus, setReadOnly, setInitialContent, suppressSaveRef, cancelledRef } =
-    callbacks;
+  const {
+    setSyncStatus,
+    setReadOnly,
+    setInitialContent,
+    suppressSaveRef,
+    cancelledRef,
+    transformOnLoad,
+  } = callbacks;
   setReadOnly(true);
   setSyncStatus("syncing");
   suppressSaveRef.current = true;
 
   resolveContent(id)
-    .then((result) => {
+    .then(async (result) => {
       if (cancelledRef.current) return;
       _syncedIds.add(id);
       if (result && result.useServer && result.content != null) {
+        const content = transformOnLoad ? await transformOnLoad(result.content) : result.content;
+        if (cancelledRef.current) return;
         if (editorRef.current) {
-          editorRef.current.setValue(result.content);
+          editorRef.current.setValue(content);
         } else {
-          setInitialContent?.(result.content);
+          setInitialContent?.(content);
         }
       }
       setSyncStatus("synced");
@@ -74,6 +87,8 @@ export function useDocumentEditor({
   loadContent,
   saveContent,
   resolveContent,
+  transformOnLoad,
+  transformOnSave,
 }: UseDocumentEditorOptions) {
   const editorRef = useRef<MarkdownEditorRef | null>(null);
   const [initialContent, setInitialContent] = useState<string | null>(null);
@@ -98,11 +113,18 @@ export function useDocumentEditor({
           suppressSaveRef,
           cancelledRef,
           setInitialContent: useInitialContent ? setInitialContent : undefined,
+          transformOnLoad,
         });
       } else {
         setSyncStatus("idle");
         setReadOnly(false);
       }
+    };
+
+    /** Load from IDB, apply transformOnLoad, return transformed content */
+    const load = async (docId: string): Promise<string> => {
+      const raw = (await loadContent(docId)) || "";
+      return transformOnLoad ? await transformOnLoad(raw) : raw;
     };
 
     if (isSwitch && editorRef.current) {
@@ -112,17 +134,17 @@ export function useDocumentEditor({
         doResolve(false);
       } else {
         // キャッシュなし → IDB から読み込み
-        loadContent(id).then((content) => {
+        load(id).then((content) => {
           if (cancelledRef.current) return;
-          editorRef.current?.switchDocument(id, content || "");
+          editorRef.current?.switchDocument(id, content);
           doResolve(false);
         });
       }
     } else {
       // 初回ロード
-      loadContent(id).then((content) => {
+      load(id).then((content) => {
         if (cancelledRef.current) return;
-        setInitialContent(content || "");
+        setInitialContent(content);
         doResolve(true);
       });
     }
@@ -130,14 +152,15 @@ export function useDocumentEditor({
     return () => {
       cancelledRef.current = true;
     };
-  }, [id, loadContent, resolveContent]);
+  }, [id, loadContent, resolveContent, transformOnLoad]);
 
   const onChange = useCallback(
     (markdown: string) => {
       if (suppressSaveRef.current) return;
-      saveContent(id, markdown);
+      const content = transformOnSave ? transformOnSave(markdown) : markdown;
+      saveContent(id, content);
     },
-    [id, saveContent],
+    [id, saveContent, transformOnSave],
   );
 
   return { editorRef, initialContent, onChange, syncStatus, readOnly };

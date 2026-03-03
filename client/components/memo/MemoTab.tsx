@@ -6,6 +6,7 @@ import { useState, useCallback } from "react";
 import { useMemos } from "../../hooks/useMemos";
 import type { MemoItem } from "../../hooks/useMemos";
 import { useDocumentEditor } from "../../hooks/useDocumentEditor";
+import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { Sidebar, InlineRename, SidebarExpandButton } from "../shared/Sidebar";
 import { lsGet, lsSet } from "../../lib/localStorage";
 import { ContextMenu } from "../shared/ContextMenu";
@@ -23,6 +24,7 @@ const SIDEBAR_KEY = "gas_pomodoro_memo_sidebar_collapsed";
 
 export function MemoTab() {
   const memo = useMemos();
+  const editorConfig = useEditorConfig();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => lsGet(SIDEBAR_KEY) === "1");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
@@ -44,6 +46,7 @@ export function MemoTab() {
       MemoStore.saveContent(id, md);
     }, []),
     resolveContent: useCallback((id: string) => MemoStore.resolveWithServer(id), []),
+    ...editorConfig.hookOptions,
   });
 
   const toggleSidebar = useCallback(() => {
@@ -177,6 +180,7 @@ export function MemoTab() {
         {activeMemo ? (
           initialContent !== null ? (
             <DocumentEditor
+              {...editorConfig.editorProps}
               initialValue={initialContent}
               documentId={memo.activeId || undefined}
               onChange={handleEditorChange}

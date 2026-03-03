@@ -9,6 +9,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import type { UseTasksReturn } from "../../hooks/useTasks";
 import { STATUS_CONFIG, STATUS_ITEMS, statusLabelToKey } from "../../hooks/useTasks";
 import { useDocumentEditor } from "../../hooks/useDocumentEditor";
+import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { ItemPicker } from "../shared/ItemPicker";
 import { ContentHeaderName } from "../shared/ContentHeader";
 import { SidebarExpandButton } from "../shared/Sidebar";
@@ -35,6 +36,7 @@ function storeNameFor(type: string): string {
 
 export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskContentProps) {
   const { selectedNode } = tasks;
+  const editorConfig = useEditorConfig();
   if (!selectedNode) return null;
 
   const id = selectedNode.id;
@@ -61,6 +63,7 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
       (id: string) => TaskStore.resolveWithServer(id, storeName),
       [storeName],
     ),
+    ...editorConfig.hookOptions,
   });
 
   // --- Toggle view (project/case only) ---
@@ -102,6 +105,7 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
       {/* Doc view — always mounted, hidden when table view active */}
       <div style={{ display: showingDoc ? "contents" : "none" }}>
         <DocumentEditor
+          {...editorConfig.editorProps}
           initialValue={initialContent}
           documentId={id}
           onChange={handleEditorChange}
