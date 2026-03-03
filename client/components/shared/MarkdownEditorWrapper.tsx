@@ -57,6 +57,7 @@ export function MarkdownEditorWrapper({
   const [activeDocId, setActiveDocId] = useState(documentId);
   const activeDocIdRef = useRef(documentId);
   const contentRef = useRef(initialValue);
+
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const knownDocs = useRef(new Set<string>());
@@ -96,6 +97,9 @@ export function MarkdownEditorWrapper({
         setContent(md);
       },
       switchDocument: (id, md?) => {
+        // Register previous doc — library cached its EditorState during switch
+        const prevId = activeDocIdRef.current;
+        if (prevId) knownDocs.current.add(prevId);
         knownDocs.current.add(id);
         activeDocIdRef.current = id;
         setActiveDocId(id);

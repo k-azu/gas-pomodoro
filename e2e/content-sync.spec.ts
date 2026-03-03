@@ -77,9 +77,7 @@ test.describe("A. 初回ロード", () => {
     await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 3_000 });
   });
 
-  // Known issue: tiptap-react v3 + React StrictMode の re-mount (setTimeout(0)) により、
-  // onCreate の addToHistory:false dispatch 後に履歴エントリが混入する。
-  test.fixme("A4: 初回ロード後の undo でマークダウン形式にならない", async ({ page }) => {
+  test("A4: 初回ロード後の undo でマークダウン形式にならない", async ({ page }) => {
     // Seed markdown content in IDB
     await gotoApp(page);
     await waitForSyncComplete(page);
@@ -249,7 +247,7 @@ test.describe("B. ドキュメント切り替え", () => {
     // Open memo1 and type (creates undo history + editor cache)
     await selectMemo(page, "開発メモ");
     await waitForSyncComplete(page);
-    await typeInEditor(page, "取り消しテスト");
+    await typeInEditor(page, "元のテキスト");
     await page.waitForTimeout(300);
 
     // Switch to memo2 (saves memo1 EditorState with undo history to cache)
@@ -258,20 +256,29 @@ test.describe("B. ドキュメント切り替え", () => {
 
     // Switch back to memo1 (cache hit → undo history restored)
     await selectMemo(page, "開発メモ");
-    await expect(page.locator(".ProseMirror")).toContainText("取り消しテスト", {
+    await expect(page.locator(".ProseMirror")).toContainText("元のテキスト", {
       timeout: 3_000,
     });
 
-    // Press Ctrl+Z enough times to undo all typed characters
+    // Type more text after returning
     const editor = page.locator(".ProseMirror");
     await editor.click();
-    for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(200);
+    await page.keyboard.press("End");
+    await editor.pressSequentially("追加", { delay: 50 });
+    await page.waitForTimeout(200);
+    expect(await getEditorText(page)).toContain("元のテキスト追加");
+
+    // Press Ctrl+Z — should undo the "追加" portion
+    for (let i = 0; i < 5; i++) {
       await page.keyboard.press("Control+z");
+      await page.waitForTimeout(50);
     }
     await page.waitForTimeout(200);
 
     const text = await getEditorText(page);
-    expect(text).not.toContain("取り消しテスト");
+    expect(text).toContain("元のテキスト");
+    expect(text).not.toContain("追加");
   });
 });
 
@@ -307,7 +314,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await waitForSyncComplete(page);
     await selectMemo(page, "開発メモ");
     await typeInEditor(page, "ローカル内容");
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(2500); // 2s debounce + margin
 
     // Clear dirty flag
     await clearDirtyAt(page, MEMO_STORE, MEMO_1_ID);
@@ -356,7 +363,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await waitForSyncComplete(page);
     await selectMemo(page, "開発メモ");
     await typeInEditor(page, "同一コンテンツ");
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(2500); // 2s debounce + margin
 
     // Get exact content from IDB
     const before = await idbGet(page, MEMO_STORE, MEMO_1_ID);
@@ -407,7 +414,7 @@ test.describe("D. コンテンツ永続化", () => {
     await waitForSyncComplete(page);
     await selectMemo(page, "開発メモ");
     await typeInEditor(page, "永続化テスト");
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(2500); // 2s debounce + margin
 
     const record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
     expect(record.content).toContain("永続化テスト");
@@ -496,5 +503,66 @@ test.describe("E. エッジケース", () => {
     expect(idb1.content).toContain("DISTINCT_A");
     expect(idb2.content).toContain("DISTINCT_B");
     expect(idb1.content).not.toBe(idb2.content);
+  });
+});
+
+// =========================================================
+// F. IDB 書き込みデバウンス
+// =========================================================
+
+test.describe("F. IDB 書き込みデバウンス", () => {
+  test("F1: 入力直後は IDB に書き込まれず、2秒後に書き込まれる", async ({ page }) => {
+    await gotoApp(page);
+    await waitForSyncComplete(page);
+    await selectMemo(page, "開発メモ");
+    await waitForSyncComplete(page);
+    await typeInEditor(page, "デバウンステスト");
+
+    // 直後 → IDB にはまだ反映されていない
+    const before = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    expect(before.content || "").not.toContain("デバウンステスト");
+
+    // 2.5秒後 → IDB に反映
+    await page.waitForTimeout(2500);
+    const after = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    expect(after.content).toContain("デバウンステスト");
+  });
+
+  test("F2: ドキュメント切替で前のドキュメントが即座にフラッシュされる", async ({ page }) => {
+    await gotoApp(page);
+    await waitForSyncComplete(page);
+    await selectMemo(page, "開発メモ");
+    await waitForSyncComplete(page);
+    await typeInEditor(page, "切替フラッシュ");
+
+    // 直後 → まだ IDB にない
+    const before = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    expect(before.content || "").not.toContain("切替フラッシュ");
+
+    // ドキュメント切替 → 即座にフラッシュ
+    await selectMemo(page, "議事録");
+    await page.waitForTimeout(500); // async IDB chain の完了待ち
+
+    const after = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    expect(after.content).toContain("切替フラッシュ");
+  });
+
+  test("F3: リロードで beforeunload フラッシュされる", async ({ page }) => {
+    await gotoApp(page);
+    await waitForSyncComplete(page);
+    await selectMemo(page, "開発メモ");
+    await waitForSyncComplete(page);
+    await typeInEditor(page, "リロードフラッシュ");
+
+    // 直後 → まだ IDB にない
+    const before = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    expect(before.content || "").not.toContain("リロードフラッシュ");
+
+    // リロード → beforeunload でフラッシュ
+    await page.reload();
+    await page.waitForSelector("[class*='sidebar']", { timeout: 10_000 });
+
+    const after = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    expect(after.content).toContain("リロードフラッシュ");
   });
 });

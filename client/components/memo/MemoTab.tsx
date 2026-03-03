@@ -49,6 +49,8 @@ export function MemoTab() {
     ...editorConfig.hookOptions,
   });
 
+  const activeMemo = memo.memos.find((m) => m.id === memo.activeId);
+
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
@@ -56,8 +58,6 @@ export function MemoTab() {
       return next;
     });
   }, []);
-
-  const activeMemo = memo.memos.find((m) => m.id === memo.activeId);
 
   // Handle memo selection
   const handleSelect = useCallback(
