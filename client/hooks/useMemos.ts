@@ -91,23 +91,27 @@ export function useMemos(): UseMemosReturn {
     }
   }, [nav.restoreSeq]);
 
-  const selectMemo = useCallback((id: string) => {
-    setActiveId(id);
-    lsSet(STORAGE_KEYS.MEMO_ACTIVE, id);
-    nav.notifyMemoChange(id);
-  }, [nav]);
+  const selectMemo = useCallback(
+    (id: string) => {
+      setActiveId(id);
+      lsSet(STORAGE_KEYS.MEMO_ACTIVE, id);
+      nav.notifyMemoChange(id);
+    },
+    [nav],
+  );
 
   const createMemo = useCallback(async () => {
     setIsLoading(true);
     try {
       const id = await MemoStore.addMemo("新しいメモ");
+      await refreshFromStore();
       setActiveId(id);
       lsSet(STORAGE_KEYS.MEMO_ACTIVE, id);
-      await refreshFromStore();
+      nav.notifyMemoChange(id);
     } finally {
       setIsLoading(false);
     }
-  }, [refreshFromStore]);
+  }, [refreshFromStore, nav]);
 
   const deleteMemo = useCallback(
     async (id: string) => {
@@ -166,13 +170,10 @@ export function useMemos(): UseMemosReturn {
     );
   }, []);
 
-  const addTag = useCallback(
-    (name: string, color = "#757575") => {
-      MemoStore.addTag(name, color);
-      setTags(MemoStore.getTags());
-    },
-    [],
-  );
+  const addTag = useCallback((name: string, color = "#757575") => {
+    MemoStore.addTag(name, color);
+    setTags(MemoStore.getTags());
+  }, []);
 
   const updateTagColor = useCallback((name: string, color: string) => {
     MemoStore.updateTagColor(name, color);

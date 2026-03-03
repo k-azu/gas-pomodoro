@@ -52,6 +52,16 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
+/* ===== Content loading placeholder ===== */
+.memo-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
 /* ===== Editor loading ===== */
 .memo-editor-loading-overlay {
   position: absolute;

@@ -223,7 +223,9 @@ export function MemoTab() {
                 />
               </RecordField>
             </DocumentEditor>
-          ) : null
+          ) : (
+            <div className={s["memo-loading"]}>読み込み中...</div>
+          )
         ) : (
           <>
             {sidebarCollapsed && (

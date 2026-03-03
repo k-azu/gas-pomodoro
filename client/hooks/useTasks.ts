@@ -122,11 +122,9 @@ export function useTasks(): UseTasksReturn {
   const selectedRef = useRef(selectedNode);
   selectedRef.current = selectedNode;
 
-  // Load persisted state
+  // Load persisted UI state (expand/collapse, view modes)
+  // Note: selectedNode is validated in the initial load effect below
   useEffect(() => {
-    const saved = lsGetJSON<SelectedNode>(STORAGE_KEYS.TASK_SELECTED);
-    if (saved) setSelectedNode(saved);
-
     const expanded = lsGetJSON<Record<string, boolean>>(EXPANDED_KEY);
     if (expanded) setExpandedNodes(expanded);
 
@@ -144,6 +142,11 @@ export function useTasks(): UseTasksReturn {
     setProjects(projs as ProjectItem[]);
     setAllCases(cases as CaseItem[]);
     setAllTasks(tasks as TaskItem[]);
+    return {
+      projs: projs as ProjectItem[],
+      cases: cases as CaseItem[],
+      tasks: tasks as TaskItem[],
+    };
   }, []);
 
   // Listen for EntityStore data changes
@@ -163,14 +166,34 @@ export function useTasks(): UseTasksReturn {
     return () => EntityStore.off("dataChanged", handler);
   }, [refreshFromStore]);
 
-  // Initial load
+  // Initial load — validate persisted selection against loaded data
   useEffect(() => {
-    refreshFromStore();
-    // Seed hash with initial selection (replaceState, not pushState)
-    const saved = lsGetJSON<SelectedNode>(STORAGE_KEYS.TASK_SELECTED);
-    if (saved) {
-      nav.notifyTaskNodeChange(saved, { replace: true });
-    }
+    refreshFromStore().then(({ projs, cases, tasks }) => {
+      const saved = lsGetJSON<SelectedNode>(STORAGE_KEYS.TASK_SELECTED);
+      if (saved) {
+        const exists =
+          saved.type === "project"
+            ? projs.some((p) => p.id === saved.id)
+            : saved.type === "case"
+              ? cases.some((c) => c.id === saved.id)
+              : tasks.some((t) => t.id === saved.id);
+        if (exists) {
+          setSelectedNode(saved);
+          nav.notifyTaskNodeChange(saved, { replace: true });
+        } else {
+          // Fallback: select first project or clear
+          if (projs.length > 0) {
+            const fallback: SelectedNode = { type: "project", id: projs[0].id };
+            setSelectedNode(fallback);
+            lsSetJSON(STORAGE_KEYS.TASK_SELECTED, fallback);
+            nav.notifyTaskNodeChange(fallback, { replace: true });
+          } else {
+            setSelectedNode(null);
+            lsSet(STORAGE_KEYS.TASK_SELECTED, "");
+          }
+        }
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -196,7 +219,12 @@ export function useTasks(): UseTasksReturn {
   );
 
   const STATUS_ORDER: Record<string, number> = {
-    docs: 0, doing: 1, review: 2, todo: 3, pending: 4, done: 5,
+    docs: 0,
+    doing: 1,
+    review: 2,
+    todo: 3,
+    pending: 4,
+    done: 5,
   };
 
   const getDirectTasks = useCallback(
@@ -226,12 +254,15 @@ export function useTasks(): UseTasksReturn {
   );
 
   // Selection
-  const selectNode = useCallback((type: NodeType, id: string) => {
-    const node = { type, id };
-    setSelectedNode(node);
-    lsSetJSON(STORAGE_KEYS.TASK_SELECTED, node);
-    nav.notifyTaskNodeChange(node);
-  }, [nav]);
+  const selectNode = useCallback(
+    (type: NodeType, id: string) => {
+      const node = { type, id };
+      setSelectedNode(node);
+      lsSetJSON(STORAGE_KEYS.TASK_SELECTED, node);
+      nav.notifyTaskNodeChange(node);
+    },
+    [nav],
+  );
 
   const clearSelection = useCallback(() => {
     setSelectedNode(null);
@@ -259,53 +290,69 @@ export function useTasks(): UseTasksReturn {
   }, []);
 
   // CRUD
-  const addProject = useCallback(async (name: string, color?: string) => {
-    setIsLoading(true);
-    try {
-      const id = await TaskStore.addProject(name, color);
-      await refreshFromStore();
-      selectNode("project", id);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [refreshFromStore, selectNode]);
+  const addProject = useCallback(
+    async (name: string, color?: string) => {
+      setIsLoading(true);
+      try {
+        const id = await TaskStore.addProject(name, color);
+        await refreshFromStore();
+        selectNode("project", id);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [refreshFromStore, selectNode],
+  );
 
-  const addCase = useCallback(async (projectId: string, name: string) => {
-    setIsLoading(true);
-    try {
-      const id = await TaskStore.addCase(projectId, name);
-      await refreshFromStore();
-      setExpandedNodes((prev) => {
-        const next = { ...prev, [projectId]: true };
-        lsSetJSON(EXPANDED_KEY, next);
-        return next;
-      });
-      selectNode("case", id);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [refreshFromStore, selectNode]);
+  const addCase = useCallback(
+    async (projectId: string, name: string) => {
+      setIsLoading(true);
+      try {
+        const id = await TaskStore.addCase(projectId, name);
+        await refreshFromStore();
+        setExpandedNodes((prev) => {
+          const next = { ...prev, [projectId]: true };
+          lsSetJSON(EXPANDED_KEY, next);
+          return next;
+        });
+        selectNode("case", id);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [refreshFromStore, selectNode],
+  );
 
-  const addTask = useCallback(async (projectId: string, caseId: string, name: string) => {
-    setIsLoading(true);
-    try {
-      const id = await TaskStore.addTask(projectId, caseId, name);
-      await refreshFromStore();
-      setExpandedNodes((prev) => {
-        const next = { ...prev, [projectId]: true, ...(caseId ? { [caseId]: true } : {}) };
-        lsSetJSON(EXPANDED_KEY, next);
-        return next;
-      });
-      selectNode("task", id);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [refreshFromStore, selectNode]);
+  const addTask = useCallback(
+    async (projectId: string, caseId: string, name: string) => {
+      setIsLoading(true);
+      try {
+        const id = await TaskStore.addTask(projectId, caseId, name);
+        await refreshFromStore();
+        setExpandedNodes((prev) => {
+          const next = { ...prev, [projectId]: true, ...(caseId ? { [caseId]: true } : {}) };
+          lsSetJSON(EXPANDED_KEY, next);
+          return next;
+        });
+        selectNode("task", id);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [refreshFromStore, selectNode],
+  );
 
   const rename = useCallback((type: NodeType, id: string, name: string) => {
-    if (type === "project") TaskStore.updateProject(id, { name });
-    else if (type === "case") TaskStore.updateCase(id, { name });
-    else TaskStore.updateTask(id, { name });
+    if (type === "project") {
+      TaskStore.updateProject(id, { name });
+      setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, name } : p)));
+    } else if (type === "case") {
+      TaskStore.updateCase(id, { name });
+      setAllCases((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
+    } else {
+      TaskStore.updateTask(id, { name });
+      setAllTasks((prev) => prev.map((t) => (t.id === id ? { ...t, name } : t)));
+    }
   }, []);
 
   const updateProjectFields = useCallback((id: string, fields: Record<string, any>) => {
@@ -320,29 +367,77 @@ export function useTasks(): UseTasksReturn {
     TaskStore.updateTask(id, fields);
   }, []);
 
-  const archiveNode = useCallback(async (type: NodeType, id: string) => {
-    setIsLoading(true);
-    try {
-      if (type === "project") await TaskStore.archiveProject(id);
-      else if (type === "case") await TaskStore.archiveCase(id);
-      else await TaskStore.archiveTask(id);
-      if (selectedRef.current?.id === id) {
-        setSelectedNode(null);
-        lsSet(STORAGE_KEYS.TASK_SELECTED, "");
+  const archiveNode = useCallback(
+    async (type: NodeType, id: string) => {
+      setIsLoading(true);
+      try {
+        if (type === "project") await TaskStore.archiveProject(id);
+        else if (type === "case") await TaskStore.archiveCase(id);
+        else await TaskStore.archiveTask(id);
+        const { projs, cases, tasks } = await refreshFromStore();
+        if (selectedRef.current?.id === id) {
+          // Auto-select next node after archive
+          if (type === "project") {
+            // Select first remaining active project
+            const active = projs.filter((p) => (p as any).isActive !== false);
+            if (active.length > 0) {
+              selectNode("project", active[0].id);
+            } else {
+              setSelectedNode(null);
+              lsSet(STORAGE_KEYS.TASK_SELECTED, "");
+            }
+          } else if (type === "case") {
+            // Select parent project
+            const archivedCase = cases.find((c) => c.id === id);
+            if (archivedCase) {
+              selectNode("project", archivedCase.projectId);
+            } else {
+              setSelectedNode(null);
+              lsSet(STORAGE_KEYS.TASK_SELECTED, "");
+            }
+          } else {
+            // task: select parent case or project
+            const archivedTask = tasks.find((t) => t.id === id);
+            if (archivedTask?.caseId) {
+              selectNode("case", archivedTask.caseId);
+            } else if (archivedTask) {
+              selectNode("project", archivedTask.projectId);
+            } else {
+              setSelectedNode(null);
+              lsSet(STORAGE_KEYS.TASK_SELECTED, "");
+            }
+          }
+        }
+      } finally {
+        setIsLoading(false);
       }
-      await refreshFromStore();
-    } finally {
-      setIsLoading(false);
-    }
-  }, [refreshFromStore]);
+    },
+    [refreshFromStore, selectNode],
+  );
 
   // Reorder
   const reorderProjects = useCallback((ids: string[]) => {
     TaskStore.reorderProjects(ids);
+    setProjects((prev) => {
+      const map = new Map(prev.map((p) => [p.id, p]));
+      return ids.map((id, i) => {
+        const p = map.get(id)!;
+        return { ...p, sortOrder: i + 1 };
+      });
+    });
   }, []);
 
   const reorderCases = useCallback((projectId: string, ids: string[]) => {
     TaskStore.reorderCases(projectId, ids);
+    setAllCases((prev) => {
+      const map = new Map(prev.filter((c) => c.projectId === projectId).map((c) => [c.id, c]));
+      const reordered = ids.map((id, i) => {
+        const c = map.get(id)!;
+        return { ...c, sortOrder: i + 1 };
+      });
+      const others = prev.filter((c) => c.projectId !== projectId);
+      return [...others, ...reordered];
+    });
   }, []);
 
   return {

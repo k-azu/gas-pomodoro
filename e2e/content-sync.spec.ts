@@ -269,11 +269,8 @@ test.describe("B. ドキュメント切り替え", () => {
     await page.waitForTimeout(200);
     expect(await getEditorText(page)).toContain("元のテキスト追加");
 
-    // Press Ctrl+Z — should undo the "追加" portion
-    for (let i = 0; i < 5; i++) {
-      await page.keyboard.press("Control+z");
-      await page.waitForTimeout(50);
-    }
+    // Press Ctrl+Z once — should undo the "追加" portion (one undo group)
+    await page.keyboard.press("Control+z");
     await page.waitForTimeout(200);
 
     const text = await getEditorText(page);
