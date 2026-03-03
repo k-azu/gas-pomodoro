@@ -12,6 +12,8 @@ import s from "./DocumentEditor.module.css";
 
 interface DocumentEditorProps {
   children?: ReactNode;
+  /** Content rendered above the title inside the meta section (e.g. SyncIndicator) */
+  metaTop?: ReactNode;
   toolbarLeft?: ReactNode;
   toolbarRight?: ReactNode;
   initialValue?: string;
@@ -27,6 +29,7 @@ interface DocumentEditorProps {
 
 export function DocumentEditor({
   children,
+  metaTop,
   toolbarLeft,
   toolbarRight,
   className,
@@ -42,7 +45,10 @@ export function DocumentEditor({
           toolbarLeft={toolbarLeft}
           toolbarRight={toolbarRight}
         >
-          {children && <div className={s["meta-section"]}>{children}</div>}
+          <div className={s["meta-section"]}>
+            <div className={s["meta-top"]}>{metaTop}</div>
+            {children}
+          </div>
         </MarkdownEditorWrapper>
       </div>
     </div>

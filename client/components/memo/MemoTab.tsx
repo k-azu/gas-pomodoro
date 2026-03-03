@@ -195,11 +195,9 @@ export function MemoTab() {
                   </ToolbarSlot>
                 ) : undefined
               }
-              toolbarRight={
+              metaTop={
                 syncStatus !== "idle" && syncStatus !== "synced" ? (
-                  <ToolbarSlot>
-                    <SyncIndicator status={syncStatus} />
-                  </ToolbarSlot>
+                  <SyncIndicator status={syncStatus} />
                 ) : undefined
               }
             >

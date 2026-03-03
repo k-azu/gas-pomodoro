@@ -16,6 +16,30 @@
   align-items: center;
 }
 
+/* Auto-size mode: input shrinks to text content so suffix sits right after */
+.header-name-wrapper-autosize {
+  flex: 0 1 auto;
+}
+.header-name-wrapper-autosize .header-name-input {
+  width: auto;
+}
+.header-name-wrapper-autosize .header-name-input.editing {
+  flex: 1;
+}
+
+/* Hidden span used to measure text width for auto-sizing the input */
+.header-name-sizer {
+  position: absolute;
+  visibility: hidden;
+  white-space: pre;
+  pointer-events: none;
+  font-weight: 700;
+  font-size: inherit;
+  font-family: inherit;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+}
+
 .header-name-input {
   font-weight: 700;
   font-size: inherit;

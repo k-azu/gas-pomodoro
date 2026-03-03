@@ -85,19 +85,14 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
       </ToolbarSlot>
     ) : undefined;
 
-  const hasRightContent = isContainerType || (syncStatus !== "idle" && syncStatus !== "synced");
-  const toolbarRightSlot = hasRightContent ? (
+  const syncVisible = syncStatus !== "idle" && syncStatus !== "synced";
+  const metaTopSlot = syncVisible ? <SyncIndicator status={syncStatus} /> : undefined;
+
+  const toolbarRightSlot = isContainerType ? (
     <ToolbarSlot>
-      {isContainerType ? (
-        <SyncIndicator status={syncStatus} />
-      ) : (
-        syncStatus !== "idle" && syncStatus !== "synced" && <SyncIndicator status={syncStatus} />
-      )}
-      {isContainerType && (
-        <button className={s["task-view-toggle"]} onClick={toggleView}>
-          {showingDoc ? "タスク" : "ドキュメント"}
-        </button>
-      )}
+      <button className={s["task-view-toggle"]} onClick={toggleView}>
+        {showingDoc ? "タスク" : "ドキュメント"}
+      </button>
     </ToolbarSlot>
   ) : undefined;
 
@@ -113,6 +108,7 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
           placeholder="ドキュメントを入力..."
           editorRef={editorRef}
           readOnly={readOnly}
+          metaTop={metaTopSlot}
           toolbarLeft={toolbarLeftSlot}
           toolbarRight={toolbarRightSlot}
           className={s["task-wiki-container"]}
@@ -179,6 +175,7 @@ function ProjectMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
       <MetaTitle>
         <ContentHeaderName
           name={entity.name}
+          autoSize
           onRename={(name) => {
             setEntity((prev: any) => ({ ...prev, name }));
             tasks.rename("project", id, name);
