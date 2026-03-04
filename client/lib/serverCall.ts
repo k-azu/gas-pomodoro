@@ -378,9 +378,8 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
         ],
         categories: MOCK_CATEGORIES,
         interruptionCategories: MOCK_INT_CATEGORIES,
-        todayStats: MOCK_STATS,
-        recentRecords: MOCK_RECORDS,
-        todayInterruptions: MOCK_INTERRUPTIONS,
+        recentRecordsBulk: MOCK_RECORDS,
+        recentInterruptionsBulk: MOCK_INTERRUPTIONS,
         spreadsheetUrl: "https://docs.google.com/spreadsheets/d/example",
         memos: [
           {
@@ -457,14 +456,14 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
     case "updateRecordCategory":
     case "updateRecordTimes":
     case "updateRecordTaskId":
-      return { success: true };
+      return { success: true, record: MOCK_RECORDS[0] };
 
     // ---- Interruption CRUD ----
     case "updateInterruptionNote":
     case "updateInterruptionCategory":
     case "updateInterruptionType":
     case "updateInterruptionTimes":
-      return { success: true };
+      return { success: true, interruption: MOCK_INTERRUPTIONS[0] };
 
     // ---- Category CRUD ----
     case "getCategories":

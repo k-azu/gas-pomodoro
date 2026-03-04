@@ -17,6 +17,7 @@ import { STORAGE_KEYS } from "../../lib/localStorage";
 import { blobUrlsToDrive, resolveDriveUrls } from "../../lib/imageCache";
 import { serverCall } from "../../lib/serverCall";
 import * as TaskStore from "../../lib/taskStore";
+import * as RecordCache from "../../lib/recordCache";
 import { STATUS_CONFIG } from "../../hooks/useTasks";
 import s from "./RecordForm.module.css";
 
@@ -29,7 +30,7 @@ interface RecordDraft {
 }
 
 export function RecordForm() {
-  const { timer, refreshAll } = useApp();
+  const { timer } = useApp();
   const nav = useNavigation();
   const editorConfig = useEditorConfig();
   const { state } = timer;
@@ -240,6 +241,12 @@ export function RecordForm() {
           await serverCall("saveInterruptions", intRecords);
         }
 
+        // Write-through to IDB cache
+        await RecordCache.upsertRecord(record);
+        if (intRecords.length > 0) {
+          await RecordCache.upsertInterruptions(intRecords);
+        }
+
         // Clear draft before clearing form (prevents unmount flush re-saving)
         clearDraft();
 
@@ -257,15 +264,13 @@ export function RecordForm() {
         } else {
           timer.endWorkSession();
         }
-
-        refreshAll();
       } catch (err) {
         alert("記録の保存に失敗しました: " + err);
       } finally {
         setIsSubmitting(false);
       }
     },
-    [state, selectedCategory, selectedTaskId, timer, refreshAll, clearDraft],
+    [state, selectedCategory, selectedTaskId, timer, clearDraft],
   );
 
   return (

@@ -96,8 +96,112 @@ function saveInterruptions(interruptions: InterruptionRecord[]): {
   return { success: true };
 }
 
-function updateRecordDescription(recordId: string, description: string): { success: boolean } {
+// =========================================================
+// Row → Record helpers
+// =========================================================
+
+function readRecordFromRow(row: any[], tz: string): PomodoroRecord {
+  const dateVal = row[1];
+  const dateStr =
+    dateVal instanceof Date ? Utilities.formatDate(dateVal, tz, "yyyy-MM-dd") : String(dateVal);
+  return {
+    id: String(row[0]),
+    date: dateStr,
+    startTime: String(row[2]),
+    endTime: String(row[3]),
+    durationSeconds: Number(row[4]),
+    actualDurationSeconds: Number(row[5]),
+    type: String(row[6]),
+    description: String(row[7]),
+    category: String(row[8]),
+    workInterruptions: Number(row[9]),
+    nonWorkInterruptions: Number(row[10]),
+    workInterruptionSeconds: Number(row[11]),
+    nonWorkInterruptionSeconds: Number(row[12]),
+    completionStatus: String(row[13]),
+    pomodoroSetIndex: Number(row[14]),
+    taskId: String(row[15]),
+  };
+}
+
+function readInterruptionFromRow(row: any[]): InterruptionRecord {
+  return {
+    id: String(row[0]),
+    pomodoroId: String(row[1]),
+    type: String(row[2]),
+    startTime: String(row[3]),
+    endTime: String(row[4]),
+    durationSeconds: Number(row[5]),
+    category: String(row[6]),
+    note: String(row[7]),
+  };
+}
+
+function readRecordRow(
+  sheet: GoogleAppsScript.Spreadsheet.Sheet,
+  rowIndex: number,
+  tz: string,
+): PomodoroRecord {
+  const row = sheet.getRange(rowIndex, 1, 1, 16).getValues()[0];
+  return readRecordFromRow(row, tz);
+}
+
+function readInterruptionRow(
+  sheet: GoogleAppsScript.Spreadsheet.Sheet,
+  rowIndex: number,
+): InterruptionRecord {
+  const row = sheet.getRange(rowIndex, 1, 1, 8).getValues()[0];
+  return readInterruptionFromRow(row);
+}
+
+// =========================================================
+// Bulk fetch for IDB cache
+// =========================================================
+
+function getRecentRecordsBulk(limit: number = 1000): {
+  records: PomodoroRecord[];
+  interruptions: InterruptionRecord[];
+} {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = Session.getScriptTimeZone();
+
+  // PomodoroLog: last N rows
+  const logSheet = ss.getSheetByName("PomodoroLog")!;
+  const logLastRow = logSheet.getLastRow();
+  let records: PomodoroRecord[] = [];
+  const pomodoroIdSet = new Set<string>();
+
+  if (logLastRow > 1) {
+    const startRow = Math.max(2, logLastRow - limit + 1);
+    const numRows = logLastRow - startRow + 1;
+    const data = logSheet.getRange(startRow, 1, numRows, 16).getValues();
+    records = data.map((row) => readRecordFromRow(row, tz));
+    records.forEach((r) => pomodoroIdSet.add(r.id));
+  }
+
+  // Interruptions: last 300 rows, filtered by pomodoroId set
+  const intSheet = ss.getSheetByName("Interruptions")!;
+  const intLastRow = intSheet.getLastRow();
+  let interruptions: InterruptionRecord[] = [];
+  if (intLastRow > 1) {
+    const INT_TAIL = 300;
+    const intStartRow = Math.max(2, intLastRow - INT_TAIL + 1);
+    const intNumRows = intLastRow - intStartRow + 1;
+    const intData = intSheet.getRange(intStartRow, 1, intNumRows, 8).getValues();
+    interruptions = intData
+      .filter((row) => pomodoroIdSet.has(String(row[1])))
+      .map((row) => readInterruptionFromRow(row));
+  }
+
+  return { records, interruptions };
+}
+
+function updateRecordDescription(
+  recordId: string,
+  description: string,
+): { success: boolean; record?: PomodoroRecord } {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = Session.getScriptTimeZone();
   const sheet = ss.getSheetByName("PomodoroLog")!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return { success: false };
@@ -106,13 +210,16 @@ function updateRecordDescription(recordId: string, description: string): { succe
   for (let i = ids.length - 1; i >= 0; i--) {
     if (String(ids[i][0]) === recordId) {
       sheet.getRange(i + 2, 8).setValue(description); // column 8 = description
-      return { success: true };
+      return { success: true, record: readRecordRow(sheet, i + 2, tz) };
     }
   }
   return { success: false };
 }
 
-function updateInterruptionNote(interruptionId: string, note: string): { success: boolean } {
+function updateInterruptionNote(
+  interruptionId: string,
+  note: string,
+): { success: boolean; interruption?: InterruptionRecord } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Interruptions")!;
   const lastRow = sheet.getLastRow();
@@ -122,14 +229,18 @@ function updateInterruptionNote(interruptionId: string, note: string): { success
   for (let i = ids.length - 1; i >= 0; i--) {
     if (String(ids[i][0]) === interruptionId) {
       sheet.getRange(i + 2, 8).setValue(note); // column 8 = note
-      return { success: true };
+      return { success: true, interruption: readInterruptionRow(sheet, i + 2) };
     }
   }
   return { success: false };
 }
 
-function updateRecordCategory(recordId: string, category: string): { success: boolean } {
+function updateRecordCategory(
+  recordId: string,
+  category: string,
+): { success: boolean; record?: PomodoroRecord } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = Session.getScriptTimeZone();
   const sheet = ss.getSheetByName("PomodoroLog")!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return { success: false };
@@ -138,7 +249,7 @@ function updateRecordCategory(recordId: string, category: string): { success: bo
   for (let i = ids.length - 1; i >= 0; i--) {
     if (String(ids[i][0]) === recordId) {
       sheet.getRange(i + 2, 9).setValue(category); // column 9 = category
-      return { success: true };
+      return { success: true, record: readRecordRow(sheet, i + 2, tz) };
     }
   }
   return { success: false };
@@ -147,7 +258,7 @@ function updateRecordCategory(recordId: string, category: string): { success: bo
 function updateInterruptionCategory(
   interruptionId: string,
   category: string,
-): { success: boolean } {
+): { success: boolean; interruption?: InterruptionRecord } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Interruptions")!;
   const lastRow = sheet.getLastRow();
@@ -157,13 +268,16 @@ function updateInterruptionCategory(
   for (let i = ids.length - 1; i >= 0; i--) {
     if (String(ids[i][0]) === interruptionId) {
       sheet.getRange(i + 2, 7).setValue(category); // column 7 = category
-      return { success: true };
+      return { success: true, interruption: readInterruptionRow(sheet, i + 2) };
     }
   }
   return { success: false };
 }
 
-function updateInterruptionType(interruptionId: string, type: string): { success: boolean } {
+function updateInterruptionType(
+  interruptionId: string,
+  type: string,
+): { success: boolean; interruption?: InterruptionRecord } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Interruptions")!;
   const lastRow = sheet.getLastRow();
@@ -173,7 +287,7 @@ function updateInterruptionType(interruptionId: string, type: string): { success
   for (let i = ids.length - 1; i >= 0; i--) {
     if (String(ids[i][0]) === interruptionId) {
       sheet.getRange(i + 2, 3).setValue(type); // column 3 = type
-      return { success: true };
+      return { success: true, interruption: readInterruptionRow(sheet, i + 2) };
     }
   }
   return { success: false };
@@ -183,7 +297,7 @@ function updateInterruptionTimes(
   interruptionId: string,
   startTimeISO: string | null,
   endTimeISO: string | null,
-): { success: boolean } {
+): { success: boolean; interruption?: InterruptionRecord } {
   if (!startTimeISO && !endTimeISO) return { success: false };
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Interruptions")!;
@@ -200,14 +314,18 @@ function updateInterruptionTimes(
       const end = new Date(endTimeISO || String(sheet.getRange(row, 5).getValue()));
       const durationSeconds = Math.round((end.getTime() - start.getTime()) / 1000);
       sheet.getRange(row, 6).setValue(durationSeconds); // column 6 = durationSeconds
-      return { success: true };
+      return { success: true, interruption: readInterruptionRow(sheet, row) };
     }
   }
   return { success: false };
 }
 
-function updateRecordTaskId(recordId: string, taskId: string): { success: boolean } {
+function updateRecordTaskId(
+  recordId: string,
+  taskId: string,
+): { success: boolean; record?: PomodoroRecord } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = Session.getScriptTimeZone();
   const sheet = ss.getSheetByName("PomodoroLog")!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return { success: false };
@@ -216,7 +334,7 @@ function updateRecordTaskId(recordId: string, taskId: string): { success: boolea
   for (let i = ids.length - 1; i >= 0; i--) {
     if (String(ids[i][0]) === recordId) {
       sheet.getRange(i + 2, 16).setValue(taskId); // column 16 = taskId
-      return { success: true };
+      return { success: true, record: readRecordRow(sheet, i + 2, tz) };
     }
   }
   return { success: false };
@@ -226,9 +344,10 @@ function updateRecordTimes(
   recordId: string,
   startTimeISO: string | null,
   endTimeISO: string | null,
-): { success: boolean } {
+): { success: boolean; record?: PomodoroRecord } {
   if (!startTimeISO && !endTimeISO) return { success: false };
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = Session.getScriptTimeZone();
   const sheet = ss.getSheetByName("PomodoroLog")!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return { success: false };
@@ -243,52 +362,10 @@ function updateRecordTimes(
       const end = new Date(endTimeISO || String(sheet.getRange(row, 4).getValue()));
       const actualSeconds = Math.round((end.getTime() - start.getTime()) / 1000);
       sheet.getRange(row, 6).setValue(actualSeconds);
-      return { success: true };
+      return { success: true, record: readRecordRow(sheet, row, tz) };
     }
   }
   return { success: false };
-}
-
-function getRecentRecords(limit: number = 10): PomodoroRecord[] {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("PomodoroLog")!;
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return [];
-
-  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
-  const TAIL_ROWS = 100;
-  const startRow = Math.max(2, lastRow - TAIL_ROWS + 1);
-  const numRows = lastRow - startRow + 1;
-  const data = sheet.getRange(startRow, 1, numRows, 16).getValues();
-
-  return data
-    .filter((row) => {
-      const raw = row[1];
-      const dateStr =
-        raw instanceof Date
-          ? Utilities.formatDate(raw, Session.getScriptTimeZone(), "yyyy-MM-dd")
-          : String(raw);
-      return dateStr === today;
-    })
-    .map((row) => ({
-      id: String(row[0]),
-      date: String(row[1]),
-      startTime: String(row[2]),
-      endTime: String(row[3]),
-      durationSeconds: Number(row[4]),
-      actualDurationSeconds: Number(row[5]),
-      type: String(row[6]),
-      description: String(row[7]),
-      category: String(row[8]),
-      workInterruptions: Number(row[9]),
-      nonWorkInterruptions: Number(row[10]),
-      workInterruptionSeconds: Number(row[11]),
-      nonWorkInterruptionSeconds: Number(row[12]),
-      completionStatus: String(row[13]),
-      pomodoroSetIndex: Number(row[14]),
-      taskId: String(row[15]),
-    }))
-    .reverse();
 }
 
 interface TodayStats {

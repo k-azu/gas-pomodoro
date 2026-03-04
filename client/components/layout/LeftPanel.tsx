@@ -10,10 +10,10 @@ import { STORAGE_KEYS, lsGet, lsSet } from "../../lib/localStorage";
 import s from "./LeftPanel.module.css";
 
 export function LeftPanel() {
-  const { todayStats, recentRecords, todayInterruptions, spreadsheetUrl } = useApp();
+  const { spreadsheetUrl } = useApp();
   const [collapsed, setCollapsed] = useState(() => !!lsGet(STORAGE_KEYS.LEFT_COLLAPSED));
 
-  const ds = useDateSelector(todayStats, recentRecords, todayInterruptions);
+  const ds = useDateSelector();
 
   // Load week counts on mount and when weekStartDate changes
   useEffect(() => {

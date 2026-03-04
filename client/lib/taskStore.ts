@@ -87,7 +87,7 @@ export function init(serverData?: {
     };
   }
 
-  return EntityStore.init("gas_pomodoro", 3, {
+  return EntityStore.init("gas_pomodoro", 4, {
     onUpgrade: (db) => {
       if (db.objectStoreNames.contains("contents")) db.deleteObjectStore("contents");
       if (db.objectStoreNames.contains("syncMeta")) db.deleteObjectStore("syncMeta");

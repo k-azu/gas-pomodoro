@@ -19,10 +19,9 @@ function getAllInitData(): {
   timerConfigs: TimerConfig[];
   categories: CategoryItem[];
   interruptionCategories: CategoryItem[];
-  todayStats: TodayStats;
-  recentRecords: PomodoroRecord[];
   spreadsheetUrl: string;
-  todayInterruptions: InterruptionRecord[];
+  recentRecordsBulk: PomodoroRecord[];
+  recentInterruptionsBulk: InterruptionRecord[];
   memos: MemoMetadata[];
   memoTags: MemoTag[];
   projects: ProjectMetadata[];
@@ -30,8 +29,6 @@ function getAllInitData(): {
   tasks: TaskMetadata[];
 } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const tz = Session.getScriptTimeZone();
-  const today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
 
   // --- TimerConfig ---
   const tcSheet = ss.getSheetByName("TimerConfig")!;
@@ -93,99 +90,8 @@ function getAllInitData(): {
       .sort((a, b) => a.sortOrder - b.sortOrder);
   }
 
-  // --- PomodoroLog: read once, compute stats + recentRecords ---
-  const logSheet = ss.getSheetByName("PomodoroLog")!;
-  const logLastRow = logSheet.getLastRow();
-  const stats: TodayStats = {
-    completedPomodoros: 0,
-    abandonedPomodoros: 0,
-    totalWorkSeconds: 0,
-    totalBreakSeconds: 0,
-    totalWorkInterruptionSeconds: 0,
-    totalNonWorkInterruptionSeconds: 0,
-  };
-  let recentRecords: PomodoroRecord[] = [];
-
-  if (logLastRow > 1) {
-    const TAIL_ROWS = 100;
-    const startRow = Math.max(2, logLastRow - TAIL_ROWS + 1);
-    const numRows = logLastRow - startRow + 1;
-    const logData = logSheet.getRange(startRow, 1, numRows, 16).getValues();
-
-    const todayRows: PomodoroRecord[] = [];
-    logData.forEach((row) => {
-      const dateVal = row[1];
-      const dateStr =
-        dateVal instanceof Date ? Utilities.formatDate(dateVal, tz, "yyyy-MM-dd") : String(dateVal);
-      if (dateStr !== today) return;
-
-      // Stats
-      const type = String(row[6]);
-      const status = String(row[13]);
-      const actualSeconds = Number(row[5]);
-      const workIntSeconds = Number(row[11]);
-      const nonWorkIntSeconds = Number(row[12]);
-
-      if (type === "work") {
-        if (status === "completed") stats.completedPomodoros++;
-        else if (status === "abandoned") stats.abandonedPomodoros++;
-        stats.totalWorkSeconds += actualSeconds - workIntSeconds - nonWorkIntSeconds;
-        stats.totalWorkInterruptionSeconds += workIntSeconds;
-        stats.totalNonWorkInterruptionSeconds += nonWorkIntSeconds;
-      } else if (type === "shortBreak" || type === "longBreak") {
-        stats.totalBreakSeconds += actualSeconds;
-      }
-
-      // Record
-      todayRows.push({
-        id: String(row[0]),
-        date: String(row[1]),
-        startTime: String(row[2]),
-        endTime: String(row[3]),
-        durationSeconds: Number(row[4]),
-        actualDurationSeconds: Number(row[5]),
-        type: String(row[6]),
-        description: String(row[7]),
-        category: String(row[8]),
-        workInterruptions: Number(row[9]),
-        nonWorkInterruptions: Number(row[10]),
-        workInterruptionSeconds: Number(row[11]),
-        nonWorkInterruptionSeconds: Number(row[12]),
-        completionStatus: String(row[13]),
-        pomodoroSetIndex: Number(row[14]),
-        taskId: String(row[15]),
-      });
-    });
-    recentRecords = todayRows.reverse();
-  }
-
-  // --- Interruptions ---
-  const intSheet = ss.getSheetByName("Interruptions")!;
-  const intLastRow = intSheet.getLastRow();
-  let todayInterruptions: InterruptionRecord[] = [];
-  if (intLastRow > 1) {
-    const INT_TAIL = 200;
-    const intStartRow = Math.max(2, intLastRow - INT_TAIL + 1);
-    const intNumRows = intLastRow - intStartRow + 1;
-    const intData = intSheet.getRange(intStartRow, 1, intNumRows, 8).getValues();
-    todayInterruptions = intData
-      .filter((row) => {
-        const raw = row[3];
-        const d = raw instanceof Date ? raw : new Date(String(raw));
-        const dateStr = Utilities.formatDate(d, tz, "yyyy-MM-dd");
-        return dateStr === today;
-      })
-      .map((row) => ({
-        id: String(row[0]),
-        pomodoroId: String(row[1]),
-        type: String(row[2]),
-        startTime: String(row[3]),
-        endTime: String(row[4]),
-        durationSeconds: Number(row[5]),
-        category: String(row[6]),
-        note: String(row[7]),
-      }));
-  }
+  // --- PomodoroLog + Interruptions bulk (for IDB cache) ---
+  const bulk = getRecentRecordsBulk(1000);
 
   // --- Memos & MemoTags ---
   const memos = getMemos();
@@ -198,10 +104,9 @@ function getAllInitData(): {
     timerConfigs,
     categories,
     interruptionCategories,
-    todayStats: stats,
-    recentRecords,
     spreadsheetUrl: ss.getUrl(),
-    todayInterruptions,
+    recentRecordsBulk: bulk.records,
+    recentInterruptionsBulk: bulk.interruptions,
     memos,
     memoTags,
     projects: taskData.projects,

@@ -1,9 +1,11 @@
 /**
  * useDateSelector — Date selection, week strip, record counts
- * Ports DateSelector IIFE to React hook
+ * Now uses useRecordCache for data access (IDB cache with server fallback)
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { TodayStats, PomodoroRecord, InterruptionRecord } from "../types";
+import { useRecordCache } from "./useRecordCache";
+import * as RecordCache from "../lib/recordCache";
 import { serverCall } from "../lib/serverCall";
 
 function getTodayStr(): string {
@@ -61,66 +63,41 @@ export interface UseDateSelectorReturn {
   dateInterruptions: InterruptionRecord[];
 }
 
-const EMPTY_STATS: TodayStats = {
-  completedPomodoros: 0,
-  abandonedPomodoros: 0,
-  totalWorkSeconds: 0,
-  totalBreakSeconds: 0,
-  totalWorkInterruptionSeconds: 0,
-  totalNonWorkInterruptionSeconds: 0,
-};
-
-export function useDateSelector(
-  initialStats: TodayStats,
-  initialRecords: PomodoroRecord[],
-  initialInterruptions: InterruptionRecord[],
-): UseDateSelectorReturn {
+export function useDateSelector(): UseDateSelectorReturn {
   const today = getTodayStr();
   const [selectedDate, setSelectedDate] = useState(today);
   const [weekStartDate, setWeekStartDate] = useState(() => getMonday(today));
   const [weekRecordCounts, setWeekRecordCounts] = useState<Record<string, number>>({});
-  const [dateStats, setDateStats] = useState<TodayStats>(initialStats);
-  const [dateRecords, setDateRecords] = useState<PomodoroRecord[]>(initialRecords);
-  const [dateInterruptions, setDateInterruptions] = useState<InterruptionRecord[]>(initialInterruptions);
 
   const isToday = selectedDate === getTodayStr();
 
-  const loadDateData = useCallback((date: string) => {
-    const todayNow = getTodayStr();
-    const fn = date === todayNow ? "getRefreshData" : "getDataForDate";
-    const args = date === todayNow ? [] : [date];
-    serverCall(fn, ...args)
-      .then((data: unknown) => {
-        const d = data as {
-          todayStats: TodayStats;
-          recentRecords: PomodoroRecord[];
-          todayInterruptions: InterruptionRecord[];
-        };
-        setDateStats(d.todayStats || EMPTY_STATS);
-        setDateRecords(d.recentRecords || []);
-        setDateInterruptions(d.todayInterruptions || []);
-      })
-      .catch((e) => console.error("loadDateData failed:", e));
-  }, []);
+  // Data comes from IDB cache (with server fallback for cache misses)
+  const cache = useRecordCache(selectedDate);
 
   const loadWeekCounts = useCallback(() => {
-    serverCall("getWeekRecordCounts", weekStartDate)
-      .then((counts) => {
-        setWeekRecordCounts((counts as Record<string, number>) || {});
-      })
-      .catch((e) => console.error("loadWeekCounts failed:", e));
+    // Check if week is within cache range
+    const weekEnd = addDays(weekStartDate, 6);
+    if (RecordCache.hasRecordsForDate(weekStartDate) && RecordCache.hasRecordsForDate(weekEnd)) {
+      // All 7 days are in cache range — compute from IDB
+      RecordCache.getWeekRecordCounts(weekStartDate).then((counts) => {
+        setWeekRecordCounts(counts);
+      });
+    } else {
+      // Some days outside cache range — fetch from server
+      serverCall("getWeekRecordCounts", weekStartDate)
+        .then((counts) => {
+          setWeekRecordCounts((counts as Record<string, number>) || {});
+        })
+        .catch((e) => console.error("loadWeekCounts failed:", e));
+    }
   }, [weekStartDate]);
 
-  const selectDate = useCallback(
-    (dateStr: string) => {
-      const todayNow = getTodayStr();
-      if (dateStr > todayNow) return;
-      setSelectedDate(dateStr);
-      setWeekStartDate(getMonday(dateStr));
-      loadDateData(dateStr);
-    },
-    [loadDateData],
-  );
+  const selectDate = useCallback((dateStr: string) => {
+    const todayNow = getTodayStr();
+    if (dateStr > todayNow) return;
+    setSelectedDate(dateStr);
+    setWeekStartDate(getMonday(dateStr));
+  }, []);
 
   const prevWeek = useCallback(() => {
     setWeekStartDate((prev) => addDays(prev, -7));
@@ -139,12 +116,21 @@ export function useDateSelector(
     selectDate(getTodayStr());
   }, [selectDate]);
 
+  // Refresh week counts when cache changes (upsert from record save)
+  useEffect(() => {
+    const handler = (payload: any) => {
+      if (payload?.op === "upsert") {
+        loadWeekCounts();
+      }
+    };
+    RecordCache.on(handler);
+    return () => RecordCache.off(handler);
+  }, [loadWeekCounts]);
+
+  // Legacy callback (kept for API compatibility)
   const onRecordSaved = useCallback(() => {
-    if (selectedDate === getTodayStr()) {
-      loadDateData(selectedDate);
-    }
     loadWeekCounts();
-  }, [selectedDate, loadDateData, loadWeekCounts]);
+  }, [loadWeekCounts]);
 
   return {
     selectedDate,
@@ -157,8 +143,8 @@ export function useDateSelector(
     goToToday,
     loadWeekCounts,
     onRecordSaved,
-    dateStats,
-    dateRecords,
-    dateInterruptions,
+    dateStats: cache.stats,
+    dateRecords: cache.records,
+    dateInterruptions: cache.interruptions,
   };
 }

@@ -16,6 +16,7 @@ import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { blobUrlsToDrive, resolveDriveUrls } from "../../lib/imageCache";
 import { serverCall } from "../../lib/serverCall";
 import * as TaskStore from "../../lib/taskStore";
+import * as RecordCache from "../../lib/recordCache";
 import { STATUS_CONFIG } from "../../hooks/useTasks";
 import s from "./ViewerPanel.module.css";
 
@@ -29,7 +30,7 @@ export function ViewerPanel() {
 }
 
 function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
-  const { timer, refreshAll } = useApp();
+  const { timer } = useApp();
   const { closeViewer } = useNavigation();
   const editorConfig = useEditorConfig();
 
@@ -98,11 +99,15 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
     })();
   }, [showTaskPicker, vs.taskId]);
 
-  // Resolve Drive URLs in initial markdown
+  // Resolve Drive URLs in initial markdown + set origMarkdown before editor mounts
   useEffect(() => {
     if (vs.markdown) {
-      resolveDriveUrls(vs.markdown).then(setResolvedMarkdown);
+      resolveDriveUrls(vs.markdown).then((md) => {
+        origMarkdown.current = md;
+        setResolvedMarkdown(md);
+      });
     } else {
+      origMarkdown.current = vs.markdown ?? "";
       setResolvedMarkdown(vs.markdown);
     }
   }, [vs.markdown]);
@@ -113,6 +118,8 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
   const origStartTime = useRef(startTime);
   const origEndTime = useRef(endTime);
   const origTaskId = useRef(vs.taskId || null);
+  const origMarkdown = useRef<string | null>(null);
+  const [markdownDirty, setMarkdownDirty] = useState(false);
 
   const categories =
     vs.sheetType === "InterruptionCategories"
@@ -120,6 +127,14 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       : timer.state.categories;
 
   const canSave = !!(vs.recordId || vs.onSaveMarkdown);
+
+  const isDirty =
+    markdownDirty ||
+    (selectedCategory[0] || "") !== (origCategory.current || "") ||
+    (vs.interruptionType ? (intType ? "work" : "nonWork") !== origType.current : false) ||
+    startTime !== origStartTime.current ||
+    endTime !== origEndTime.current ||
+    (showTaskPicker ? (selectedTaskId || "") !== (origTaskId.current || "") : false);
 
   const handleSave = useCallback(async () => {
     const markdown = blobUrlsToDrive(editorRef.current?.getValue() || "");
@@ -155,6 +170,8 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       origStartTime.current = startTime;
       origEndTime.current = endTime;
       origTaskId.current = newTaskId;
+      origMarkdown.current = markdown;
+      setMarkdownDirty(false);
       return;
     }
 
@@ -190,28 +207,28 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
         promises.push(serverCall("updateRecordTaskId", vs.recordId, newTaskId));
       }
 
-      await Promise.all(promises);
+      const results = await Promise.all(promises);
+
+      // Write-through: update IDB cache from server responses
+      for (const result of results) {
+        const r = result as any;
+        if (r?.record) await RecordCache.upsertRecord(r.record);
+        if (r?.interruption) await RecordCache.upsertInterruptions([r.interruption]);
+      }
+
       origCategory.current = newCategory;
       origType.current = newType as "work" | "nonWork";
       origStartTime.current = startTime;
       origEndTime.current = endTime;
       origTaskId.current = newTaskId;
-      refreshAll();
+      origMarkdown.current = markdown;
+      setMarkdownDirty(false);
     } catch (err) {
       alert("保存に失敗しました: " + err);
     } finally {
       setIsSaving(false);
     }
-  }, [
-    vs,
-    selectedCategory,
-    intType,
-    startTime,
-    endTime,
-    selectedTaskId,
-    showTaskPicker,
-    refreshAll,
-  ]);
+  }, [vs, selectedCategory, intType, startTime, endTime, selectedTaskId, showTaskPicker]);
 
   if (resolvedMarkdown === null) return null;
 
@@ -220,7 +237,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       <DocumentEditor
         {...editorConfig.editorProps}
         initialValue={resolvedMarkdown}
-        onChange={() => {}}
+        onChange={(md) => setMarkdownDirty(md !== origMarkdown.current)}
         placeholder=""
         editorRef={editorRef}
       >
@@ -276,7 +293,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
           <button className="btn btn-secondary" onClick={closeViewer}>
             戻る
           </button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={isSaving}>
+          <button className="btn btn-primary" onClick={handleSave} disabled={isSaving || !isDirty}>
             保存
           </button>
         </FormActions>

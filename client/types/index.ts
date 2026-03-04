@@ -19,10 +19,9 @@ export interface InitData {
   timerConfigs: import("./timer").TimerConfig[];
   categories: import("./categories").CategoryItem[];
   interruptionCategories: import("./categories").CategoryItem[];
-  todayStats: import("./records").TodayStats;
-  recentRecords: import("./records").PomodoroRecord[];
   spreadsheetUrl: string;
-  todayInterruptions: import("./records").InterruptionRecord[];
+  recentRecordsBulk: import("./records").PomodoroRecord[];
+  recentInterruptionsBulk: import("./records").InterruptionRecord[];
   memos: MemoMetadata[];
   memoTags: import("./categories").MemoTag[];
   projects?: import("./entities").Project[];
