@@ -25,6 +25,7 @@ export interface ProjectItem {
   color: string;
   sortOrder: number;
   _cachedTimeSeconds?: number;
+  _cachedPomodoroCount?: number;
 }
 
 export interface CaseItem {
@@ -34,6 +35,7 @@ export interface CaseItem {
   color?: string;
   sortOrder: number;
   _cachedTimeSeconds?: number;
+  _cachedPomodoroCount?: number;
 }
 
 export interface TaskItem {
@@ -47,6 +49,7 @@ export interface TaskItem {
   completedAt: string;
   sortOrder: number;
   _cachedTimeSeconds?: number;
+  _cachedPomodoroCount?: number;
 }
 
 export const STATUS_CONFIG: Record<string, { label: string; color: string }> = {

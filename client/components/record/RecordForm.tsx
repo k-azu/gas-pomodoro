@@ -2,7 +2,7 @@
  * RecordForm — Work record submission form
  * Notion-like layout: toolbar(sticky) → meta → editor in single scroll, FormActions fixed at bottom
  */
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useApp } from "../../contexts/AppContext";
 import { useNavigation } from "../../contexts/NavigationContext";
 import type { ViewerState } from "../../contexts/NavigationContext";
@@ -19,6 +19,7 @@ import { serverCall } from "../../lib/serverCall";
 import * as TaskStore from "../../lib/taskStore";
 import * as RecordCache from "../../lib/recordCache";
 import { STATUS_CONFIG } from "../../hooks/useTasks";
+import { getTaskPickerItems } from "../../hooks/useMentionConfig";
 import s from "./RecordForm.module.css";
 
 interface RecordDraft {
@@ -89,54 +90,32 @@ export function RecordForm() {
     triggerSave();
   }, [selectedCategory, selectedTaskId, selectedTaskLabel]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load task items for picker
-  useEffect(() => {
-    refreshTaskItems();
+  // Load task items for picker (shared cache from useMentionConfig)
+  const STATUS_COLORS = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const [k, v] of Object.entries(STATUS_CONFIG)) m[k] = v.color;
+    return m;
   }, []);
 
-  const refreshTaskItems = useCallback(async () => {
-    try {
-      const [tasks, projects, cases] = await Promise.all([
-        TaskStore.getAllTasks(),
-        TaskStore.getAllProjects(),
-        TaskStore.getAllCases(),
-      ]);
-
-      const projMap: Record<string, string> = {};
-      (projects as any[]).forEach((p) => {
-        projMap[p.id] = p.name;
-      });
-      const caseMap: Record<string, any> = {};
-      (cases as any[]).forEach((c) => {
-        caseMap[c.id] = c;
-      });
-
-      const idMap: Record<string, string> = {};
-      const items: { name: string; color: string }[] = [];
-      (tasks as any[]).forEach((t) => {
-        if (t.status === "done" || t.status === "docs") return;
-        let path = projMap[t.projectId] || "";
-        if (t.caseId && caseMap[t.caseId]) {
-          path += " > " + caseMap[t.caseId].name;
-        }
-        const label = t.name + (path ? ` (${path})` : "");
-        const statusColor = (STATUS_CONFIG[t.status] || { color: "#9e9e9e" }).color;
-        idMap[label] = t.id;
-        items.push({ name: label, color: statusColor });
-      });
-
-      setTaskItems(items);
-      setTaskIdMap(idMap);
-
-      // Restore selection
-      if (selectedTaskId) {
-        const label = Object.entries(idMap).find(([, id]) => id === selectedTaskId)?.[0];
-        if (label) setSelectedTaskLabel([label]);
-      }
-    } catch {
-      // TaskStore not ready yet
+  const refreshTaskItems = useCallback(() => {
+    const { items, idMap } = getTaskPickerItems(STATUS_COLORS);
+    setTaskItems(items);
+    setTaskIdMap(idMap);
+    // Restore selection
+    if (selectedTaskId) {
+      const label = Object.entries(idMap).find(([, id]) => id === selectedTaskId)?.[0];
+      if (label) setSelectedTaskLabel([label]);
     }
-  }, [selectedTaskId]);
+  }, [STATUS_COLORS, selectedTaskId]);
+
+  useEffect(() => {
+    refreshTaskItems();
+    return TaskStore.on("dataChanged", (detail: any) => {
+      if (detail?.entityType === "task" || detail?.entityType === "all") {
+        refreshTaskItems();
+      }
+    });
+  }, [refreshTaskItems]);
 
   // Interruption list rendering
   const interruptions = state.interruptions;
@@ -245,6 +224,11 @@ export function RecordForm() {
         await RecordCache.upsertRecord(record);
         if (intRecords.length > 0) {
           await RecordCache.upsertInterruptions(intRecords);
+        }
+
+        // Update task stats (delta-based)
+        if (record.type === "work" && record.taskId) {
+          await TaskStore.adjustTaskStats(record.taskId, record.actualDurationSeconds, 1);
         }
 
         // Clear draft before clearing form (prevents unmount flush re-saving)

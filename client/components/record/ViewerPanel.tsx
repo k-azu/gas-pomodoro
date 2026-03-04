@@ -118,6 +118,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
   const origStartTime = useRef(startTime);
   const origEndTime = useRef(endTime);
   const origTaskId = useRef(vs.taskId || null);
+  const origActualDuration = useRef(vs.actualDurationSeconds ?? 0);
   const origMarkdown = useRef<string | null>(null);
   const [markdownDirty, setMarkdownDirty] = useState(false);
 
@@ -214,6 +215,32 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
         const r = result as any;
         if (r?.record) await RecordCache.upsertRecord(r.record);
         if (r?.interruption) await RecordCache.upsertInterruptions([r.interruption]);
+      }
+
+      // Update task stats (work records only)
+      if (vs.recordType === "record") {
+        const oldTid = origTaskId.current || "";
+        const newTid = newTaskId;
+        const oldDur = origActualDuration.current;
+        // Compute new duration: if time changed, recalculate from inputs; otherwise keep old
+        let newDur = oldDur;
+        if ((startChanged || endChanged) && startTime && endTime) {
+          const ns = new Date(startTime);
+          const ne = new Date(endTime);
+          newDur = Math.max(0, Math.round((ne.getTime() - ns.getTime()) / 1000));
+        }
+
+        if (oldTid === newTid) {
+          // Same task: time delta only
+          if (oldDur !== newDur && newTid) {
+            await TaskStore.adjustTaskStats(newTid, newDur - oldDur, 0);
+          }
+        } else {
+          // Task moved
+          if (oldTid) await TaskStore.adjustTaskStats(oldTid, -oldDur, -1);
+          if (newTid) await TaskStore.adjustTaskStats(newTid, newDur, 1);
+        }
+        origActualDuration.current = newDur;
       }
 
       origCategory.current = newCategory;

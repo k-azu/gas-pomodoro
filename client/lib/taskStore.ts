@@ -200,6 +200,42 @@ export function archiveTask(id: string): Promise<void> {
 }
 
 // =========================================================
+// Adjust cached stats (delta-based, no server roundtrip)
+// =========================================================
+
+export async function adjustTaskStats(
+  taskId: string,
+  timeDelta: number,
+  countDelta: number,
+): Promise<void> {
+  const task = await EntityStore.get("tasks", taskId);
+  if (!task) return;
+
+  task._cachedTimeSeconds = (task._cachedTimeSeconds || 0) + timeDelta;
+  task._cachedPomodoroCount = (task._cachedPomodoroCount || 0) + countDelta;
+  await EntityStore.put("tasks", task);
+
+  // Cascade: apply same delta to parent case and project (O(1) reads)
+  if (task.caseId) {
+    const caseEntity = await EntityStore.get("cases", task.caseId);
+    if (caseEntity) {
+      caseEntity._cachedTimeSeconds = (caseEntity._cachedTimeSeconds || 0) + timeDelta;
+      caseEntity._cachedPomodoroCount = (caseEntity._cachedPomodoroCount || 0) + countDelta;
+      await EntityStore.put("cases", caseEntity);
+    }
+  }
+
+  const projEntity = await EntityStore.get("projects", task.projectId);
+  if (projEntity) {
+    projEntity._cachedTimeSeconds = (projEntity._cachedTimeSeconds || 0) + timeDelta;
+    projEntity._cachedPomodoroCount = (projEntity._cachedPomodoroCount || 0) + countDelta;
+    await EntityStore.put("projects", projEntity);
+  }
+
+  EntityStore.emit("dataChanged", { entityType: "task", op: "adjustStats" });
+}
+
+// =========================================================
 // Query helpers
 // =========================================================
 

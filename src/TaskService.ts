@@ -7,6 +7,7 @@ interface ProjectMetadata {
   createdAt: string;
   updatedAt: string;
   _cachedTimeSeconds?: number;
+  _cachedPomodoroCount?: number;
 }
 
 interface CaseMetadata {
@@ -18,6 +19,7 @@ interface CaseMetadata {
   createdAt: string;
   updatedAt: string;
   _cachedTimeSeconds?: number;
+  _cachedPomodoroCount?: number;
 }
 
 interface TaskMetadata {
@@ -34,6 +36,7 @@ interface TaskMetadata {
   dueDate: string;
   updatedAt: string;
   _cachedTimeSeconds?: number;
+  _cachedPomodoroCount?: number;
 }
 
 const TASK_CACHE_KEY = "task_data_v2";
@@ -85,9 +88,7 @@ function getAllTaskData(): {
   const casesLastRow = casesSheet.getLastRow();
   let cases: CaseMetadata[] = [];
   if (casesLastRow > 1) {
-    const casesData = casesSheet
-      .getRange(2, 1, casesLastRow - 1, 8)
-      .getValues();
+    const casesData = casesSheet.getRange(2, 1, casesLastRow - 1, 8).getValues();
     cases = casesData
       .filter((row) => row[5] === true)
       .map((row) => ({
@@ -107,9 +108,7 @@ function getAllTaskData(): {
   const tasksLastRow = tasksSheet.getLastRow();
   let tasks: TaskMetadata[] = [];
   if (tasksLastRow > 1) {
-    const tasksData = tasksSheet
-      .getRange(2, 1, tasksLastRow - 1, 13)
-      .getValues();
+    const tasksData = tasksSheet.getRange(2, 1, tasksLastRow - 1, 13).getValues();
     tasks = tasksData
       .filter((row) => row[7] === true)
       .map((row) => ({
@@ -136,6 +135,7 @@ function getAllTaskData(): {
     // Read taskId (col 16) and actualDurationSeconds (col 6)
     const logData = logSheet.getRange(2, 1, logLastRow - 1, 16).getValues();
     const timeByTaskId: { [taskId: string]: number } = {};
+    const countByTaskId: { [taskId: string]: number } = {};
     logData.forEach((row) => {
       const taskId = String(row[15]);
       if (!taskId) return;
@@ -143,31 +143,39 @@ function getAllTaskData(): {
       if (type !== "work") return;
       const actualSeconds = Number(row[5]);
       timeByTaskId[taskId] = (timeByTaskId[taskId] || 0) + actualSeconds;
+      countByTaskId[taskId] = (countByTaskId[taskId] || 0) + 1;
     });
 
     // Assign to tasks
     tasks.forEach((t) => {
       if (timeByTaskId[t.id]) t._cachedTimeSeconds = timeByTaskId[t.id];
+      if (countByTaskId[t.id]) t._cachedPomodoroCount = countByTaskId[t.id];
     });
 
     // Aggregate to cases and projects
     const timeByCaseId: { [caseId: string]: number } = {};
     const timeByProjectId: { [projectId: string]: number } = {};
+    const countByCaseId: { [caseId: string]: number } = {};
+    const countByProjectId: { [projectId: string]: number } = {};
     tasks.forEach((t) => {
       const secs = t._cachedTimeSeconds || 0;
-      if (secs > 0) {
+      const cnt = t._cachedPomodoroCount || 0;
+      if (secs > 0 || cnt > 0) {
         if (t.caseId) {
           timeByCaseId[t.caseId] = (timeByCaseId[t.caseId] || 0) + secs;
+          countByCaseId[t.caseId] = (countByCaseId[t.caseId] || 0) + cnt;
         }
-        timeByProjectId[t.projectId] =
-          (timeByProjectId[t.projectId] || 0) + secs;
+        timeByProjectId[t.projectId] = (timeByProjectId[t.projectId] || 0) + secs;
+        countByProjectId[t.projectId] = (countByProjectId[t.projectId] || 0) + cnt;
       }
     });
     cases.forEach((c) => {
       if (timeByCaseId[c.id]) c._cachedTimeSeconds = timeByCaseId[c.id];
+      if (countByCaseId[c.id]) c._cachedPomodoroCount = countByCaseId[c.id];
     });
     projects.forEach((p) => {
       if (timeByProjectId[p.id]) p._cachedTimeSeconds = timeByProjectId[p.id];
+      if (countByProjectId[p.id]) p._cachedPomodoroCount = countByProjectId[p.id];
     });
   }
 
@@ -180,9 +188,7 @@ function getAllTaskData(): {
   return result;
 }
 
-function getProjectContent(
-  id: string,
-): { id: string; content: string; updatedAt: string } | null {
+function getProjectContent(id: string): { id: string; content: string; updatedAt: string } | null {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Projects")!;
   const lastRow = sheet.getLastRow();
@@ -201,9 +207,7 @@ function getProjectContent(
   return null;
 }
 
-function getCaseContent(
-  id: string,
-): { id: string; content: string; updatedAt: string } | null {
+function getCaseContent(id: string): { id: string; content: string; updatedAt: string } | null {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Cases")!;
   const lastRow = sheet.getLastRow();
@@ -222,9 +226,7 @@ function getCaseContent(
   return null;
 }
 
-function getTaskContent(
-  id: string,
-): { id: string; content: string; updatedAt: string } | null {
+function getTaskContent(id: string): { id: string; content: string; updatedAt: string } | null {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Tasks")!;
   const lastRow = sheet.getLastRow();
@@ -317,10 +319,8 @@ function updateProject(
     if (String(data[i][0]) === id) {
       const row = i + 2;
       if (fields.name !== undefined) sheet.getRange(row, 2).setValue(fields.name);
-      if (fields.content !== undefined)
-        sheet.getRange(row, 3).setValue(fields.content);
-      if (fields.color !== undefined)
-        sheet.getRange(row, 4).setValue(fields.color);
+      if (fields.content !== undefined) sheet.getRange(row, 3).setValue(fields.content);
+      if (fields.color !== undefined) sheet.getRange(row, 4).setValue(fields.color);
       const updatedAt = new Date().toISOString();
       sheet.getRange(row, 8).setValue(updatedAt);
       invalidateTaskCache();
@@ -344,8 +344,7 @@ function updateCase(
     if (String(data[i][0]) === id) {
       const row = i + 2;
       if (fields.name !== undefined) sheet.getRange(row, 3).setValue(fields.name);
-      if (fields.content !== undefined)
-        sheet.getRange(row, 4).setValue(fields.content);
+      if (fields.content !== undefined) sheet.getRange(row, 4).setValue(fields.content);
       const updatedAt = new Date().toISOString();
       sheet.getRange(row, 8).setValue(updatedAt);
       invalidateTaskCache();
@@ -375,8 +374,7 @@ function updateTask(
     if (String(data[i][0]) === id) {
       const row = i + 2;
       if (fields.name !== undefined) sheet.getRange(row, 4).setValue(fields.name);
-      if (fields.content !== undefined)
-        sheet.getRange(row, 5).setValue(fields.content);
+      if (fields.content !== undefined) sheet.getRange(row, 5).setValue(fields.content);
       if (fields.status !== undefined) {
         const oldStatus = String(data[i][5]);
         sheet.getRange(row, 6).setValue(fields.status);
@@ -386,10 +384,8 @@ function updateTask(
           sheet.getRange(row, 10).setValue("");
         }
       }
-      if (fields.startedAt !== undefined)
-        sheet.getRange(row, 11).setValue(fields.startedAt);
-      if (fields.dueDate !== undefined)
-        sheet.getRange(row, 12).setValue(fields.dueDate);
+      if (fields.startedAt !== undefined) sheet.getRange(row, 11).setValue(fields.startedAt);
+      if (fields.dueDate !== undefined) sheet.getRange(row, 12).setValue(fields.dueDate);
       const updatedAt = new Date().toISOString();
       sheet.getRange(row, 13).setValue(updatedAt);
       invalidateTaskCache();
@@ -480,10 +476,7 @@ function reorderProjects(orderedIds: string[]): { success: boolean } {
   return { success: true };
 }
 
-function reorderCases(
-  _projectId: string,
-  orderedIds: string[],
-): { success: boolean } {
+function reorderCases(_projectId: string, orderedIds: string[]): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Cases")!;
   const lastRow = sheet.getLastRow();
@@ -513,10 +506,7 @@ function reorderCases(
   return { success: true };
 }
 
-function reorderTasks(
-  _parentId: string,
-  orderedIds: string[],
-): { success: boolean } {
+function reorderTasks(_parentId: string, orderedIds: string[]): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Tasks")!;
   const lastRow = sheet.getLastRow();

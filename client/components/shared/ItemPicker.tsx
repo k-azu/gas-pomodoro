@@ -225,7 +225,7 @@ export function ItemPicker({
                 </div>
               );
             })}
-            {query.trim() && !exactMatch && (
+            {query.trim() && !exactMatch && onCreateItem && (
               <div
                 className={`${s["item-picker-option"]} ${s["item-picker-create"]}`}
                 onMouseDown={(e) => {

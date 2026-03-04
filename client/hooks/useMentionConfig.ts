@@ -21,8 +21,14 @@ interface MentionEntry {
   label: string;
 }
 
+interface TaskCacheEntry {
+  id: string;
+  label: string;
+  status: string;
+}
+
 let _memoCache: MentionEntry[] = [];
-let _taskCache: MentionEntry[] = [];
+let _taskCache: TaskCacheEntry[] = [];
 let _entityCache: MentionEntry[] = [];
 let _cacheInitialized = false;
 
@@ -51,7 +57,7 @@ async function refreshCaches(): Promise<void> {
       caseMap[c.id] = c;
     });
 
-    // Task cache: #
+    // Task cache: # (with status for picker filtering)
     _taskCache = (tasks as any[]).map((t) => {
       let path = projMap[t.projectId] || "";
       if (t.caseId && caseMap[t.caseId]) {
@@ -60,6 +66,7 @@ async function refreshCaches(): Promise<void> {
       return {
         id: t.id,
         label: t.name + (path ? ` (${path})` : ""),
+        status: t.status || "",
       };
     });
 
@@ -86,6 +93,26 @@ function ensureCacheListener(): void {
   EntityStore.on("dataChanged", () => {
     refreshCaches();
   });
+}
+
+// =========================================================
+// Public accessor for task picker (RecordForm etc.)
+// =========================================================
+
+/** Return task cache filtered for picker use (excludes done/docs, adds status color). */
+export function getTaskPickerItems(statusColors: Record<string, string>): {
+  items: { name: string; color: string }[];
+  idMap: Record<string, string>;
+} {
+  ensureCacheListener();
+  const items: { name: string; color: string }[] = [];
+  const idMap: Record<string, string> = {};
+  for (const t of _taskCache) {
+    if (t.status === "done" || t.status === "docs") continue;
+    idMap[t.label] = t.id;
+    items.push({ name: t.label, color: statusColors[t.status] || "#9e9e9e" });
+  }
+  return { items, idMap };
 }
 
 // =========================================================

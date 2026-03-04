@@ -34,6 +34,8 @@ export interface ViewerState {
   /** Task association (work records only) */
   taskId?: string;
   onSaveTaskId?: (taskId: string) => void;
+  /** Actual duration in seconds (work records, for task stats delta) */
+  actualDurationSeconds?: number;
 }
 
 // --- URL hash helpers ---

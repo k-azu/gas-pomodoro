@@ -99,6 +99,7 @@ function HistoryItem({
             startTime: r.startTime,
             endTime: r.endTime,
             taskId: r.taskId || "",
+            actualDurationSeconds: r.actualDurationSeconds,
           })
         }
       >

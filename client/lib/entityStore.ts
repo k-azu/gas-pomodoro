@@ -696,6 +696,7 @@ export function mergeServerData(storeName: string, serverEntities: any[]): Promi
         const merged: any = { ...se };
         Object.keys(le).forEach((k) => {
           if (k.charAt(0) === "_" || k === "content") {
+            if (k.startsWith("_cached")) return; // サーバー値を優先
             merged[k] = le[k];
           }
         });
