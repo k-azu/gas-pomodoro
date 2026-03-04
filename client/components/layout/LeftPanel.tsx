@@ -45,7 +45,7 @@ export function LeftPanel() {
         </div>
         <TimerCard />
         <DateSelector ds={ds} />
-        <StatsCard stats={ds.dateStats} />
+        <StatsCard stats={ds.dateStats} isLoading={ds.isLoading} />
         <div className={s["history-card"]}>
           <div className={s["history-header"]}>
             <h3>履歴</h3>
@@ -60,7 +60,11 @@ export function LeftPanel() {
               </a>
             )}
           </div>
-          <HistoryList records={ds.dateRecords} interruptions={ds.dateInterruptions} />
+          <HistoryList
+            records={ds.dateRecords}
+            interruptions={ds.dateInterruptions}
+            isLoading={ds.isLoading}
+          />
         </div>
       </div>
     </div>

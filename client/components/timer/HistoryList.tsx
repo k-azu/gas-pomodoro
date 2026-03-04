@@ -9,9 +9,11 @@ import s from "./HistoryList.module.css";
 export function HistoryList({
   records,
   interruptions,
+  isLoading,
 }: {
   records: PomodoroRecord[];
   interruptions: InterruptionRecord[];
+  isLoading?: boolean;
 }) {
   const { timer } = useApp();
   const { showViewer, isViewerSaving } = useNavigation();
@@ -41,6 +43,16 @@ export function HistoryList({
 
   const workRecords = records.filter((r) => r.type === "work");
 
+  if (isLoading && workRecords.length === 0) {
+    return (
+      <div className={s["history-list"]}>
+        <div className={s["history-loading"]}>
+          <span className={s["spinner"]} />
+        </div>
+      </div>
+    );
+  }
+
   if (workRecords.length === 0) {
     return (
       <div className={s["history-list"]}>
@@ -51,6 +63,11 @@ export function HistoryList({
 
   return (
     <ul className={s["history-list"]}>
+      {isLoading && (
+        <div className={s["history-loading-overlay"]}>
+          <span className={s["spinner"]} />
+        </div>
+      )}
       {workRecords.map((r) => (
         <RecordRow
           key={r.id}

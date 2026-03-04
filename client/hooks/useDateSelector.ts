@@ -61,6 +61,7 @@ export interface UseDateSelectorReturn {
   dateStats: TodayStats;
   dateRecords: PomodoroRecord[];
   dateInterruptions: InterruptionRecord[];
+  isLoading: boolean;
 }
 
 export function useDateSelector(): UseDateSelectorReturn {
@@ -146,5 +147,6 @@ export function useDateSelector(): UseDateSelectorReturn {
     dateStats: cache.stats,
     dateRecords: cache.records,
     dateInterruptions: cache.interruptions,
+    isLoading: cache.isLoading,
   };
 }
