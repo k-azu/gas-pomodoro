@@ -8,8 +8,8 @@ export const STORAGE_KEYS = {
   LEFT_COLLAPSED: "gas_pomodoro_left_collapsed",
   MEMO_SIDEBAR_COLLAPSED: "gas_pomodoro_memo_sidebar_collapsed",
   TASK_SIDEBAR_COLLAPSED: "gas_pomodoro_task_sidebar_collapsed",
-  RECORD_DESC: "gas_pomodoro_record_desc",
-  INT_NOTE: "gas_pomodoro_int_note",
+  RECORD_DRAFT: "gas_pomodoro_record_draft",
+  INT_DRAFT: "gas_pomodoro_int_draft",
   TASK_SELECTED: "gas_pomodoro_task_selected",
 } as const;
 

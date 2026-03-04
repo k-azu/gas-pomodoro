@@ -2,7 +2,7 @@
  * InterruptionForm — Shown during "interrupted" phase
  * Notion-like layout: meta → editor in single scroll, FormActions fixed at bottom
  */
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useApp } from "../../contexts/AppContext";
 import { TypeToggle } from "../shared/PanelToolbar";
 import { RecordField } from "../shared/RecordField";
@@ -11,9 +11,17 @@ import { ItemPicker } from "../shared/ItemPicker";
 import { DocumentEditor } from "../shared/DocumentEditor";
 import type { MarkdownEditorRef } from "../shared/MarkdownEditorWrapper";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
+import { useFormDraft } from "../../hooks/useFormDraft";
+import { STORAGE_KEYS } from "../../lib/localStorage";
 import { blobUrlsToDrive } from "../../lib/imageCache";
 import { serverCall } from "../../lib/serverCall";
 import s from "./InterruptionForm.module.css";
+
+interface InterruptionDraft {
+  note: string;
+  isWork: boolean;
+  category: string[];
+}
 
 export function InterruptionForm() {
   const { timer } = useApp();
@@ -21,33 +29,63 @@ export function InterruptionForm() {
   const { state } = timer;
 
   const editorRef = useRef<MarkdownEditorRef | null>(null);
-  const [isWork, setIsWork] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState<string[]>([]);
+
+  // Draft persistence
+  const { initialDraft, saveDraft, clearDraft } = useFormDraft<InterruptionDraft>(
+    STORAGE_KEYS.INT_DRAFT,
+  );
+
+  const [isWork, setIsWork] = useState(initialDraft?.isWork ?? true);
+  const [selectedCategory, setSelectedCategory] = useState<string[]>(initialDraft?.category ?? []);
+
+  // Refs for latest meta values (stable onChange callback)
+  const metaRef = useRef({ isWork, category: selectedCategory });
+  metaRef.current = { isWork, category: selectedCategory };
+
+  // Save draft helper
+  const triggerSave = useCallback(
+    (noteOverride?: string) => {
+      const note = noteOverride ?? editorRef.current?.getValue() ?? "";
+      saveDraft({
+        note,
+        isWork: metaRef.current.isWork,
+        category: metaRef.current.category,
+      });
+    },
+    [saveDraft],
+  );
+
+  // Re-save when meta fields change
+  useEffect(() => {
+    triggerSave();
+  }, [isWork, selectedCategory]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleResume = useCallback(() => {
     const type = isWork ? "work" : "nonWork";
     const category = selectedCategory[0] || "";
     const note = blobUrlsToDrive(editorRef.current?.getValue() || "").trim();
+    clearDraft();
     timer.endInterruption(type as "work" | "nonWork", category, note);
     // Reset form for next interruption
     setIsWork(true);
     setSelectedCategory([]);
     editorRef.current?.clear();
-  }, [isWork, selectedCategory, timer]);
+  }, [isWork, selectedCategory, timer, clearDraft]);
 
   const handleDiscard = useCallback(() => {
+    clearDraft();
     timer.discardInterruption();
     setIsWork(true);
     setSelectedCategory([]);
     editorRef.current?.clear();
-  }, [timer]);
+  }, [timer, clearDraft]);
 
   return (
     <div className={s["interruption-form"]}>
       <DocumentEditor
         {...editorConfig.editorProps}
-        initialValue=""
-        onChange={() => {}}
+        initialValue={initialDraft?.note ?? ""}
+        onChange={(md) => triggerSave(md)}
         placeholder="中断の内容を記録..."
         editorRef={editorRef}
       >

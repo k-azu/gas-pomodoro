@@ -6,18 +6,27 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useApp } from "../../contexts/AppContext";
 import { useNavigation } from "../../contexts/NavigationContext";
 import type { ViewerState } from "../../contexts/NavigationContext";
-import { ToolbarButton } from "../shared/PanelToolbar";
 import { RecordField } from "../shared/RecordField";
 import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
 import { DocumentEditor } from "../shared/DocumentEditor";
 import type { MarkdownEditorRef } from "../shared/MarkdownEditorWrapper";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
+import { useFormDraft } from "../../hooks/useFormDraft";
+import { STORAGE_KEYS } from "../../lib/localStorage";
 import { blobUrlsToDrive, resolveDriveUrls } from "../../lib/imageCache";
 import { serverCall } from "../../lib/serverCall";
 import * as TaskStore from "../../lib/taskStore";
 import { STATUS_CONFIG } from "../../hooks/useTasks";
 import s from "./RecordForm.module.css";
+
+interface RecordDraft {
+  startTimestamp: number;
+  desc: string;
+  category: string[];
+  taskId: string | null;
+  taskLabel: string[];
+}
 
 export function RecordForm() {
   const { timer, refreshAll } = useApp();
@@ -26,12 +35,58 @@ export function RecordForm() {
   const { state } = timer;
 
   const editorRef = useRef<MarkdownEditorRef | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<string[]>([]);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  // Draft persistence
+  const { initialDraft, saveDraft, clearDraft } = useFormDraft<RecordDraft>(
+    STORAGE_KEYS.RECORD_DRAFT,
+  );
+  const restoredDraft =
+    initialDraft && initialDraft.startTimestamp === state.startTimestamp ? initialDraft : null;
+  // Clear stale draft from a different pomodoro session
+  if (initialDraft && !restoredDraft) clearDraft();
+
+  const [selectedCategory, setSelectedCategory] = useState<string[]>(restoredDraft?.category ?? []);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(
+    restoredDraft?.taskId ?? null,
+  );
   const [taskItems, setTaskItems] = useState<{ name: string; color: string }[]>([]);
   const [taskIdMap, setTaskIdMap] = useState<Record<string, string>>({});
-  const [selectedTaskLabel, setSelectedTaskLabel] = useState<string[]>([]);
+  const [selectedTaskLabel, setSelectedTaskLabel] = useState<string[]>(
+    restoredDraft?.taskLabel ?? [],
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Refs for latest meta values (stable onChange callback)
+  const metaRef = useRef({
+    category: selectedCategory,
+    taskId: selectedTaskId,
+    taskLabel: selectedTaskLabel,
+  });
+  metaRef.current = {
+    category: selectedCategory,
+    taskId: selectedTaskId,
+    taskLabel: selectedTaskLabel,
+  };
+
+  // Save draft helper (reads desc from editor + meta from ref)
+  const triggerSave = useCallback(
+    (descOverride?: string) => {
+      const desc = descOverride ?? editorRef.current?.getValue() ?? "";
+      saveDraft({
+        startTimestamp: state.startTimestamp!,
+        desc,
+        category: metaRef.current.category,
+        taskId: metaRef.current.taskId,
+        taskLabel: metaRef.current.taskLabel,
+      });
+    },
+    [saveDraft, state.startTimestamp],
+  );
+
+  // Re-save when meta fields change
+  useEffect(() => {
+    triggerSave();
+  }, [selectedCategory, selectedTaskId, selectedTaskLabel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load task items for picker
   useEffect(() => {
@@ -185,6 +240,9 @@ export function RecordForm() {
           await serverCall("saveInterruptions", intRecords);
         }
 
+        // Clear draft before clearing form (prevents unmount flush re-saving)
+        clearDraft();
+
         // Clear form
         editorRef.current?.clear();
         setSelectedCategory([]);
@@ -207,17 +265,22 @@ export function RecordForm() {
         setIsSubmitting(false);
       }
     },
-    [state, selectedCategory, selectedTaskId, timer, refreshAll],
+    [state, selectedCategory, selectedTaskId, timer, refreshAll, clearDraft],
   );
 
   return (
     <div className={s["record-form"]}>
       <DocumentEditor
         {...editorConfig.editorProps}
-        initialValue=""
-        onChange={() => {}}
+        initialValue={restoredDraft?.desc ?? ""}
+        onChange={(md) => triggerSave(md)}
         placeholder="何に取り組みましたか？"
         editorRef={editorRef}
+        metaTop={
+          <button className={s["copy-previous-btn"]} onClick={copyFromPrevious}>
+            前回をコピー
+          </button>
+        }
       >
         <RecordField label="カテゴリ">
           <ItemPicker
@@ -246,10 +309,6 @@ export function RecordForm() {
             />
           </RecordField>
         )}
-
-        <div className={s["copy-previous-row"]}>
-          <ToolbarButton onClick={copyFromPrevious}>前回をコピー</ToolbarButton>
-        </div>
       </DocumentEditor>
 
       {/* Interruption list */}
