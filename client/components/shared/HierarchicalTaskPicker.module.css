@@ -1,0 +1,14 @@
+.hierarchy-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+}
+
+.hierarchy-sep {
+  color: rgba(55, 53, 47, 0.25);
+  font-size: 0.8rem;
+  flex-shrink: 0;
+  user-select: none;
+  margin: 0 4px;
+}

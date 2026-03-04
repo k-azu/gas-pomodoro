@@ -15,6 +15,8 @@ interface PomodoroRecord {
   completionStatus: string;
   pomodoroSetIndex: number;
   taskId?: string;
+  projectId?: string;
+  caseId?: string;
 }
 
 interface InterruptionRecord {
@@ -32,6 +34,8 @@ function saveRecord(record: PomodoroRecord): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("PomodoroLog")!;
   const taskId = record.taskId || "";
+  const projectId = record.projectId || "";
+  const caseId = record.caseId || "";
   sheet.appendRow([
     record.id,
     record.date,
@@ -49,6 +53,8 @@ function saveRecord(record: PomodoroRecord): { success: boolean } {
     record.completionStatus,
     record.pomodoroSetIndex,
     taskId,
+    projectId,
+    caseId,
   ]);
 
   // Auto-set task startedAt if not already set
@@ -121,6 +127,8 @@ function readRecordFromRow(row: any[], tz: string): PomodoroRecord {
     completionStatus: String(row[13]),
     pomodoroSetIndex: Number(row[14]),
     taskId: String(row[15]),
+    projectId: row[16] != null ? String(row[16]) : "",
+    caseId: row[17] != null ? String(row[17]) : "",
   };
 }
 
@@ -142,7 +150,7 @@ function readRecordRow(
   rowIndex: number,
   tz: string,
 ): PomodoroRecord {
-  const row = sheet.getRange(rowIndex, 1, 1, 16).getValues()[0];
+  const row = sheet.getRange(rowIndex, 1, 1, 18).getValues()[0];
   return readRecordFromRow(row, tz);
 }
 
@@ -174,7 +182,7 @@ function getRecentRecordsBulk(limit: number = 1000): {
   if (logLastRow > 1) {
     const startRow = Math.max(2, logLastRow - limit + 1);
     const numRows = logLastRow - startRow + 1;
-    const data = logSheet.getRange(startRow, 1, numRows, 16).getValues();
+    const data = logSheet.getRange(startRow, 1, numRows, 18).getValues();
     records = data.map((row) => readRecordFromRow(row, tz));
     records.forEach((r) => pomodoroIdSet.add(r.id));
   }
@@ -324,6 +332,15 @@ function updateRecordTaskId(
   recordId: string,
   taskId: string,
 ): { success: boolean; record?: PomodoroRecord } {
+  return updateRecordHierarchy(recordId, "", "", taskId);
+}
+
+function updateRecordHierarchy(
+  recordId: string,
+  projectId: string,
+  caseId: string,
+  taskId: string,
+): { success: boolean; record?: PomodoroRecord } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tz = Session.getScriptTimeZone();
   const sheet = ss.getSheetByName("PomodoroLog")!;
@@ -333,8 +350,11 @@ function updateRecordTaskId(
   const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
   for (let i = ids.length - 1; i >= 0; i--) {
     if (String(ids[i][0]) === recordId) {
-      sheet.getRange(i + 2, 16).setValue(taskId); // column 16 = taskId
-      return { success: true, record: readRecordRow(sheet, i + 2, tz) };
+      const row = i + 2;
+      sheet.getRange(row, 16).setValue(taskId); // column 16 = taskId
+      sheet.getRange(row, 17).setValue(projectId); // column 17 = projectId
+      sheet.getRange(row, 18).setValue(caseId); // column 18 = caseId
+      return { success: true, record: readRecordRow(sheet, row, tz) };
     }
   }
   return { success: false };
@@ -356,7 +376,11 @@ function updateRecordTimes(
   for (let i = ids.length - 1; i >= 0; i--) {
     if (String(ids[i][0]) === recordId) {
       const row = i + 2;
-      if (startTimeISO) sheet.getRange(row, 3).setValue(startTimeISO);
+      if (startTimeISO) {
+        sheet.getRange(row, 3).setValue(startTimeISO);
+        const newDate = Utilities.formatDate(new Date(startTimeISO), tz, "yyyy-MM-dd");
+        sheet.getRange(row, 2).setValue(newDate);
+      }
       if (endTimeISO) sheet.getRange(row, 4).setValue(endTimeISO);
       const start = new Date(startTimeISO || String(sheet.getRange(row, 3).getValue()));
       const end = new Date(endTimeISO || String(sheet.getRange(row, 4).getValue()));
@@ -397,7 +421,7 @@ function getTodayStats(): TodayStats {
   const TAIL_ROWS = 100;
   const startRow = Math.max(2, lastRow - TAIL_ROWS + 1);
   const numRows = lastRow - startRow + 1;
-  const data = sheet.getRange(startRow, 1, numRows, 16).getValues();
+  const data = sheet.getRange(startRow, 1, numRows, 18).getValues();
 
   data.forEach((row) => {
     const dateVal = row[1];
@@ -457,7 +481,7 @@ function getRefreshData(): {
     const TAIL_ROWS = 100;
     const startRow = Math.max(2, logLastRow - TAIL_ROWS + 1);
     const numRows = logLastRow - startRow + 1;
-    const logData = logSheet.getRange(startRow, 1, numRows, 16).getValues();
+    const logData = logSheet.getRange(startRow, 1, numRows, 18).getValues();
 
     const todayRows: PomodoroRecord[] = [];
     logData.forEach((row) => {
@@ -499,6 +523,8 @@ function getRefreshData(): {
         completionStatus: String(row[13]),
         pomodoroSetIndex: Number(row[14]),
         taskId: String(row[15]),
+        projectId: row[16] != null ? String(row[16]) : "",
+        caseId: row[17] != null ? String(row[17]) : "",
       });
     });
     recentRecords = todayRows.reverse();
@@ -561,7 +587,7 @@ function getDataForDate(dateStr: string): {
   let recentRecords: PomodoroRecord[] = [];
 
   if (logLastRow > 1) {
-    const logData = logSheet.getRange(2, 1, logLastRow - 1, 16).getValues();
+    const logData = logSheet.getRange(2, 1, logLastRow - 1, 18).getValues();
     const dateRows: PomodoroRecord[] = [];
 
     logData.forEach((row) => {
@@ -603,6 +629,8 @@ function getDataForDate(dateStr: string): {
         completionStatus: String(row[13]),
         pomodoroSetIndex: Number(row[14]),
         taskId: String(row[15]),
+        projectId: row[16] != null ? String(row[16]) : "",
+        caseId: row[17] != null ? String(row[17]) : "",
       });
     });
     recentRecords = dateRows.reverse();
@@ -661,7 +689,7 @@ function getWeekRecordCounts(weekStartDate: string): {
 
   if (logLastRow <= 1) return dateCounts;
 
-  const logData = logSheet.getRange(2, 1, logLastRow - 1, 16).getValues();
+  const logData = logSheet.getRange(2, 1, logLastRow - 1, 18).getValues();
   logData.forEach((row) => {
     const type = String(row[6]);
     if (type !== "work") return;
@@ -681,6 +709,8 @@ function getLastWorkRecord(): {
   description: string;
   category: string;
   taskId: string;
+  projectId: string;
+  caseId: string;
 } | null {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("PomodoroLog")!;
@@ -688,13 +718,15 @@ function getLastWorkRecord(): {
   if (lastRow <= 1) return null;
   const SCAN = 50;
   const start = Math.max(2, lastRow - SCAN + 1);
-  const data = sheet.getRange(start, 1, lastRow - start + 1, 16).getValues();
+  const data = sheet.getRange(start, 1, lastRow - start + 1, 18).getValues();
   for (let i = data.length - 1; i >= 0; i--) {
     if (String(data[i][6]) === "work") {
       return {
         description: String(data[i][7]),
         category: String(data[i][8]),
         taskId: String(data[i][15]),
+        projectId: String(data[i][16]),
+        caseId: String(data[i][17]),
       };
     }
   }

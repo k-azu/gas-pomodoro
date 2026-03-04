@@ -3,7 +3,13 @@
  * Long press + drag to reorder projects or cases (within same project).
  * Ghost clone + placeholder visual feedback (matches original GAS TaskPanel).
  */
-import type { UseTasksReturn, NodeType, ProjectItem, CaseItem, TaskItem } from "../../hooks/useTasks";
+import type {
+  UseTasksReturn,
+  NodeType,
+  ProjectItem,
+  CaseItem,
+  TaskItem,
+} from "../../hooks/useTasks";
 import { STATUS_CONFIG } from "../../hooks/useTasks";
 import { InlineRename } from "../shared/SidebarShell";
 import { InboxIcon, FileIcon, MemoIcon } from "../shared/Icons";
@@ -15,10 +21,20 @@ interface TaskTreeProps {
   renamingNode: { type: NodeType; id: string } | null;
   onRenameCommit: (name: string) => void;
   onRenameCancel: () => void;
-  onContextMenu: (e: React.MouseEvent, type: NodeType, data: ProjectItem | CaseItem | TaskItem) => void;
+  onContextMenu: (
+    e: React.MouseEvent,
+    type: NodeType,
+    data: ProjectItem | CaseItem | TaskItem,
+  ) => void;
 }
 
-export function TaskTree({ tasks, renamingNode, onRenameCommit, onRenameCancel, onContextMenu }: TaskTreeProps) {
+export function TaskTree({
+  tasks,
+  renamingNode,
+  onRenameCommit,
+  onRenameCancel,
+  onContextMenu,
+}: TaskTreeProps) {
   const drag = useLongPressDrag(
     (dragId, newOrder) => {
       const isProject = tasks.projects.some((p) => p.id === dragId);
@@ -50,14 +66,16 @@ export function TaskTree({ tasks, renamingNode, onRenameCommit, onRenameCancel, 
   );
 
   // Determine drag type for rendering
-  const isProjectDrag = drag.draggingId != null && tasks.projects.some((p) => p.id === drag.draggingId);
+  const isProjectDrag =
+    drag.draggingId != null && tasks.projects.some((p) => p.id === drag.draggingId);
   const isCaseDrag = drag.draggingId != null && !isProjectDrag;
   const dragCaseProjectId = isCaseDrag
     ? tasks.allCases.find((c) => c.id === drag.draggingId)?.projectId
     : null;
 
   // Build project display list with placeholder
-  const projectDisplay: Array<{ type: "project"; project: ProjectItem } | { type: "placeholder" }> = [];
+  const projectDisplay: Array<{ type: "project"; project: ProjectItem } | { type: "placeholder" }> =
+    [];
   let projVisIdx = 0;
   for (const proj of tasks.projects) {
     if (proj.id === drag.draggingId) continue;
@@ -155,11 +173,14 @@ function ProjectNode({
   }
 
   return (
-    <div className={s['task-tree-group']} data-id={project.id} data-type="project">
+    <div className={s["task-tree-group"]} data-id={project.id} data-type="project">
       <div
-        className={`${s['task-tree-item']} ${s['task-tree-project']}${isActive ? ` ${s.active}` : ""}`}
+        className={`${s["task-tree-item"]} ${s["task-tree-project"]}${isActive ? ` ${s.active}` : ""}`}
         onClick={() => {
-          if (drag.didActivate.current) { drag.didActivate.current = false; return; }
+          if (drag.didActivate.current) {
+            drag.didActivate.current = false;
+            return;
+          }
           tasks.selectNode("project", project.id);
         }}
         onContextMenu={(e) => onContextMenu(e, "project", project)}
@@ -169,24 +190,28 @@ function ProjectNode({
         onPointerCancel={handlers.onPointerCancel}
       >
         <span
-          className={s['task-tree-toggle']}
-          onClick={(e) => { e.stopPropagation(); tasks.toggleExpand(project.id); }}
+          className={s["task-tree-toggle"]}
+          onClick={(e) => {
+            e.stopPropagation();
+            tasks.toggleExpand(project.id);
+          }}
         >
-          <span className={`${s['task-tree-chevron']}${expanded ? ` ${s.expanded}` : ""}`}>▶</span>
-          <span className={s['task-tree-icon']}>
+          <span className={`${s["task-tree-chevron"]}${expanded ? ` ${s.expanded}` : ""}`}>▶</span>
+          <span className={s["task-tree-icon"]}>
             <InboxIcon size={16} color={project.color || "#4285f4"} />
           </span>
         </span>
         {isRenaming ? (
-          <InlineRename initialValue={project.name} onCommit={onRenameCommit} onCancel={onRenameCancel} />
+          <InlineRename
+            initialValue={project.name}
+            onCommit={onRenameCommit}
+            onCancel={onRenameCancel}
+          />
         ) : (
-          <span className={s['task-tree-name']}>{project.name}</span>
+          <span className={s["task-tree-name"]}>{project.name}</span>
         )}
-        {project._cachedTimeSeconds ? (
-          <span className={s['task-tree-time']}>{formatTime(project._cachedTimeSeconds)}</span>
-        ) : null}
         <span
-          className={s['task-tree-add-btn']}
+          className={s["task-tree-add-btn"]}
           title="案件を追加"
           onClick={(e) => {
             e.stopPropagation();
@@ -200,7 +225,7 @@ function ProjectNode({
       </div>
 
       {expanded && (
-        <div className={s['task-tree-children']}>
+        <div className={s["task-tree-children"]}>
           {caseDisplay.map((entry) => {
             if (entry.type === "placeholder") {
               return (
@@ -236,7 +261,7 @@ function ProjectNode({
             />
           ))}
           <div
-            className={`${s['task-tree-add']} ${s['task-tree-add-task']}`}
+            className={`${s["task-tree-add"]} ${s["task-tree-add-task"]}`}
             onClick={(e) => {
               e.stopPropagation();
               const name = prompt("タスク名:");
@@ -277,11 +302,18 @@ function CaseNode({
   const handlers = drag.bind(caseItem.id);
 
   return (
-    <div className={`${s['task-tree-group']} ${s['task-tree-case-group']}`} data-id={caseItem.id} data-type="case">
+    <div
+      className={`${s["task-tree-group"]} ${s["task-tree-case-group"]}`}
+      data-id={caseItem.id}
+      data-type="case"
+    >
       <div
-        className={`${s['task-tree-item']} ${s['task-tree-case']}${isActive ? ` ${s.active}` : ""}`}
+        className={`${s["task-tree-item"]} ${s["task-tree-case"]}${isActive ? ` ${s.active}` : ""}`}
         onClick={() => {
-          if (drag.didActivate.current) { drag.didActivate.current = false; return; }
+          if (drag.didActivate.current) {
+            drag.didActivate.current = false;
+            return;
+          }
           tasks.selectNode("case", caseItem.id);
         }}
         onContextMenu={(e) => onContextMenu(e, "case", caseItem)}
@@ -291,24 +323,28 @@ function CaseNode({
         onPointerCancel={handlers.onPointerCancel}
       >
         <span
-          className={s['task-tree-toggle']}
-          onClick={(e) => { e.stopPropagation(); tasks.toggleExpand(caseItem.id); }}
+          className={s["task-tree-toggle"]}
+          onClick={(e) => {
+            e.stopPropagation();
+            tasks.toggleExpand(caseItem.id);
+          }}
         >
-          <span className={`${s['task-tree-chevron']}${expanded ? ` ${s.expanded}` : ""}`}>▶</span>
-          <span className={s['task-tree-icon']}>
+          <span className={`${s["task-tree-chevron"]}${expanded ? ` ${s.expanded}` : ""}`}>▶</span>
+          <span className={s["task-tree-icon"]}>
             <FileIcon size={16} color={caseItem.color || "#757575"} />
           </span>
         </span>
         {isRenaming ? (
-          <InlineRename initialValue={caseItem.name} onCommit={onRenameCommit} onCancel={onRenameCancel} />
+          <InlineRename
+            initialValue={caseItem.name}
+            onCommit={onRenameCommit}
+            onCancel={onRenameCancel}
+          />
         ) : (
-          <span className={s['task-tree-name']}>{caseItem.name}</span>
+          <span className={s["task-tree-name"]}>{caseItem.name}</span>
         )}
-        {caseItem._cachedTimeSeconds ? (
-          <span className={s['task-tree-time']}>{formatTime(caseItem._cachedTimeSeconds)}</span>
-        ) : null}
         <span
-          className={s['task-tree-add-btn']}
+          className={s["task-tree-add-btn"]}
           title="タスクを追加"
           onClick={(e) => {
             e.stopPropagation();
@@ -322,7 +358,7 @@ function CaseNode({
       </div>
 
       {expanded && (
-        <div className={s['task-tree-children']}>
+        <div className={s["task-tree-children"]}>
           {caseTasks.map((t) => (
             <TaskNode
               key={t.id}
@@ -361,24 +397,28 @@ function TaskNode({
 
   return (
     <div
-      className={`${s['task-tree-item']} ${s['task-tree-task']}${isActive ? ` ${s.active}` : ""}`}
+      className={`${s["task-tree-item"]} ${s["task-tree-task"]}${isActive ? ` ${s.active}` : ""}`}
       onClick={() => tasks.selectNode("task", task.id)}
       onContextMenu={(e) => onContextMenu(e, "task", task)}
     >
-      <span className={s['task-tree-icon']} title={sc.label}>
+      <span className={s["task-tree-icon"]} title={sc.label}>
         {task.status === "docs" ? (
           <MemoIcon size={16} color={sc.color} />
         ) : (
-          <span className={s['task-status-dot']} style={{ background: sc.color }} />
+          <span className={s["task-status-dot"]} style={{ background: sc.color }} />
         )}
       </span>
       {isRenaming ? (
-        <InlineRename initialValue={task.name} onCommit={onRenameCommit} onCancel={onRenameCancel} />
+        <InlineRename
+          initialValue={task.name}
+          onCommit={onRenameCommit}
+          onCancel={onRenameCancel}
+        />
       ) : (
-        <span className={s['task-tree-name']}>{task.name}</span>
+        <span className={s["task-tree-name"]}>{task.name}</span>
       )}
       {task._cachedTimeSeconds ? (
-        <span className={s['task-tree-time']}>{formatTime(task._cachedTimeSeconds)}</span>
+        <span className={s["task-tree-time"]}>{formatTime(task._cachedTimeSeconds)}</span>
       ) : null}
     </div>
   );
@@ -395,4 +435,3 @@ function formatTime(seconds: number): string {
   if (hours > 0) return `${hours}h${mins > 0 ? `${mins}m` : ""}`;
   return `${mins}m`;
 }
-

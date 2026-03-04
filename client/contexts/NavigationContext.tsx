@@ -32,8 +32,10 @@ export interface ViewerState {
   onSaveType?: (type: "work" | "nonWork") => void;
   onSaveTime?: (startISO: string, endISO: string, durSecs: number) => void;
   /** Task association (work records only) */
+  projectId?: string;
+  caseId?: string;
   taskId?: string;
-  onSaveTaskId?: (taskId: string) => void;
+  onSaveHierarchy?: (projectId: string, caseId: string, taskId: string) => void;
   /** Actual duration in seconds (work records, for task stats delta) */
   actualDurationSeconds?: number;
 }
@@ -93,6 +95,9 @@ interface NavigationContextValue {
    * their state from localStorage (which is updated before this increments).
    */
   restoreSeq: number;
+  /** True while ViewerPanel is saving to server */
+  isViewerSaving: boolean;
+  setViewerSaving: (v: boolean) => void;
   /** Navigate to a specific document (memo or task node) in one action */
   navigateToDocument: (
     tab: TabId,
@@ -106,6 +111,8 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   const [activeTab, setActiveTab] = useState<TabId>("memo");
   const [viewerState, setViewerState] = useState<ViewerState | null>(null);
   const [restoreSeq, setRestoreSeq] = useState(0);
+  const [isViewerSaving, setIsViewerSaving] = useState(false);
+  const setViewerSaving = useCallback((v: boolean) => setIsViewerSaving(v), []);
 
   // All mutable state lives in refs — pushHash reads ONLY refs (no stale closures)
   const restoringRef = useRef(false);
@@ -299,6 +306,8 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
         notifyTaskNodeChange,
         notifyMemoChange,
         restoreSeq,
+        isViewerSaving,
+        setViewerSaving,
         navigateToDocument,
       }}
     >

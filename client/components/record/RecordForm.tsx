@@ -2,13 +2,14 @@
  * RecordForm — Work record submission form
  * Notion-like layout: toolbar(sticky) → meta → editor in single scroll, FormActions fixed at bottom
  */
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useApp } from "../../contexts/AppContext";
 import { useNavigation } from "../../contexts/NavigationContext";
 import type { ViewerState } from "../../contexts/NavigationContext";
 import { RecordField } from "../shared/RecordField";
 import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
+import { HierarchicalTaskPicker } from "../shared/HierarchicalTaskPicker";
 import { DocumentEditor } from "../shared/DocumentEditor";
 import type { MarkdownEditorRef } from "../shared/MarkdownEditorWrapper";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
@@ -18,16 +19,16 @@ import { blobUrlsToDrive, resolveDriveUrls } from "../../lib/imageCache";
 import { serverCall } from "../../lib/serverCall";
 import * as TaskStore from "../../lib/taskStore";
 import * as RecordCache from "../../lib/recordCache";
-import { STATUS_CONFIG } from "../../hooks/useTasks";
-import { getTaskPickerItems } from "../../hooks/useMentionConfig";
+import { SaveOverlay } from "../shared/SaveOverlay";
 import s from "./RecordForm.module.css";
 
 interface RecordDraft {
   startTimestamp: number;
   desc: string;
   category: string[];
+  projectId: string | null;
+  caseId: string | null;
   taskId: string | null;
-  taskLabel: string[];
 }
 
 export function RecordForm() {
@@ -48,26 +49,29 @@ export function RecordForm() {
   if (initialDraft && !restoredDraft) clearDraft();
 
   const [selectedCategory, setSelectedCategory] = useState<string[]>(restoredDraft?.category ?? []);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    restoredDraft?.projectId ?? null,
+  );
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(
+    restoredDraft?.caseId ?? null,
+  );
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(
     restoredDraft?.taskId ?? null,
-  );
-  const [taskItems, setTaskItems] = useState<{ name: string; color: string }[]>([]);
-  const [taskIdMap, setTaskIdMap] = useState<Record<string, string>>({});
-  const [selectedTaskLabel, setSelectedTaskLabel] = useState<string[]>(
-    restoredDraft?.taskLabel ?? [],
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Refs for latest meta values (stable onChange callback)
   const metaRef = useRef({
     category: selectedCategory,
+    projectId: selectedProjectId,
+    caseId: selectedCaseId,
     taskId: selectedTaskId,
-    taskLabel: selectedTaskLabel,
   });
   metaRef.current = {
     category: selectedCategory,
+    projectId: selectedProjectId,
+    caseId: selectedCaseId,
     taskId: selectedTaskId,
-    taskLabel: selectedTaskLabel,
   };
 
   // Save draft helper (reads desc from editor + meta from ref)
@@ -78,8 +82,9 @@ export function RecordForm() {
         startTimestamp: state.startTimestamp!,
         desc,
         category: metaRef.current.category,
+        projectId: metaRef.current.projectId,
+        caseId: metaRef.current.caseId,
         taskId: metaRef.current.taskId,
-        taskLabel: metaRef.current.taskLabel,
       });
     },
     [saveDraft, state.startTimestamp],
@@ -88,34 +93,17 @@ export function RecordForm() {
   // Re-save when meta fields change
   useEffect(() => {
     triggerSave();
-  }, [selectedCategory, selectedTaskId, selectedTaskLabel]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedCategory, selectedProjectId, selectedCaseId, selectedTaskId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load task items for picker (shared cache from useMentionConfig)
-  const STATUS_COLORS = useMemo(() => {
-    const m: Record<string, string> = {};
-    for (const [k, v] of Object.entries(STATUS_CONFIG)) m[k] = v.color;
-    return m;
-  }, []);
-
-  const refreshTaskItems = useCallback(() => {
-    const { items, idMap } = getTaskPickerItems(STATUS_COLORS);
-    setTaskItems(items);
-    setTaskIdMap(idMap);
-    // Restore selection
-    if (selectedTaskId) {
-      const label = Object.entries(idMap).find(([, id]) => id === selectedTaskId)?.[0];
-      if (label) setSelectedTaskLabel([label]);
-    }
-  }, [STATUS_COLORS, selectedTaskId]);
-
-  useEffect(() => {
-    refreshTaskItems();
-    return TaskStore.on("dataChanged", (detail: any) => {
-      if (detail?.entityType === "task" || detail?.entityType === "all") {
-        refreshTaskItems();
-      }
-    });
-  }, [refreshTaskItems]);
+  // Hierarchy picker change handler
+  const handleHierarchyChange = useCallback(
+    (pId: string | null, cId: string | null, tId: string | null) => {
+      setSelectedProjectId(pId);
+      setSelectedCaseId(cId);
+      setSelectedTaskId(tId);
+    },
+    [],
+  );
 
   // Interruption list rendering
   const interruptions = state.interruptions;
@@ -174,14 +162,13 @@ export function RecordForm() {
       if (result.category) {
         setSelectedCategory([result.category]);
       }
-      if (result.taskId) {
-        setSelectedTaskId(result.taskId);
-        refreshTaskItems();
-      }
+      if (result.projectId) setSelectedProjectId(result.projectId);
+      if (result.caseId) setSelectedCaseId(result.caseId);
+      if (result.taskId) setSelectedTaskId(result.taskId);
     } catch {
       // ignore
     }
-  }, [refreshTaskItems]);
+  }, []);
 
   // Submit record
   const submitAndDo = useCallback(
@@ -206,6 +193,8 @@ export function RecordForm() {
           endTime,
           actualSeconds,
           completionStatus,
+          selectedProjectId,
+          selectedCaseId,
           selectedTaskId,
         );
         const intRecords = buildInterruptionRecords(state, record.id);
@@ -237,8 +226,9 @@ export function RecordForm() {
         // Clear form
         editorRef.current?.clear();
         setSelectedCategory([]);
+        setSelectedProjectId(null);
+        setSelectedCaseId(null);
         setSelectedTaskId(null);
-        setSelectedTaskLabel([]);
 
         // Transition timer
         if (action === "break") {
@@ -254,11 +244,12 @@ export function RecordForm() {
         setIsSubmitting(false);
       }
     },
-    [state, selectedCategory, selectedTaskId, timer, clearDraft],
+    [state, selectedCategory, selectedProjectId, selectedCaseId, selectedTaskId, timer, clearDraft],
   );
 
   return (
     <div className={s["record-form"]}>
+      <SaveOverlay visible={isSubmitting} />
       <DocumentEditor
         {...editorConfig.editorProps}
         initialValue={restoredDraft?.desc ?? ""}
@@ -284,20 +275,12 @@ export function RecordForm() {
           />
         </RecordField>
 
-        {taskItems.length > 0 && (
-          <RecordField label="タスク">
-            <ItemPicker
-              mode="single"
-              items={taskItems}
-              selected={selectedTaskLabel}
-              onSelect={(selected) => {
-                setSelectedTaskLabel(selected);
-                setSelectedTaskId(selected.length > 0 ? taskIdMap[selected[0]] || null : null);
-              }}
-              placeholder="タスクを検索..."
-            />
-          </RecordField>
-        )}
+        <HierarchicalTaskPicker
+          projectId={selectedProjectId}
+          caseId={selectedCaseId}
+          taskId={selectedTaskId}
+          onChange={handleHierarchyChange}
+        />
       </DocumentEditor>
 
       {/* Interruption list */}
@@ -377,6 +360,8 @@ function buildRecord(
   endTime: Date,
   actualSeconds: number,
   completionStatus: string,
+  projectId: string | null,
+  caseId: string | null,
   taskId: string | null,
 ) {
   const workCount = state.interruptions.filter((i) => i.type === "work").length;
@@ -390,7 +375,7 @@ function buildRecord(
 
   return {
     id: crypto.randomUUID(),
-    date: formatDate(endTime),
+    date: formatDate(startTime),
     startTime: startTime.toISOString(),
     endTime: endTime.toISOString(),
     durationSeconds: state.config.workMinutes * 60,
@@ -405,6 +390,8 @@ function buildRecord(
     completionStatus,
     pomodoroSetIndex: state.pomodoroSetIndex,
     taskId: taskId || "",
+    projectId: projectId || "",
+    caseId: caseId || "",
   };
 }
 

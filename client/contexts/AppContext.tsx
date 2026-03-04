@@ -46,7 +46,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         : timerState.config.longBreakMinutes) * 60;
     const record = {
       id: crypto.randomUUID(),
-      date: formatDate(now),
+      date: formatDate(startTime),
       startTime: startTime.toISOString(),
       endTime: now.toISOString(),
       durationSeconds,

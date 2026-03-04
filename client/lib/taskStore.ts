@@ -215,23 +215,6 @@ export async function adjustTaskStats(
   task._cachedPomodoroCount = (task._cachedPomodoroCount || 0) + countDelta;
   await EntityStore.put("tasks", task);
 
-  // Cascade: apply same delta to parent case and project (O(1) reads)
-  if (task.caseId) {
-    const caseEntity = await EntityStore.get("cases", task.caseId);
-    if (caseEntity) {
-      caseEntity._cachedTimeSeconds = (caseEntity._cachedTimeSeconds || 0) + timeDelta;
-      caseEntity._cachedPomodoroCount = (caseEntity._cachedPomodoroCount || 0) + countDelta;
-      await EntityStore.put("cases", caseEntity);
-    }
-  }
-
-  const projEntity = await EntityStore.get("projects", task.projectId);
-  if (projEntity) {
-    projEntity._cachedTimeSeconds = (projEntity._cachedTimeSeconds || 0) + timeDelta;
-    projEntity._cachedPomodoroCount = (projEntity._cachedPomodoroCount || 0) + countDelta;
-    await EntityStore.put("projects", projEntity);
-  }
-
   EntityStore.emit("dataChanged", { entityType: "task", op: "adjustStats" });
 }
 

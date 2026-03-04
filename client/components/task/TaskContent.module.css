@@ -97,18 +97,4 @@
   text-align: center;
 }
 
-.task-record-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-  cursor: pointer;
-  font-size: 0.78rem;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.task-record-row:hover { background: var(--bg); }
-
-.task-record-date { color: var(--text-secondary); flex-shrink: 0; width: 80px; }
-.task-record-desc { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task-record-dur { color: var(--text-secondary); flex-shrink: 0; }
+.task-records-ul { list-style: none; }

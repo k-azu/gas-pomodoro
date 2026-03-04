@@ -15,6 +15,8 @@ export interface PomodoroRecord {
   completionStatus: string;
   pomodoroSetIndex: number;
   taskId?: string;
+  projectId?: string;
+  caseId?: string;
 }
 
 export interface InterruptionRecord {

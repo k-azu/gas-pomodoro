@@ -10,6 +10,7 @@ import { TypeToggle, TimeInputGroup } from "../shared/PanelToolbar";
 import { RecordField } from "../shared/RecordField";
 import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
+import { HierarchicalTaskPicker } from "../shared/HierarchicalTaskPicker";
 import { DocumentEditor } from "../shared/DocumentEditor";
 import type { MarkdownEditorRef } from "../shared/MarkdownEditorWrapper";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
@@ -17,7 +18,7 @@ import { blobUrlsToDrive, resolveDriveUrls } from "../../lib/imageCache";
 import { serverCall } from "../../lib/serverCall";
 import * as TaskStore from "../../lib/taskStore";
 import * as RecordCache from "../../lib/recordCache";
-import { STATUS_CONFIG } from "../../hooks/useTasks";
+import { SaveOverlay } from "../shared/SaveOverlay";
 import s from "./ViewerPanel.module.css";
 
 export function ViewerPanel() {
@@ -31,7 +32,7 @@ export function ViewerPanel() {
 
 function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
   const { timer } = useApp();
-  const { closeViewer } = useNavigation();
+  const { closeViewer, setViewerSaving } = useNavigation();
   const editorConfig = useEditorConfig();
 
   const editorRef = useRef<MarkdownEditorRef | null>(null);
@@ -44,60 +45,37 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
   const [endTime, setEndTime] = useState(() => toDatetimeLocal(vs.endTime));
   const [isSaving, setIsSaving] = useState(false);
 
-  // Task picker state (work records only)
-  const [taskItems, setTaskItems] = useState<{ name: string; color: string }[]>([]);
-  const [taskIdMap, setTaskIdMap] = useState<Record<string, string>>({});
-  const [selectedTaskLabel, setSelectedTaskLabel] = useState<string[]>([]);
+  // Task hierarchy state (work records only)
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(vs.projectId || null);
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(vs.caseId || null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(vs.taskId || null);
-  const showTaskPicker = vs.recordType === "record" || vs.onSaveTaskId !== undefined;
+  const showTaskPicker = vs.recordType === "record" || vs.onSaveHierarchy !== undefined;
 
-  // Load task items for picker
+  // Auto-fill project/case from taskId for legacy records (only when record has no projectId)
   useEffect(() => {
-    if (!showTaskPicker) return;
+    if (!showTaskPicker || vs.projectId || !vs.taskId) return;
     (async () => {
       try {
-        const [tasks, projects, cases] = await Promise.all([
-          TaskStore.getAllTasks(),
-          TaskStore.getAllProjects(),
-          TaskStore.getAllCases(),
-        ]);
-
-        const projMap: Record<string, string> = {};
-        (projects as any[]).forEach((p) => {
-          projMap[p.id] = p.name;
-        });
-        const caseMap: Record<string, any> = {};
-        (cases as any[]).forEach((c) => {
-          caseMap[c.id] = c;
-        });
-
-        const idMap: Record<string, string> = {};
-        const items: { name: string; color: string }[] = [];
-        (tasks as any[]).forEach((t) => {
-          if (t.status === "done" || t.status === "docs") return;
-          let path = projMap[t.projectId] || "";
-          if (t.caseId && caseMap[t.caseId]) {
-            path += " > " + caseMap[t.caseId].name;
-          }
-          const label = t.name + (path ? ` (${path})` : "");
-          const statusColor = (STATUS_CONFIG[t.status] || { color: "#9e9e9e" }).color;
-          idMap[label] = t.id;
-          items.push({ name: label, color: statusColor });
-        });
-
-        setTaskItems(items);
-        setTaskIdMap(idMap);
-
-        // Restore selection from initial taskId
-        if (vs.taskId) {
-          const label = Object.entries(idMap).find(([, id]) => id === vs.taskId)?.[0];
-          if (label) setSelectedTaskLabel([label]);
+        const tasks = await TaskStore.getAllTasks();
+        const t = (tasks as any[]).find((t) => t.id === vs.taskId);
+        if (t) {
+          if (t.projectId) setSelectedProjectId(t.projectId);
+          if (t.caseId) setSelectedCaseId(t.caseId);
         }
       } catch {
-        // TaskStore not ready yet
+        // ignore
       }
     })();
-  }, [showTaskPicker, vs.taskId]);
+  }, [showTaskPicker, vs.projectId, vs.taskId]);
+
+  const handleHierarchyChange = useCallback(
+    (pId: string | null, cId: string | null, tId: string | null) => {
+      setSelectedProjectId(pId);
+      setSelectedCaseId(cId);
+      setSelectedTaskId(tId);
+    },
+    [],
+  );
 
   // Resolve Drive URLs in initial markdown + set origMarkdown before editor mounts
   useEffect(() => {
@@ -117,6 +95,8 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
   const origType = useRef(vs.interruptionType);
   const origStartTime = useRef(startTime);
   const origEndTime = useRef(endTime);
+  const origProjectId = useRef(vs.projectId || null);
+  const origCaseId = useRef(vs.caseId || null);
   const origTaskId = useRef(vs.taskId || null);
   const origActualDuration = useRef(vs.actualDurationSeconds ?? 0);
   const origMarkdown = useRef<string | null>(null);
@@ -135,18 +115,28 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
     (vs.interruptionType ? (intType ? "work" : "nonWork") !== origType.current : false) ||
     startTime !== origStartTime.current ||
     endTime !== origEndTime.current ||
-    (showTaskPicker ? (selectedTaskId || "") !== (origTaskId.current || "") : false);
+    (showTaskPicker
+      ? (selectedProjectId || "") !== (origProjectId.current || "") ||
+        (selectedCaseId || "") !== (origCaseId.current || "") ||
+        (selectedTaskId || "") !== (origTaskId.current || "")
+      : false);
 
   const handleSave = useCallback(async () => {
     const markdown = blobUrlsToDrive(editorRef.current?.getValue() || "");
     const newCategory = selectedCategory[0] || "";
     const newType = intType ? "work" : "nonWork";
+    const newProjectId = selectedProjectId || "";
+    const newCaseId = selectedCaseId || "";
     const newTaskId = selectedTaskId || "";
     const categoryChanged = vs.sheetType && newCategory !== origCategory.current;
     const typeChanged = vs.interruptionType && newType !== origType.current;
     const startChanged = startTime !== origStartTime.current;
     const endChanged = endTime !== origEndTime.current;
-    const taskChanged = showTaskPicker && newTaskId !== (origTaskId.current || "");
+    const hierarchyChanged =
+      showTaskPicker &&
+      (newProjectId !== (origProjectId.current || "") ||
+        newCaseId !== (origCaseId.current || "") ||
+        newTaskId !== (origTaskId.current || ""));
 
     // In-memory save (editing unsaved interruption)
     if (vs.onSaveMarkdown) {
@@ -163,13 +153,15 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
         const durSecs = Math.max(0, Math.round((ne.getTime() - ns.getTime()) / 1000));
         vs.onSaveTime(ns.toISOString(), ne.toISOString(), durSecs);
       }
-      if (vs.onSaveTaskId && taskChanged) {
-        vs.onSaveTaskId(newTaskId);
+      if (vs.onSaveHierarchy && hierarchyChanged) {
+        vs.onSaveHierarchy(newProjectId, newCaseId, newTaskId);
       }
       origCategory.current = newCategory;
       origType.current = newType as "work" | "nonWork";
       origStartTime.current = startTime;
       origEndTime.current = endTime;
+      origProjectId.current = newProjectId;
+      origCaseId.current = newCaseId;
       origTaskId.current = newTaskId;
       origMarkdown.current = markdown;
       setMarkdownDirty(false);
@@ -179,6 +171,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
     // Server save
     if (!vs.recordId) return;
     setIsSaving(true);
+    setViewerSaving(true);
 
     try {
       const fn =
@@ -204,8 +197,10 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
         promises.push(serverCall(timeFn, vs.recordId, ns.toISOString(), ne.toISOString()));
       }
 
-      if (taskChanged) {
-        promises.push(serverCall("updateRecordTaskId", vs.recordId, newTaskId));
+      if (hierarchyChanged) {
+        promises.push(
+          serverCall("updateRecordHierarchy", vs.recordId, newProjectId, newCaseId, newTaskId),
+        );
       }
 
       const results = await Promise.all(promises);
@@ -247,6 +242,8 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       origType.current = newType as "work" | "nonWork";
       origStartTime.current = startTime;
       origEndTime.current = endTime;
+      origProjectId.current = newProjectId;
+      origCaseId.current = newCaseId;
       origTaskId.current = newTaskId;
       origMarkdown.current = markdown;
       setMarkdownDirty(false);
@@ -254,13 +251,29 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       alert("保存に失敗しました: " + err);
     } finally {
       setIsSaving(false);
+      setViewerSaving(false);
     }
-  }, [vs, selectedCategory, intType, startTime, endTime, selectedTaskId, showTaskPicker]);
+  }, [
+    vs,
+    selectedCategory,
+    intType,
+    startTime,
+    endTime,
+    selectedProjectId,
+    selectedCaseId,
+    selectedTaskId,
+    showTaskPicker,
+    setViewerSaving,
+  ]);
+
+  // Clean up viewer-saving flag on unmount
+  useEffect(() => () => setViewerSaving(false), [setViewerSaving]);
 
   if (resolvedMarkdown === null) return null;
 
   return (
     <div className={s["viewer-panel"]}>
+      <SaveOverlay visible={isSaving} />
       <DocumentEditor
         {...editorConfig.editorProps}
         initialValue={resolvedMarkdown}
@@ -299,19 +312,13 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
             />
           </RecordField>
         )}
-        {showTaskPicker && taskItems.length > 0 && (
-          <RecordField label="タスク">
-            <ItemPicker
-              mode="single"
-              items={taskItems}
-              selected={selectedTaskLabel}
-              onSelect={(selected) => {
-                setSelectedTaskLabel(selected);
-                setSelectedTaskId(selected.length > 0 ? taskIdMap[selected[0]] || null : null);
-              }}
-              placeholder="タスクを検索..."
-            />
-          </RecordField>
+        {showTaskPicker && (
+          <HierarchicalTaskPicker
+            projectId={selectedProjectId}
+            caseId={selectedCaseId}
+            taskId={selectedTaskId}
+            onChange={handleHierarchyChange}
+          />
         )}
       </DocumentEditor>
 

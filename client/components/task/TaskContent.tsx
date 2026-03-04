@@ -10,17 +10,21 @@ import type { UseTasksReturn } from "../../hooks/useTasks";
 import { STATUS_CONFIG, STATUS_ITEMS, statusLabelToKey } from "../../hooks/useTasks";
 import { useDocumentEditor } from "../../hooks/useDocumentEditor";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
+import { useTaskRecordCache } from "../../hooks/useTaskRecordCache";
+import { useApp } from "../../contexts/AppContext";
+import { useNavigation } from "../../contexts/NavigationContext";
+import type { ViewerState } from "../../contexts/NavigationContext";
 import { ItemPicker } from "../shared/ItemPicker";
 import { ContentHeaderName } from "../shared/ContentHeader";
 import { SidebarExpandButton } from "../shared/Sidebar";
 import { RecordField } from "../shared/RecordField";
+import { RecordRow } from "../shared/RecordRow";
 import { DocumentEditor, ToolbarSlot, MetaTitle, pageRootClass } from "../shared/DocumentEditor";
 import { SyncIndicator } from "../shared/SyncIndicator";
 import { TaskTableView } from "./TaskTableView";
 import s from "./TaskContent.module.css";
 import * as TaskStore from "../../lib/taskStore";
 import * as EntityStore from "../../lib/entityStore";
-import { serverCall } from "../../lib/serverCall";
 
 interface TaskContentProps {
   tasks: UseTasksReturn;
@@ -207,11 +211,6 @@ function ProjectMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
           }
         />
       </MetaTitle>
-      {entity._cachedTimeSeconds ? (
-        <RecordField label="作業時間">
-          <span className={s["task-detail-time"]}>{formatTime(entity._cachedTimeSeconds)}</span>
-        </RecordField>
-      ) : null}
     </>
   );
 }
@@ -232,11 +231,6 @@ function CaseMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
           }}
         />
       </MetaTitle>
-      {entity._cachedTimeSeconds ? (
-        <RecordField label="作業時間">
-          <span className={s["task-detail-time"]}>{formatTime(entity._cachedTimeSeconds)}</span>
-        </RecordField>
-      ) : null}
     </>
   );
 }
@@ -304,58 +298,70 @@ function TaskMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
 // =========================================================
 
 function TaskWorkRecords({ id }: { id: string }) {
-  const [recordsOpen, setRecordsOpen] = useState(false);
-  const [records, setRecords] = useState<any[] | null>(null);
-  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [entity] = useEntity("tasks", "task", id);
+  const pomodoroCount: number = entity?._cachedPomodoroCount || 0;
+  const { records, interruptions, isLoading } = useTaskRecordCache(id, pomodoroCount);
+  const { timer } = useApp();
+  const { showViewer, isViewerSaving } = useNavigation();
 
-  useEffect(() => {
-    if (recordsOpen && records === null) {
-      setRecordsLoading(true);
-      serverCall("getTaskPomodoroRecords", id)
-        .then((data) => setRecords((data as any[]) || []))
-        .catch(() => setRecords([]))
-        .finally(() => setRecordsLoading(false));
-    }
-  }, [recordsOpen, records, id]);
+  const guardedShowViewer = useCallback(
+    (state: ViewerState) => {
+      if (isViewerSaving) return;
+      showViewer(state);
+    },
+    [showViewer, isViewerSaving],
+  );
+
+  const categories = timer.state.categories;
+  const intCategories = timer.state.interruptionCategories;
+
+  const colorMap: Record<string, string> = {};
+  categories.forEach((c) => {
+    colorMap[c.name] = c.color;
+  });
+
+  // Group interruptions by pomodoroId
+  const intMap: Record<string, typeof interruptions> = {};
+  interruptions.forEach((i) => {
+    if (!intMap[i.pomodoroId]) intMap[i.pomodoroId] = [];
+    intMap[i.pomodoroId].push(i);
+  });
+
+  const workRecords = records.filter((r) => r.type === "work");
+
+  const badge =
+    pomodoroCount > 0 && pomodoroCount <= 5
+      ? " " + "🍅".repeat(pomodoroCount)
+      : pomodoroCount > 5
+        ? ` 🍅×${pomodoroCount}`
+        : "";
 
   return (
-    <details
-      className={s["task-records-section"]}
-      open={recordsOpen}
-      onToggle={(e) => setRecordsOpen((e.target as HTMLDetailsElement).open)}
-    >
-      <summary>作業記録</summary>
+    <details className={s["task-records-section"]}>
+      <summary>作業記録{badge}</summary>
       <div className={s["task-records-list"]}>
-        {recordsLoading && <div className={s["task-records-loading"]}>読み込み中...</div>}
-        {!recordsLoading && records && records.length === 0 && (
+        {isLoading && workRecords.length === 0 && (
+          <div className={s["task-records-loading"]}>読み込み中...</div>
+        )}
+        {!isLoading && workRecords.length === 0 && (
           <div className={s["task-records-empty"]}>作業記録がありません</div>
         )}
-        {!recordsLoading &&
-          records
-            ?.filter((r) => r.type === "work")
-            .map((r) => <TaskRecordRow key={r.id} record={r} />)}
+        {workRecords.length > 0 && (
+          <ul className={s["task-records-ul"]}>
+            {workRecords.map((r) => (
+              <RecordRow
+                key={r.id}
+                record={r}
+                interruptions={intMap[r.id] || []}
+                colorMap={colorMap}
+                intCategories={intCategories}
+                showViewer={guardedShowViewer}
+              />
+            ))}
+          </ul>
+        )}
       </div>
     </details>
-  );
-}
-
-function TaskRecordRow({ record }: { record: any }) {
-  const firstLine = (record.description || "").split("\n")[0].trim() || "(無題)";
-  const durMin = Math.floor((record.actualDurationSeconds || 0) / 60);
-  let dateStr = "";
-  try {
-    const d = new Date(record.startTime);
-    dateStr = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  } catch {
-    // ignore
-  }
-
-  return (
-    <div className={s["task-record-row"]}>
-      <span className={s["task-record-date"]}>{dateStr}</span>
-      <span className={s["task-record-desc"]}>{firstLine}</span>
-      <span className={s["task-record-dur"]}>{durMin}分</span>
-    </div>
   );
 }
 

@@ -96,26 +96,6 @@ function ensureCacheListener(): void {
 }
 
 // =========================================================
-// Public accessor for task picker (RecordForm etc.)
-// =========================================================
-
-/** Return task cache filtered for picker use (excludes done/docs, adds status color). */
-export function getTaskPickerItems(statusColors: Record<string, string>): {
-  items: { name: string; color: string }[];
-  idMap: Record<string, string>;
-} {
-  ensureCacheListener();
-  const items: { name: string; color: string }[] = [];
-  const idMap: Record<string, string> = {};
-  for (const t of _taskCache) {
-    if (t.status === "done" || t.status === "docs") continue;
-    idMap[t.label] = t.id;
-    items.push({ name: t.label, color: statusColors[t.status] || "#9e9e9e" });
-  }
-  return { items, idMap };
-}
-
-// =========================================================
 // Hook
 // =========================================================
 

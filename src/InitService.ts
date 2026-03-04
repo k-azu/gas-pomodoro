@@ -37,16 +37,7 @@ function initializeSpreadsheet(): void {
     intSheet
       .getRange("A1:H1")
       .setValues([
-        [
-          "id",
-          "pomodoroId",
-          "type",
-          "startTime",
-          "endTime",
-          "durationSeconds",
-          "category",
-          "note",
-        ],
+        ["id", "pomodoroId", "type", "startTime", "endTime", "durationSeconds", "category", "note"],
       ]);
     intSheet.getRange("A1:H1").setFontWeight("bold");
     intSheet.setFrozenRows(1);
@@ -56,9 +47,7 @@ function initializeSpreadsheet(): void {
   let catSheet = ss.getSheetByName("Categories");
   if (!catSheet) {
     catSheet = ss.insertSheet("Categories");
-    catSheet
-      .getRange("A1:D1")
-      .setValues([["name", "color", "sortOrder", "isActive"]]);
+    catSheet.getRange("A1:D1").setValues([["name", "color", "sortOrder", "isActive"]]);
     catSheet.getRange("A1:D1").setFontWeight("bold");
     catSheet.setFrozenRows(1);
     // Default categories
@@ -73,9 +62,7 @@ function initializeSpreadsheet(): void {
   let intCatSheet = ss.getSheetByName("InterruptionCategories");
   if (!intCatSheet) {
     intCatSheet = ss.insertSheet("InterruptionCategories");
-    intCatSheet
-      .getRange("A1:D1")
-      .setValues([["name", "color", "sortOrder", "isActive"]]);
+    intCatSheet.getRange("A1:D1").setValues([["name", "color", "sortOrder", "isActive"]]);
     intCatSheet.getRange("A1:D1").setFontWeight("bold");
     intCatSheet.setFrozenRows(1);
     intCatSheet.getRange("A2:D7").setValues([
@@ -95,16 +82,7 @@ function initializeSpreadsheet(): void {
     memosSheet
       .getRange("A1:H1")
       .setValues([
-        [
-          "id",
-          "name",
-          "content",
-          "tags",
-          "createdAt",
-          "updatedAt",
-          "sortOrder",
-          "isActive",
-        ],
+        ["id", "name", "content", "tags", "createdAt", "updatedAt", "sortOrder", "isActive"],
       ]);
     memosSheet.getRange("A1:H1").setFontWeight("bold");
     memosSheet.setFrozenRows(1);
@@ -114,9 +92,7 @@ function initializeSpreadsheet(): void {
   let memoTagsSheet = ss.getSheetByName("MemoTags");
   if (!memoTagsSheet) {
     memoTagsSheet = ss.insertSheet("MemoTags");
-    memoTagsSheet
-      .getRange("A1:D1")
-      .setValues([["name", "color", "sortOrder", "isActive"]]);
+    memoTagsSheet.getRange("A1:D1").setValues([["name", "color", "sortOrder", "isActive"]]);
     memoTagsSheet.getRange("A1:D1").setFontWeight("bold");
     memoTagsSheet.setFrozenRows(1);
   }
@@ -128,16 +104,7 @@ function initializeSpreadsheet(): void {
     projSheet
       .getRange("A1:H1")
       .setValues([
-        [
-          "id",
-          "name",
-          "content",
-          "color",
-          "sortOrder",
-          "isActive",
-          "createdAt",
-          "updatedAt",
-        ],
+        ["id", "name", "content", "color", "sortOrder", "isActive", "createdAt", "updatedAt"],
       ]);
     projSheet.getRange("A1:H1").setFontWeight("bold");
     projSheet.setFrozenRows(1);
@@ -150,16 +117,7 @@ function initializeSpreadsheet(): void {
     casesSheet
       .getRange("A1:H1")
       .setValues([
-        [
-          "id",
-          "projectId",
-          "name",
-          "content",
-          "sortOrder",
-          "isActive",
-          "createdAt",
-          "updatedAt",
-        ],
+        ["id", "projectId", "name", "content", "sortOrder", "isActive", "createdAt", "updatedAt"],
       ]);
     casesSheet.getRange("A1:H1").setFontWeight("bold");
     casesSheet.setFrozenRows(1);
@@ -196,6 +154,46 @@ function initializeSpreadsheet(): void {
   if (logSheet.getRange("P1").getValue() === "") {
     logSheet.getRange("P1").setValue("taskId");
     logSheet.getRange("P1").setFontWeight("bold");
+  }
+
+  // PomodoroLog: add projectId (Q) and caseId (R) columns if not present
+  if (logSheet.getRange("Q1").getValue() === "") {
+    logSheet.getRange("Q1").setValue("projectId");
+    logSheet.getRange("Q1").setFontWeight("bold");
+    logSheet.getRange("R1").setValue("caseId");
+    logSheet.getRange("R1").setFontWeight("bold");
+
+    // Backfill: resolve projectId/caseId from taskId via Tasks sheet
+    const logLastRow = logSheet.getLastRow();
+    if (logLastRow > 1) {
+      const taskIds = logSheet.getRange(2, 16, logLastRow - 1, 1).getValues(); // col P = taskId
+      const tasksSheet = ss.getSheetByName("Tasks");
+      if (tasksSheet) {
+        const tasksLastRow = tasksSheet.getLastRow();
+        if (tasksLastRow > 1) {
+          const taskData = tasksSheet.getRange(2, 1, tasksLastRow - 1, 3).getValues(); // id, projectId, caseId
+          const taskMap: { [id: string]: { projectId: string; caseId: string } } = {};
+          taskData.forEach((row) => {
+            taskMap[String(row[0])] = {
+              projectId: String(row[1]),
+              caseId: String(row[2]),
+            };
+          });
+
+          const projCol: string[][] = [];
+          const caseCol: string[][] = [];
+          taskIds.forEach((row) => {
+            const tid = String(row[0]);
+            const info = tid ? taskMap[tid] : undefined;
+            projCol.push([info?.projectId || ""]);
+            caseCol.push([info?.caseId || ""]);
+          });
+
+          logSheet.getRange(2, 17, logLastRow - 1, 1).setValues(projCol);
+          logSheet.getRange(2, 18, logLastRow - 1, 1).setValues(caseCol);
+        }
+      }
+    }
   }
 
   // TimerConfig sheet

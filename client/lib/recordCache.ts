@@ -100,6 +100,10 @@ export function getRecordsByDate(dateStr: string): Promise<PomodoroRecord[]> {
   return EntityStore.getByIndex(STORE_RECORDS, "date", dateStr);
 }
 
+export function getRecordsByTaskId(taskId: string): Promise<PomodoroRecord[]> {
+  return EntityStore.getByIndex(STORE_RECORDS, "taskId", taskId);
+}
+
 export async function getInterruptionsByPomodoroIds(
   pomodoroIds: string[],
 ): Promise<InterruptionRecord[]> {

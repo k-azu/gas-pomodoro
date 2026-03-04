@@ -6,8 +6,6 @@ interface ProjectMetadata {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
-  _cachedTimeSeconds?: number;
-  _cachedPomodoroCount?: number;
 }
 
 interface CaseMetadata {
@@ -18,8 +16,6 @@ interface CaseMetadata {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
-  _cachedTimeSeconds?: number;
-  _cachedPomodoroCount?: number;
 }
 
 interface TaskMetadata {
@@ -133,7 +129,7 @@ function getAllTaskData(): {
   const logLastRow = logSheet.getLastRow();
   if (logLastRow > 1) {
     // Read taskId (col 16) and actualDurationSeconds (col 6)
-    const logData = logSheet.getRange(2, 1, logLastRow - 1, 16).getValues();
+    const logData = logSheet.getRange(2, 1, logLastRow - 1, 18).getValues();
     const timeByTaskId: { [taskId: string]: number } = {};
     const countByTaskId: { [taskId: string]: number } = {};
     logData.forEach((row) => {
@@ -150,32 +146,6 @@ function getAllTaskData(): {
     tasks.forEach((t) => {
       if (timeByTaskId[t.id]) t._cachedTimeSeconds = timeByTaskId[t.id];
       if (countByTaskId[t.id]) t._cachedPomodoroCount = countByTaskId[t.id];
-    });
-
-    // Aggregate to cases and projects
-    const timeByCaseId: { [caseId: string]: number } = {};
-    const timeByProjectId: { [projectId: string]: number } = {};
-    const countByCaseId: { [caseId: string]: number } = {};
-    const countByProjectId: { [projectId: string]: number } = {};
-    tasks.forEach((t) => {
-      const secs = t._cachedTimeSeconds || 0;
-      const cnt = t._cachedPomodoroCount || 0;
-      if (secs > 0 || cnt > 0) {
-        if (t.caseId) {
-          timeByCaseId[t.caseId] = (timeByCaseId[t.caseId] || 0) + secs;
-          countByCaseId[t.caseId] = (countByCaseId[t.caseId] || 0) + cnt;
-        }
-        timeByProjectId[t.projectId] = (timeByProjectId[t.projectId] || 0) + secs;
-        countByProjectId[t.projectId] = (countByProjectId[t.projectId] || 0) + cnt;
-      }
-    });
-    cases.forEach((c) => {
-      if (timeByCaseId[c.id]) c._cachedTimeSeconds = timeByCaseId[c.id];
-      if (countByCaseId[c.id]) c._cachedPomodoroCount = countByCaseId[c.id];
-    });
-    projects.forEach((p) => {
-      if (timeByProjectId[p.id]) p._cachedTimeSeconds = timeByProjectId[p.id];
-      if (countByProjectId[p.id]) p._cachedPomodoroCount = countByProjectId[p.id];
     });
   }
 
@@ -542,7 +512,7 @@ function getTaskPomodoroRecords(taskId: string): PomodoroRecord[] {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
 
-  const data = sheet.getRange(2, 1, lastRow - 1, 16).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, 18).getValues();
   return data
     .filter((row) => String(row[15]) === taskId)
     .map((row) => ({
@@ -562,6 +532,8 @@ function getTaskPomodoroRecords(taskId: string): PomodoroRecord[] {
       completionStatus: String(row[13]),
       pomodoroSetIndex: Number(row[14]),
       taskId: String(row[15]),
+      projectId: row[16] != null ? String(row[16]) : "",
+      caseId: row[17] != null ? String(row[17]) : "",
     }))
     .reverse();
 }

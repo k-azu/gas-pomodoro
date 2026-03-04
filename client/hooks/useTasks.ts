@@ -24,8 +24,6 @@ export interface ProjectItem {
   name: string;
   color: string;
   sortOrder: number;
-  _cachedTimeSeconds?: number;
-  _cachedPomodoroCount?: number;
 }
 
 export interface CaseItem {
@@ -34,8 +32,6 @@ export interface CaseItem {
   name: string;
   color?: string;
   sortOrder: number;
-  _cachedTimeSeconds?: number;
-  _cachedPomodoroCount?: number;
 }
 
 export interface TaskItem {
