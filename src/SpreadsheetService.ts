@@ -6,7 +6,7 @@ interface PomodoroRecord {
   durationSeconds: number;
   actualDurationSeconds: number;
   type: string;
-  description: string;
+  content: string;
   category: string;
   workInterruptions: number;
   nonWorkInterruptions: number;
@@ -27,7 +27,7 @@ interface InterruptionRecord {
   endTime: string;
   durationSeconds: number;
   category: string;
-  note: string;
+  content: string;
 }
 
 function saveRecord(record: PomodoroRecord): { success: boolean } {
@@ -44,7 +44,7 @@ function saveRecord(record: PomodoroRecord): { success: boolean } {
     record.durationSeconds,
     record.actualDurationSeconds,
     record.type,
-    record.description,
+    record.content,
     record.category,
     record.workInterruptions,
     record.nonWorkInterruptions,
@@ -96,7 +96,7 @@ function saveInterruptions(interruptions: InterruptionRecord[]): {
     r.endTime,
     r.durationSeconds,
     r.category,
-    r.note,
+    r.content,
   ]);
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 8).setValues(rows);
   return { success: true };
@@ -118,7 +118,7 @@ function readRecordFromRow(row: any[], tz: string): PomodoroRecord {
     durationSeconds: Number(row[4]),
     actualDurationSeconds: Number(row[5]),
     type: String(row[6]),
-    description: String(row[7]),
+    content: String(row[7]),
     category: String(row[8]),
     workInterruptions: Number(row[9]),
     nonWorkInterruptions: Number(row[10]),
@@ -141,7 +141,7 @@ function readInterruptionFromRow(row: any[]): InterruptionRecord {
     endTime: String(row[4]),
     durationSeconds: Number(row[5]),
     category: String(row[6]),
-    note: String(row[7]),
+    content: String(row[7]),
   };
 }
 
@@ -204,9 +204,9 @@ function getRecentRecordsBulk(limit: number = 1000): {
   return { records, interruptions };
 }
 
-function updateRecordDescription(
+function updateRecordContent(
   recordId: string,
-  description: string,
+  content: string,
 ): { success: boolean; record?: PomodoroRecord } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tz = Session.getScriptTimeZone();
@@ -217,16 +217,16 @@ function updateRecordDescription(
   const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
   for (let i = ids.length - 1; i >= 0; i--) {
     if (String(ids[i][0]) === recordId) {
-      sheet.getRange(i + 2, 8).setValue(description); // column 8 = description
+      sheet.getRange(i + 2, 8).setValue(content); // column 8 = content
       return { success: true, record: readRecordRow(sheet, i + 2, tz) };
     }
   }
   return { success: false };
 }
 
-function updateInterruptionNote(
+function updateInterruptionContent(
   interruptionId: string,
-  note: string,
+  content: string,
 ): { success: boolean; interruption?: InterruptionRecord } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Interruptions")!;
@@ -236,7 +236,7 @@ function updateInterruptionNote(
   const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
   for (let i = ids.length - 1; i >= 0; i--) {
     if (String(ids[i][0]) === interruptionId) {
-      sheet.getRange(i + 2, 8).setValue(note); // column 8 = note
+      sheet.getRange(i + 2, 8).setValue(content); // column 8 = content
       return { success: true, interruption: readInterruptionRow(sheet, i + 2) };
     }
   }
@@ -514,7 +514,7 @@ function getRefreshData(): {
         durationSeconds: Number(row[4]),
         actualDurationSeconds: Number(row[5]),
         type: String(row[6]),
-        description: String(row[7]),
+        content: String(row[7]),
         category: String(row[8]),
         workInterruptions: Number(row[9]),
         nonWorkInterruptions: Number(row[10]),
@@ -554,7 +554,7 @@ function getRefreshData(): {
         endTime: String(row[4]),
         durationSeconds: Number(row[5]),
         category: String(row[6]),
-        note: String(row[7]),
+        content: String(row[7]),
       }));
   }
 
@@ -620,7 +620,7 @@ function getDataForDate(dateStr: string): {
         durationSeconds: Number(row[4]),
         actualDurationSeconds: Number(row[5]),
         type: String(row[6]),
-        description: String(row[7]),
+        content: String(row[7]),
         category: String(row[8]),
         workInterruptions: Number(row[9]),
         nonWorkInterruptions: Number(row[10]),
@@ -657,7 +657,7 @@ function getDataForDate(dateStr: string): {
         endTime: String(row[4]),
         durationSeconds: Number(row[5]),
         category: String(row[6]),
-        note: String(row[7]),
+        content: String(row[7]),
       }));
   }
 
@@ -706,7 +706,7 @@ function getWeekRecordCounts(weekStartDate: string): {
 }
 
 function getLastWorkRecord(): {
-  description: string;
+  content: string;
   category: string;
   taskId: string;
   projectId: string;
@@ -722,7 +722,7 @@ function getLastWorkRecord(): {
   for (let i = data.length - 1; i >= 0; i--) {
     if (String(data[i][6]) === "work") {
       return {
-        description: String(data[i][7]),
+        content: String(data[i][7]),
         category: String(data[i][8]),
         taskId: String(data[i][15]),
         projectId: String(data[i][16]),
@@ -760,6 +760,6 @@ function getTodayInterruptions(): InterruptionRecord[] {
       endTime: String(row[4]),
       durationSeconds: Number(row[5]),
       category: String(row[6]),
-      note: String(row[7]),
+      content: String(row[7]),
     }));
 }

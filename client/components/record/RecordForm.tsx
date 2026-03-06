@@ -122,7 +122,7 @@ export function RecordForm() {
       if (!int) return;
 
       const viewerState: ViewerState = {
-        markdown: int.note || "",
+        markdown: int.content || "",
         recordId: null,
         recordType: null,
         category: int.category || "",
@@ -131,7 +131,7 @@ export function RecordForm() {
         startTime: int.startTime,
         endTime: int.endTime,
         onSaveMarkdown: (markdown) => {
-          timer.state.interruptions[index].note = markdown;
+          timer.state.interruptions[index].content = markdown;
         },
         onSaveCategory: (category) => {
           timer.state.interruptions[index].category = category;
@@ -155,8 +155,8 @@ export function RecordForm() {
     try {
       const result = (await serverCall("getLastWorkRecord")) as any;
       if (!result) return;
-      if (result.description && editorRef.current) {
-        const resolved = await resolveDriveUrls(result.description);
+      if (result.content && editorRef.current) {
+        const resolved = await resolveDriveUrls(result.content);
         editorRef.current.setValue(resolved);
       }
       if (result.category) {
@@ -178,7 +178,7 @@ export function RecordForm() {
 
       try {
         const endTime = new Date();
-        const description = blobUrlsToDrive(editorRef.current?.getValue() || "").trim();
+        const content = blobUrlsToDrive(editorRef.current?.getValue() || "").trim();
         const category = selectedCategory[0] || "";
         const startTime = new Date(state.startTimestamp!);
         const actualSeconds = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
@@ -187,7 +187,7 @@ export function RecordForm() {
 
         const record = buildRecord(
           state,
-          description,
+          content,
           category,
           startTime,
           endTime,
@@ -295,7 +295,7 @@ export function RecordForm() {
               const mins = Math.floor(int.durationSeconds / 60);
               const secs = int.durationSeconds % 60;
               const durStr = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-              const title = int.note?.split("\n")[0]?.trim() || "";
+              const title = int.content?.split("\n")[0]?.trim() || "";
               const parts = [typeLabel, durStr, int.category, title].filter(Boolean);
               const catColor = state.interruptionCategories.find(
                 (c) => c.name === int.category,
@@ -354,7 +354,7 @@ function formatDate(d: Date): string {
 
 function buildRecord(
   state: import("../../types/timer").TimerState,
-  description: string,
+  content: string,
   category: string,
   startTime: Date,
   endTime: Date,
@@ -381,7 +381,7 @@ function buildRecord(
     durationSeconds: state.config.workMinutes * 60,
     actualDurationSeconds: actualSeconds,
     type: "work",
-    description,
+    content,
     category,
     workInterruptions: workCount,
     nonWorkInterruptions: nonWorkCount,
@@ -407,7 +407,7 @@ function buildInterruptionRecords(
     endTime: i.endTime,
     durationSeconds: i.durationSeconds,
     category: i.category || "",
-    note: i.note || "",
+    content: i.content || "",
   }));
 }
 

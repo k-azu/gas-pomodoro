@@ -16,7 +16,7 @@ function initializeSpreadsheet(): void {
           "durationSeconds",
           "actualDurationSeconds",
           "type",
-          "description",
+          "content",
           "category",
           "workInterruptions",
           "nonWorkInterruptions",
@@ -37,7 +37,16 @@ function initializeSpreadsheet(): void {
     intSheet
       .getRange("A1:H1")
       .setValues([
-        ["id", "pomodoroId", "type", "startTime", "endTime", "durationSeconds", "category", "note"],
+        [
+          "id",
+          "pomodoroId",
+          "type",
+          "startTime",
+          "endTime",
+          "durationSeconds",
+          "category",
+          "content",
+        ],
       ]);
     intSheet.getRange("A1:H1").setFontWeight("bold");
     intSheet.setFrozenRows(1);

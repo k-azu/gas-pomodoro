@@ -6,7 +6,7 @@ export interface PomodoroRecord {
   durationSeconds: number;
   actualDurationSeconds: number;
   type: string;
-  description: string;
+  content: string;
   category: string;
   workInterruptions: number;
   nonWorkInterruptions: number;
@@ -27,7 +27,7 @@ export interface InterruptionRecord {
   endTime: string;
   durationSeconds: number;
   category: string;
-  note: string;
+  content: string;
 }
 
 export interface TodayStats {

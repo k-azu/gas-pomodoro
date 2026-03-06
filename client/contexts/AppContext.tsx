@@ -52,7 +52,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       durationSeconds,
       actualDurationSeconds: Math.round((now.getTime() - startTime.getTime()) / 1000),
       type: breakType,
-      description: "",
+      content: "",
       category: "",
       workInterruptions: 0,
       nonWorkInterruptions: 0,

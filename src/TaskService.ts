@@ -523,7 +523,7 @@ function getTaskPomodoroRecords(taskId: string): PomodoroRecord[] {
       durationSeconds: Number(row[4]),
       actualDurationSeconds: Number(row[5]),
       type: String(row[6]),
-      description: String(row[7]),
+      content: String(row[7]),
       category: String(row[8]),
       workInterruptions: Number(row[9]),
       nonWorkInterruptions: Number(row[10]),

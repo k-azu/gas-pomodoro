@@ -49,7 +49,7 @@ export function RecordRow({
   showViewer: (state: ViewerState) => void;
 }) {
   const catColor = r.category ? colorMap[r.category] : undefined;
-  const firstLine = (r.description || "")
+  const firstLine = (r.content || "")
     .split("\n")[0]
     .replace(/&nbsp;/g, " ")
     .trim();
@@ -73,7 +73,7 @@ export function RecordRow({
         className={s["record-item-row"]}
         onClick={() =>
           showViewer({
-            markdown: (r.description || "").trim(),
+            markdown: (r.content || "").trim(),
             recordId: r.id,
             recordType: "record",
             category: r.category || "",
@@ -129,7 +129,7 @@ export function InterruptionRow({
   const catObj = int.category ? intCategories.find((c) => c.name === int.category) : undefined;
   const catColor = catObj?.color;
 
-  const firstLine = (int.note || "")
+  const firstLine = (int.content || "")
     .split("\n")[0]
     .replace(/&nbsp;/g, " ")
     .trim();
@@ -149,7 +149,7 @@ export function InterruptionRow({
       onClick={(e) => {
         e.stopPropagation();
         showViewer({
-          markdown: (int.note || "").trim(),
+          markdown: (int.content || "").trim(),
           recordId: int.id,
           recordType: "interruption",
           category: int.category || "",

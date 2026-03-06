@@ -62,7 +62,7 @@ export interface UseTimerReturn {
   state: TimerState;
   startWork: () => void;
   startInterruption: () => void;
-  endInterruption: (type: "work" | "nonWork", category: string, note: string) => void;
+  endInterruption: (type: "work" | "nonWork", category: string, content: string) => void;
   discardInterruption: () => void;
   completeBreak: () => void;
   onRecordSaved: () => void;
@@ -278,7 +278,7 @@ export function useTimer(
   }, [persistState]);
 
   const endInterruption = useCallback(
-    (type: "work" | "nonWork", category: string, note: string) => {
+    (type: "work" | "nonWork", category: string, content: string) => {
       if (stateRef.current.phase !== "interrupted" || !stateRef.current.currentInterruption) return;
 
       const now = Date.now();
@@ -294,7 +294,7 @@ export function useTimer(
           endTime: new Date(now).toISOString(),
           durationSeconds,
           category,
-          note,
+          content,
         };
 
         const next: TimerState = {

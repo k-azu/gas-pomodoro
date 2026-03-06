@@ -175,7 +175,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
 
     try {
       const fn =
-        vs.recordType === "interruption" ? "updateInterruptionNote" : "updateRecordDescription";
+        vs.recordType === "interruption" ? "updateInterruptionContent" : "updateRecordContent";
 
       const promises: Promise<unknown>[] = [serverCall(fn, vs.recordId, markdown)];
 

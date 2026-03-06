@@ -68,7 +68,7 @@ const MOCK_RECORDS = [
     durationSeconds: 1500,
     actualDurationSeconds: 1500,
     type: "work",
-    description: "機能Aの実装\n\n- エンドポイント追加\n- テスト作成",
+    content: "機能Aの実装\n\n- エンドポイント追加\n- テスト作成",
     category: "開発",
     workInterruptions: 1,
     nonWorkInterruptions: 0,
@@ -86,7 +86,7 @@ const MOCK_RECORDS = [
     durationSeconds: 1500,
     actualDurationSeconds: 1500,
     type: "work",
-    description: "コードレビュー\n\nPR #42 のレビュー",
+    content: "コードレビュー\n\nPR #42 のレビュー",
     category: "レビュー",
     workInterruptions: 0,
     nonWorkInterruptions: 1,
@@ -104,7 +104,7 @@ const MOCK_RECORDS = [
     durationSeconds: 1500,
     actualDurationSeconds: 900,
     type: "work",
-    description: "バグ調査",
+    content: "バグ調査",
     category: "開発",
     workInterruptions: 0,
     nonWorkInterruptions: 0,
@@ -125,7 +125,7 @@ const MOCK_INTERRUPTIONS = [
     endTime: new Date(Date.now() - 2940000).toISOString(),
     durationSeconds: 60,
     category: "質問",
-    note: "Slack で質問対応\n\nAPI仕様について確認",
+    content: "Slack で質問対応\n\nAPI仕様について確認",
   },
   {
     id: "mock-int-2",
@@ -135,7 +135,7 @@ const MOCK_INTERRUPTIONS = [
     endTime: new Date(Date.now() - 5880000).toISOString(),
     durationSeconds: 120,
     category: "緊急対応",
-    note: "サーバーアラート確認",
+    content: "サーバーアラート確認",
   },
 ];
 
@@ -305,7 +305,7 @@ const MOCK_TASK_RECORDS = [
   {
     id: "mock-rec-1",
     type: "work",
-    description: "機能Aの実装",
+    content: "機能Aの実装",
     actualDurationSeconds: 1500,
     startTime: new Date(Date.now() - 3600000).toISOString(),
     endTime: new Date(Date.now() - 2100000).toISOString(),
@@ -314,7 +314,7 @@ const MOCK_TASK_RECORDS = [
   {
     id: "mock-rec-3",
     type: "work",
-    description: "バグ調査",
+    content: "バグ調査",
     actualDurationSeconds: 900,
     startTime: new Date(Date.now() - 10800000).toISOString(),
     endTime: new Date(Date.now() - 9300000).toISOString(),
@@ -586,14 +586,14 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
     case "getLastWorkRecord":
       return MOCK_RECORDS[0] || null;
 
-    case "updateRecordDescription":
+    case "updateRecordContent":
     case "updateRecordCategory":
     case "updateRecordTimes":
     case "updateRecordTaskId":
       return { success: true, record: MOCK_RECORDS[0] };
 
     // ---- Interruption CRUD ----
-    case "updateInterruptionNote":
+    case "updateInterruptionContent":
     case "updateInterruptionCategory":
     case "updateInterruptionType":
     case "updateInterruptionTimes":

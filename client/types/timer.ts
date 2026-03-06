@@ -1,10 +1,4 @@
-export type Phase =
-  | "idle"
-  | "work"
-  | "interrupted"
-  | "shortBreak"
-  | "longBreak"
-  | "breakDone";
+export type Phase = "idle" | "work" | "interrupted" | "shortBreak" | "longBreak" | "breakDone";
 
 export interface TimerConfig {
   patternName: string;
@@ -22,7 +16,7 @@ export interface InterruptionEntry {
   endTime: string;
   durationSeconds: number;
   category: string;
-  note: string;
+  content: string;
 }
 
 export interface CurrentInterruption {

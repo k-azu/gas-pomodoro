@@ -18,7 +18,7 @@ import { serverCall } from "../../lib/serverCall";
 import s from "./InterruptionForm.module.css";
 
 interface InterruptionDraft {
-  note: string;
+  content: string;
   isWork: boolean;
   category: string[];
 }
@@ -45,9 +45,9 @@ export function InterruptionForm() {
   // Save draft helper
   const triggerSave = useCallback(
     (noteOverride?: string) => {
-      const note = noteOverride ?? editorRef.current?.getValue() ?? "";
+      const content = noteOverride ?? editorRef.current?.getValue() ?? "";
       saveDraft({
-        note,
+        content,
         isWork: metaRef.current.isWork,
         category: metaRef.current.category,
       });
@@ -63,9 +63,9 @@ export function InterruptionForm() {
   const handleResume = useCallback(() => {
     const type = isWork ? "work" : "nonWork";
     const category = selectedCategory[0] || "";
-    const note = blobUrlsToDrive(editorRef.current?.getValue() || "").trim();
+    const content = blobUrlsToDrive(editorRef.current?.getValue() || "").trim();
     clearDraft();
-    timer.endInterruption(type as "work" | "nonWork", category, note);
+    timer.endInterruption(type as "work" | "nonWork", category, content);
     // Reset form for next interruption
     setIsWork(true);
     setSelectedCategory([]);
@@ -84,7 +84,7 @@ export function InterruptionForm() {
     <div className={s["interruption-form"]}>
       <DocumentEditor
         {...editorConfig.editorProps}
-        initialValue={initialDraft?.note ?? ""}
+        initialValue={initialDraft?.content ?? ""}
         onChange={(md) => triggerSave(md)}
         placeholder="中断の内容を記録..."
         editorRef={editorRef}
