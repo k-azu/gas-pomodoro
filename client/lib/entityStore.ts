@@ -9,6 +9,21 @@
 import { serverCall } from "./serverCall";
 
 // =========================================================
+// Debug Logging
+// =========================================================
+
+let _debugSync = false;
+
+/** Enable/disable sync debug logging. Call `EntityStore.setDebugSync(true)` from DevTools. */
+export function setDebugSync(enabled: boolean): void {
+  _debugSync = enabled;
+}
+
+function logSync(tag: string, ...args: unknown[]): void {
+  if (_debugSync) console.log(`%c[Sync] ${tag}`, "color: #4285f4", ...args);
+}
+
+// =========================================================
 // Types
 // =========================================================
 
@@ -363,6 +378,7 @@ export function saveContent(storeName: string, id: string, content: string): Pro
   return withLock(id, () =>
     get(storeName, id).then((existing) => {
       if (!existing) return;
+      logSync("saveContent → IDB", storeName, id, `${content.length} chars`);
       if (!content && !existing._serverUpdatedAt && !existing._pendingCreate) {
         console.warn("[EntityStore] Skipping empty content save for unconfirmed entity:", id);
         return;
@@ -437,6 +453,7 @@ function syncCreateToServer(storeName: string, id: string): void {
       const capturedUpdatedAt = entity.updatedAt;
       const cfg = _registrations[storeName];
       if (!cfg?.serverFns?.add) return;
+      logSync("create → server", storeName, id);
       const args = cfg.addServerArgs!(entity);
       return retryWithBackoff(() => serverCall(cfg.serverFns!.add!, ...args)).then((result: any) =>
         withLock(id, () =>
@@ -473,6 +490,7 @@ function syncMetadataToServer(storeName: string, id: string): void {
       const capturedUpdatedAt = entity.updatedAt;
       const cfg = _registrations[storeName];
       if (!cfg?.serverFns?.update) return;
+      logSync("metadata → server", storeName, id);
       const clean = stripLocalFields(entity);
       delete clean.id;
       delete clean.createdAt;
@@ -505,6 +523,7 @@ export function syncArchiveToServer(storeName: string, id: string): void {
       if (entity._pendingCreate) return;
       const cfg = _registrations[storeName];
       if (!cfg?.serverFns?.archive) return;
+      logSync("archive → server", storeName, id);
       return retryWithBackoff(() => serverCall(cfg.serverFns!.archive!, id)).then(() =>
         withLock(id, () =>
           get(storeName, id).then((latest) => {
@@ -545,6 +564,7 @@ function syncContentToServer(storeName: string, id: string): void {
       const cfg = _registrations[storeName];
       if (!cfg?.serverFns) return;
       const content = entity.content || "";
+      logSync("content → server", storeName, id, `${content.length} chars`);
       const capturedDirtyAt = entity._contentDirtyAt;
 
       let syncFn: () => Promise<any>;
@@ -610,6 +630,7 @@ function flushReorderSync(storeName: string): void {
 }
 
 export function flushAllSyncs(): void {
+  logSync("flushAll");
   Object.keys(_metaDebounces).forEach((id) => {
     clearTimeout(_metaDebounces[id]);
     delete _metaDebounces[id];
@@ -802,10 +823,12 @@ function resolveContentConflict(
     }
 
     if (entity._contentDirtyAt) {
+      logSync("resolve: local dirty, keep local", storeName, id);
       scheduleContentSync(storeName, id);
       return { useServer: false };
     }
 
+    logSync("resolve: use server content", storeName, id, `${serverContent.length} chars`);
     return applyServerContent(storeName, id, serverContent, serverTs).then(() => {
       const cfg = _registrations[storeName];
       emit("contentResolved", {
@@ -826,6 +849,7 @@ export function resolveWithServer(
   if (!cfg?.serverFns?.getContent) {
     return Promise.resolve(null);
   }
+  logSync("resolve ← server", storeName, id);
   function attempt(): Promise<{ useServer: boolean; content?: string } | null> {
     return withTimeout(serverCall(cfg.serverFns!.getContent!, id), 30000).then((serverResult) =>
       resolveContentConflict(storeName, id, serverResult),
