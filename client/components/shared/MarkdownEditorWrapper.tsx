@@ -22,6 +22,7 @@ export interface MarkdownEditorRef {
   setValue: (markdown: string) => void;
   switchDocument: (id: string, markdown?: string) => void;
   hasDocument: (id: string) => boolean;
+  invalidateDocument: (id: string) => void;
   clear: () => void;
   flushSave: () => void;
 }
@@ -111,6 +112,10 @@ export function MarkdownEditorWrapper({
         // → ライブラリ側: value === prevValueRef → キャッシュのみ復元
       },
       hasDocument: (id) => knownDocs.current.has(id),
+      invalidateDocument: (id) => {
+        knownDocs.current.delete(id);
+        scrollPositions.current.delete(id);
+      },
       clear: () => {
         contentRef.current = "";
         setContent("");

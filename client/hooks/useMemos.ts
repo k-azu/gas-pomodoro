@@ -69,7 +69,7 @@ export function useMemos(): UseMemosReturn {
         id = saved;
       } else if (list.length > 0) {
         id = list[0].id;
-        lsSet(STORAGE_KEYS.MEMO_ACTIVE, id);
+        lsSet(STORAGE_KEYS.MEMO_ACTIVE, id!);
       }
       if (id) {
         setActiveId(id);

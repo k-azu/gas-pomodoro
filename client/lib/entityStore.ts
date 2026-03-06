@@ -783,6 +783,13 @@ function resolveContentConflict(
     if (!entity) {
       if (!serverContent) return { useServer: false };
       _pendingServerContent[id] = { content: serverContent, serverTs };
+      // エンティティ未存在時も contentResolved を発火
+      const cfg = _registrations[storeName];
+      emit("contentResolved", {
+        entityType: cfg?.entityType || storeName,
+        id,
+        content: serverContent,
+      });
       return { useServer: true, content: serverContent };
     }
 
@@ -799,10 +806,15 @@ function resolveContentConflict(
       return { useServer: false };
     }
 
-    return applyServerContent(storeName, id, serverContent, serverTs).then(() => ({
-      useServer: true,
-      content: serverContent,
-    }));
+    return applyServerContent(storeName, id, serverContent, serverTs).then(() => {
+      const cfg = _registrations[storeName];
+      emit("contentResolved", {
+        entityType: cfg?.entityType || storeName,
+        id,
+        content: serverContent,
+      });
+      return { useServer: true, content: serverContent };
+    });
   });
 }
 
