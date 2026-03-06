@@ -55,8 +55,6 @@ interface ContentHeaderNameProps {
   renaming?: boolean;
   onRenameEnd?: () => void;
   suffix?: ReactNode;
-  /** Shrink input to text width so suffix sits right after the name */
-  autoSize?: boolean;
 }
 
 export function ContentHeaderName({
@@ -65,27 +63,49 @@ export function ContentHeaderName({
   renaming,
   onRenameEnd,
   suffix,
-  autoSize,
 }: ContentHeaderNameProps) {
   const [isEditing, setIsEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const sizerRef = useRef<HTMLSpanElement>(null);
-  const [inputWidth, setInputWidth] = useState<number | undefined>(undefined);
+  const lastSwRef = useRef(0);
+  const editingRef = useRef(false);
+  editingRef.current = isEditing;
+  const hasSuffix = !!suffix;
 
-  // Measure text width for auto-sizing
-  const measureWidth = useCallback(() => {
-    if (!autoSize || !sizerRef.current || !inputRef.current) return;
-    sizerRef.current.textContent = inputRef.current.value || name;
-    setInputWidth(sizerRef.current.offsetWidth + 2); // +2 for cursor
-  }, [autoSize, name]);
+  // Auto-size: set width to scrollWidth so suffix sits right after the text.
+  // scrollWidth gives exact pixel width of the content regardless of font/language.
+  const syncWidth = useCallback(() => {
+    const el = inputRef.current;
+    if (!el || !hasSuffix || editingRef.current) return;
+    // Shrink to 0 so scrollWidth reflects true content width, not container width
+    el.style.width = "0";
+    const sw = el.scrollWidth;
+    if (sw > 0 && sw !== lastSwRef.current) {
+      lastSwRef.current = sw;
+      // +16 accounts for subpixel rounding differences across browsers (notably Firefox)
+      el.style.width = `${sw + 16}px`;
+    } else if (sw === lastSwRef.current) {
+      el.style.width = `${sw + 16}px`;
+    } else {
+      el.style.width = "";
+    }
+  }, [hasSuffix]);
 
   // Sync input value when name prop changes (e.g. document switch)
   useEffect(() => {
     if (inputRef.current && !isEditing) {
       inputRef.current.value = name;
     }
-    measureWidth();
-  }, [name, isEditing, measureWidth]);
+    lastSwRef.current = 0; // reset cache so syncWidth recalculates
+    syncWidth();
+  }, [name, isEditing, syncWidth]);
+
+  // Re-measure when becoming visible (e.g. tab switch from display:none)
+  useEffect(() => {
+    if (!hasSuffix || !inputRef.current) return;
+    const ro = new ResizeObserver(() => syncWidth());
+    ro.observe(inputRef.current);
+    return () => ro.disconnect();
+  }, [hasSuffix, syncWidth]);
 
   // External trigger (e.g. context menu "名前変更")
   useEffect(() => {
@@ -94,9 +114,10 @@ export function ContentHeaderName({
     }
   }, [renaming]);
 
-  // Focus input when editing starts
+  // Focus input when editing starts; clear inline width so CSS width:100% takes effect
   useEffect(() => {
     if (isEditing && inputRef.current) {
+      inputRef.current.style.width = "";
       inputRef.current.focus();
       inputRef.current.select();
     }
@@ -117,21 +138,13 @@ export function ContentHeaderName({
     onRenameEnd?.();
   }, [name, onRenameEnd]);
 
-  const wrapperClass =
-    autoSize && !isEditing
-      ? `${s["header-name-wrapper"]} ${s["header-name-wrapper-autosize"]}`
-      : s["header-name-wrapper"];
-
-  // Single <input> always rendered — editing state changes only CSS class
   return (
-    <span className={wrapperClass}>
-      {autoSize && <span ref={sizerRef} className={s["header-name-sizer"]} aria-hidden />}
+    <>
       <input
         ref={inputRef}
-        className={`${s["header-name-input"]} ${isEditing ? s["editing"] : ""}`}
+        className={`${s["header-name-input"]}${isEditing ? ` ${s["editing"]}` : ""}${suffix && !isEditing ? ` ${s["auto-width"]}` : ""}`}
         defaultValue={name}
         readOnly={!isEditing}
-        style={autoSize && !isEditing && inputWidth ? { width: inputWidth } : undefined}
         onClick={() => {
           if (!isEditing && onRename) setIsEditing(true);
         }}
@@ -145,6 +158,6 @@ export function ContentHeaderName({
         }}
       />
       {!isEditing && suffix}
-    </span>
+    </>
   );
 }

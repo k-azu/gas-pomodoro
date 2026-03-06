@@ -179,7 +179,6 @@ function ProjectMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
       <MetaTitle>
         <ContentHeaderName
           name={entity.name}
-          autoSize
           onRename={(name) => {
             setEntity((prev: any) => ({ ...prev, name }));
             tasks.rename("project", id, name);
