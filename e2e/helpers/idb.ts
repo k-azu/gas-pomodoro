@@ -8,7 +8,7 @@ export async function idbGet(page: Page, storeName: string, id: string): Promise
   return page.evaluate(
     ({ storeName, id }) => {
       return new Promise((resolve, reject) => {
-        const req = indexedDB.open("gas_pomodoro", 3);
+        const req = indexedDB.open("gas_pomodoro", 4);
         req.onsuccess = () => {
           const db = req.result;
           const tx = db.transaction(storeName, "readonly");
@@ -27,7 +27,7 @@ export async function idbPut(page: Page, storeName: string, data: any): Promise<
   await page.evaluate(
     ({ storeName, data }) => {
       return new Promise<void>((resolve, reject) => {
-        const req = indexedDB.open("gas_pomodoro", 3);
+        const req = indexedDB.open("gas_pomodoro", 4);
         req.onsuccess = () => {
           const db = req.result;
           const tx = db.transaction(storeName, "readwrite");
@@ -46,7 +46,7 @@ export async function idbGetAll(page: Page, storeName: string): Promise<any[]> {
   return page.evaluate(
     ({ storeName }) => {
       return new Promise((resolve, reject) => {
-        const req = indexedDB.open("gas_pomodoro", 3);
+        const req = indexedDB.open("gas_pomodoro", 4);
         req.onsuccess = () => {
           const db = req.result;
           const tx = db.transaction(storeName, "readonly");
@@ -61,11 +61,30 @@ export async function idbGetAll(page: Page, storeName: string): Promise<any[]> {
   );
 }
 
+export async function idbDelete(page: Page, storeName: string, id: string): Promise<void> {
+  await page.evaluate(
+    ({ storeName, id }) => {
+      return new Promise<void>((resolve, reject) => {
+        const req = indexedDB.open("gas_pomodoro", 4);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction(storeName, "readwrite");
+          tx.objectStore(storeName).delete(id);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    },
+    { storeName, id },
+  );
+}
+
 export async function clearDirtyAt(page: Page, storeName: string, id: string): Promise<void> {
   await page.evaluate(
     ({ storeName, id }) => {
       return new Promise<void>((resolve, reject) => {
-        const req = indexedDB.open("gas_pomodoro", 3);
+        const req = indexedDB.open("gas_pomodoro", 4);
         req.onsuccess = () => {
           const db = req.result;
           const tx = db.transaction(storeName, "readwrite");

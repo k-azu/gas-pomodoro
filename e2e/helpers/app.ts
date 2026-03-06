@@ -1,7 +1,7 @@
 /**
  * App operation helpers for E2E tests
  */
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
 interface GotoAppOptions {
   /** URL query params (e.g. { mockDelay: "500" }) */
@@ -53,22 +53,38 @@ export async function selectMemo(page: Page, name: string): Promise<void> {
 
 /**
  * Type text into the ProseMirror editor.
+ * Uses keyboard.insertText for reliable multi-byte (Japanese) input.
  */
 export async function typeInEditor(page: Page, text: string): Promise<void> {
   const editor = page.locator(".ProseMirror");
   await editor.click();
-  // Brief wait for editor focus to stabilize (prevents dropped first character)
+  await page.waitForTimeout(100);
+  await page.keyboard.insertText(text);
+}
+
+/**
+ * Type text character-by-character (creates undo history per character group).
+ * Use this when undo behavior matters.
+ */
+export async function typeInEditorSequentially(page: Page, text: string): Promise<void> {
+  const editor = page.locator(".ProseMirror");
+  await editor.click();
   await page.waitForTimeout(100);
   await editor.pressSequentially(text, { delay: 50 });
 }
 
 /**
- * Wait for [data-status="syncing"] to disappear (sync complete or no sync in progress).
+ * Wait for [data-status="syncing"] to disappear AND editor to become editable.
  */
 export async function waitForSyncComplete(page: Page): Promise<void> {
   await page.waitForFunction(() => !document.querySelector('[data-status="syncing"]'), {
     timeout: 15_000,
   });
+  // Also wait for editor to become editable (readOnly is cleared after resolve)
+  const editor = page.locator(".ProseMirror");
+  if (await editor.count()) {
+    await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 5_000 });
+  }
 }
 
 /**

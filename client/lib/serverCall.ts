@@ -155,7 +155,7 @@ const MOCK_PROJECTS = [
     color: "#4285f4",
     sortOrder: 1,
     isActive: true,
-    content: "",
+    content: "# Pomodoro",
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-15T00:00:00.000Z",
   },
@@ -165,7 +165,7 @@ const MOCK_PROJECTS = [
     color: "#34A853",
     sortOrder: 2,
     isActive: true,
-    content: "",
+    content: "# ポートフォリオ",
     createdAt: "2025-02-01T00:00:00.000Z",
     updatedAt: "2025-02-10T00:00:00.000Z",
   },
@@ -333,9 +333,110 @@ const CONTENT_FUNCTIONS = new Set([
   "getMemoContent",
 ]);
 
-function getContentMockResponse(functionName: string): unknown {
+/** Per-ID mock content (simulates server-side content for specific entities) */
+const MOCK_CONTENT_BY_ID: Record<string, { content: string; updatedAt: string }> = {
+  "mock-memo-1": {
+    content: [
+      "# 開発メモ",
+      "",
+      "## 今週のタスク",
+      "",
+      "- [x] ログイン画面のリファクタリング",
+      "- [ ] APIエラーハンドリングの改善",
+      "- [ ] E2Eテスト追加",
+      "",
+      "## メモ",
+      "",
+      "パフォーマンス計測の結果、**IDB読み込み**がボトルネックになっている。",
+      "`getAll()` を `getByIndex()` に変更して改善予定。",
+    ].join("\n"),
+    updatedAt: "2025-01-15T00:00:00.000Z",
+  },
+  "mock-memo-2": {
+    content: [
+      "# 週次ミーティング 議事録",
+      "",
+      "**日時**: 2025-02-10 10:00-11:00",
+      "",
+      "## 参加者",
+      "",
+      "- 田中、佐藤、鈴木",
+      "",
+      "## 議題",
+      "",
+      "1. スプリントレビュー",
+      "2. 次スプリントの計画",
+      "",
+      "## 決定事項",
+      "",
+      "> 次回リリースは3月末を目標とする",
+    ].join("\n"),
+    updatedAt: "2025-02-10T00:00:00.000Z",
+  },
+  "mock-memo-3": {
+    content: [
+      "# 設計ドキュメント",
+      "",
+      "## 概要",
+      "",
+      "このドキュメントはシステム設計の**要点**をまとめたものです。",
+      "",
+      "## アーキテクチャ",
+      "",
+      "- フロントエンド: React + TypeScript",
+      "- バックエンド: Google Apps Script",
+      "- データストア: Spreadsheet + IndexedDB (オフラインキャッシュ)",
+      "",
+      "## TODO",
+      "",
+      "1. パフォーマンス改善",
+      "2. エラーハンドリング強化",
+      "3. テストカバレッジ向上",
+    ].join("\n"),
+    updatedAt: "2025-03-01T00:00:00.000Z",
+  },
+  "mock-memo-4": {
+    content: [
+      "# デプロイ手順書",
+      "",
+      "## 前提条件",
+      "",
+      "- Node.js 20以上",
+      "- clasp がインストール済み",
+      "",
+      "## 手順",
+      "",
+      "1. `npm run build` でビルド",
+      "2. `clasp push` でデプロイ",
+      "3. スプレッドシートで動作確認",
+    ].join("\n"),
+    updatedAt: "2025-04-01T00:00:00.000Z",
+  },
+  "mock-memo-5": {
+    content: [
+      "# バグトラッカー",
+      "",
+      "## 未解決",
+      "",
+      "- タイマーが稀にリセットされる問題",
+      "- カテゴリ削除時のバリデーション不足",
+      "",
+      "## 解決済み",
+      "",
+      "- ~~ログ保存時のタイムゾーンずれ~~",
+      "- ~~中断カウントの集計ミス~~",
+    ].join("\n"),
+    updatedAt: "2025-05-01T00:00:00.000Z",
+  },
+};
+
+function getContentMockResponse(functionName: string, id?: string): unknown {
   if (typeof window !== "undefined" && (window as any).__mockContentOverride !== undefined) {
     return (window as any).__mockContentOverride;
+  }
+  // Per-ID content: only when mockDelay > 0 (sync behavior testing)
+  if (mockParams.delay > 0 && id && MOCK_CONTENT_BY_ID[id]) {
+    return MOCK_CONTENT_BY_ID[id];
   }
   const { scenario } = mockParams;
   if (scenario === "serverNewer") {
@@ -405,6 +506,33 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
             isActive: true,
             createdAt: "2025-02-01T00:00:00.000Z",
             updatedAt: "2025-02-10T00:00:00.000Z",
+          },
+          {
+            id: "mock-memo-3",
+            name: "設計ドキュメント",
+            tags: ["dev"],
+            sortOrder: 3,
+            isActive: true,
+            createdAt: "2025-03-01T00:00:00.000Z",
+            updatedAt: "2025-03-01T00:00:00.000Z",
+          },
+          {
+            id: "mock-memo-4",
+            name: "デプロイ手順書",
+            tags: [],
+            sortOrder: 4,
+            isActive: true,
+            createdAt: "2025-04-01T00:00:00.000Z",
+            updatedAt: "2025-04-01T00:00:00.000Z",
+          },
+          {
+            id: "mock-memo-5",
+            name: "バグトラッカー",
+            tags: [],
+            sortOrder: 5,
+            isActive: true,
+            createdAt: "2025-05-01T00:00:00.000Z",
+            updatedAt: "2025-05-01T00:00:00.000Z",
           },
         ],
         memoTags: [
@@ -533,11 +661,11 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
     case "getProjectContent":
     case "getCaseContent":
     case "getTaskContent":
-      return getContentMockResponse(functionName);
+      return getContentMockResponse(functionName, args[0] as string);
 
     // ---- Memo ----
     case "getMemoContent":
-      return getContentMockResponse(functionName);
+      return getContentMockResponse(functionName, args[0] as string);
 
     case "saveMemoContent":
     case "renameMemo":
