@@ -130,7 +130,6 @@ export function ItemPicker({
                     color: color,
                     borderColor: color + "44",
                   }}
-                  onClick={onColorChange ? (e) => e.stopPropagation() : undefined}
                 >
                   <span
                     className={s["item-picker-badge-dot"]}

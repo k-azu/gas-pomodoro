@@ -77,5 +77,5 @@
 
 /* Compact variant (used in table cells) */
 .compact { min-height: auto; border: none; padding: 0; background: transparent; gap: 2px; flex: none; min-width: auto; }
-.compact .item-picker-badge { padding: 1px 6px; }
+.compact .item-picker-badge { padding: 3px 6px; }
 .compact .item-picker-trigger { padding: 0; flex: none; }
