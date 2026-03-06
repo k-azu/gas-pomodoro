@@ -182,7 +182,10 @@ export function useDocumentEditor({
         suppressSaveRef.current = true;
       }
       load(id).then((content) => {
-        if (cancelledRef.current) return;
+        if (cancelledRef.current) {
+          suppressSaveRef.current = false;
+          return;
+        }
         currentDocIdRef.current = id;
         setInitialContent(content);
         // resolve 不要 or 完了済みなら suppress 解除
