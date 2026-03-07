@@ -1,3 +1,10 @@
+.meta-status-row {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .memo-tab-layout {
   display: flex;
   height: 100%;

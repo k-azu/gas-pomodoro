@@ -16,11 +16,12 @@ import { useNavigation } from "../../contexts/NavigationContext";
 import type { ViewerState } from "../../contexts/NavigationContext";
 import { ItemPicker } from "../shared/ItemPicker";
 import { ContentHeaderName } from "../shared/ContentHeader";
+import { FolderIcon } from "../shared/Icons";
 import { SidebarExpandButton } from "../shared/Sidebar";
 import { RecordField } from "../shared/RecordField";
 import { RecordRow } from "../shared/RecordRow";
 import { DocumentEditor, ToolbarSlot, MetaTitle, pageRootClass } from "../shared/DocumentEditor";
-import { SyncIndicator } from "../shared/SyncIndicator";
+import { SyncIndicator, type SyncStatus } from "../shared/SyncIndicator";
 import { TaskTableView } from "./TaskTableView";
 import s from "./TaskContent.module.css";
 import * as TaskStore from "../../lib/taskStore";
@@ -89,9 +90,6 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
       </ToolbarSlot>
     ) : undefined;
 
-  const syncVisible = syncStatus !== "idle" && syncStatus !== "synced";
-  const metaTopSlot = syncVisible ? <SyncIndicator status={syncStatus} /> : undefined;
-
   const toolbarRightSlot = isContainerType ? (
     <ToolbarSlot>
       <button className={s["task-view-toggle"]} onClick={toggleView}>
@@ -112,15 +110,20 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
           placeholder="ドキュメントを入力..."
           editorRef={editorRef}
           readOnly={readOnly}
-          metaTop={metaTopSlot}
           toolbarLeft={toolbarLeftSlot}
           toolbarRight={toolbarRightSlot}
           className={s["task-wiki-container"]}
         >
           {/* Meta section — keyed to remount per type+id */}
-          {type === "project" && <ProjectMeta key={`p-${id}`} id={id} tasks={tasks} />}
-          {type === "case" && <CaseMeta key={`c-${id}`} id={id} tasks={tasks} />}
-          {type === "task" && <TaskMeta key={`t-${id}`} id={id} tasks={tasks} />}
+          {type === "project" && (
+            <ProjectMeta key={`p-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
+          )}
+          {type === "case" && (
+            <CaseMeta key={`c-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
+          )}
+          {type === "task" && (
+            <TaskMeta key={`t-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
+          )}
         </DocumentEditor>
       </div>
 
@@ -168,7 +171,15 @@ function useEntity(storeName: string, entityType: string, id: string) {
   return [entity, setEntity] as const;
 }
 
-function ProjectMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
+function ProjectMeta({
+  id,
+  tasks,
+  syncStatus,
+}: {
+  id: string;
+  tasks: UseTasksReturn;
+  syncStatus: SyncStatus;
+}) {
   const [entity, setEntity] = useEntity("projects", "project", id);
   const colorRef = useRef<HTMLInputElement>(null);
 
@@ -176,6 +187,32 @@ function ProjectMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
 
   return (
     <>
+      <div className={s["meta-status-row"]}>
+        <span
+          className={s["meta-color-folder"]}
+          onClick={(e) => {
+            e.stopPropagation();
+            colorRef.current?.click();
+          }}
+        >
+          <FolderIcon size={24} color={entity.color || "#4285f4"} />
+          <input
+            ref={colorRef}
+            type="color"
+            value={entity.color || "#4285f4"}
+            onChange={(e) => tasks.updateProjectFields(id, { color: e.target.value })}
+            style={{
+              position: "absolute",
+              inset: 0,
+              opacity: 0,
+              cursor: "pointer",
+              width: "100%",
+              height: "100%",
+            }}
+          />
+        </span>
+        <SyncIndicator status={syncStatus} />
+      </div>
       <MetaTitle>
         <ContentHeaderName
           name={entity.name}
@@ -183,44 +220,30 @@ function ProjectMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
             setEntity((prev: any) => ({ ...prev, name }));
             tasks.rename("project", id, name);
           }}
-          suffix={
-            <span
-              className={s["meta-color-dot"]}
-              style={{ background: entity.color || "#4285f4" }}
-              onClick={(e) => {
-                e.stopPropagation();
-                colorRef.current?.click();
-              }}
-            >
-              <input
-                ref={colorRef}
-                type="color"
-                value={entity.color || "#4285f4"}
-                onChange={(e) => tasks.updateProjectFields(id, { color: e.target.value })}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  opacity: 0,
-                  cursor: "pointer",
-                  width: "100%",
-                  height: "100%",
-                }}
-              />
-            </span>
-          }
         />
       </MetaTitle>
     </>
   );
 }
 
-function CaseMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
+function CaseMeta({
+  id,
+  tasks,
+  syncStatus,
+}: {
+  id: string;
+  tasks: UseTasksReturn;
+  syncStatus: SyncStatus;
+}) {
   const [entity, setEntity] = useEntity("cases", "case", id);
 
   if (!entity) return null;
 
   return (
     <>
+      <div className={s["meta-status-row"]}>
+        <SyncIndicator status={syncStatus} />
+      </div>
       <MetaTitle>
         <ContentHeaderName
           name={entity.name}
@@ -234,7 +257,15 @@ function CaseMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
   );
 }
 
-function TaskMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
+function TaskMeta({
+  id,
+  tasks,
+  syncStatus,
+}: {
+  id: string;
+  tasks: UseTasksReturn;
+  syncStatus: SyncStatus;
+}) {
   const [entity, setEntity] = useEntity("tasks", "task", id);
 
   if (!entity) return null;
@@ -243,6 +274,9 @@ function TaskMeta({ id, tasks }: { id: string; tasks: UseTasksReturn }) {
 
   return (
     <>
+      <div className={s["meta-status-row"]}>
+        <SyncIndicator status={syncStatus} />
+      </div>
       <MetaTitle>
         <ContentHeaderName
           name={entity.name}

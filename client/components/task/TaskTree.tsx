@@ -12,7 +12,7 @@ import type {
 } from "../../hooks/useTasks";
 import { STATUS_CONFIG } from "../../hooks/useTasks";
 import { InlineRename } from "../shared/SidebarShell";
-import { InboxIcon, FileIcon, MemoIcon } from "../shared/Icons";
+import { FolderIcon, FileIcon, MemoIcon } from "../shared/Icons";
 import { useLongPressDrag } from "../../hooks/useLongPressDrag";
 import s from "./TaskTree.module.css";
 
@@ -198,7 +198,7 @@ function ProjectNode({
         >
           <span className={`${s["task-tree-chevron"]}${expanded ? ` ${s.expanded}` : ""}`}>▶</span>
           <span className={s["task-tree-icon"]}>
-            <InboxIcon size={16} color={project.color || "#4285f4"} />
+            <FolderIcon size={16} color={project.color || "#4285f4"} />
           </span>
         </span>
         {isRenaming ? (

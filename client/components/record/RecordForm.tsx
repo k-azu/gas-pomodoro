@@ -256,12 +256,10 @@ export function RecordForm() {
         onChange={(md) => triggerSave(md)}
         placeholder="何に取り組みましたか？"
         editorRef={editorRef}
-        metaTop={
-          <button className={s["copy-previous-btn"]} onClick={copyFromPrevious}>
-            前回をコピー
-          </button>
-        }
       >
+        <button className={s["copy-previous-btn"]} onClick={copyFromPrevious}>
+          前回をコピー
+        </button>
         <RecordField label="カテゴリ">
           <ItemPicker
             mode="single"

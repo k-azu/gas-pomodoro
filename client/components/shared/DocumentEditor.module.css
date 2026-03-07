@@ -1,5 +1,6 @@
 /* Root: scrollable page container (replaces global .notion-page) */
 .page-root {
+  --content-px: 60px;
   flex: 1;
   overflow-y: auto;
   min-height: 0;
@@ -23,7 +24,7 @@
 .page-root :global(.mdg-editor-toolbar-row) {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 20; /* above .mdg-sticky-header-clone (z-index: 15) */
   background: var(--surface);
   flex-shrink: 0;
 }
@@ -38,26 +39,18 @@
   content: "";
   display: block;
   border-top: 1px solid #d1d5db;
-  margin: 0 40px 12px;
+  margin: 0 var(--content-px) 12px;
 }
 .page-root :global(.mdg-editor-content:not(.mdg-sticky-header-clone)) {
   overflow: visible;
   flex: 1 0 auto;
-  padding-left: 40px;
-  padding-right: 40px;
+  padding-left: var(--content-px);
+  padding-right: var(--content-px);
 }
 
 /* Meta section — rendered between toolbar and editor body */
 .meta-section {
-  padding: 16px 0 8px;
-}
-
-/* Slot above the title (e.g. sync indicator) */
-.meta-top {
-  padding: 0 40px 4px;
-  height: 26px;
-  display: flex;
-  align-items: center;
+  padding: 16px var(--content-px) 8px;
 }
 
 /* Shared: toolbar slot (used by multiple tabs) */
@@ -73,8 +66,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  /* 35px = 40px - 5px (input padding-left 4px + border 1px) to align text with editor */
-  padding: 0 40px 0 35px;
+  /* -5px = input padding 4px + border 1px to align text with editor */
+  margin-left: -5px;
+  margin-right: -5px;
   margin-bottom: 4px;
   font-size: 36px;
   line-height: 1.2;

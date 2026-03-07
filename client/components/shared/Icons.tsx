@@ -29,8 +29,8 @@ export function CheckIcon({
   );
 }
 
-/** Inbox / project */
-export function InboxIcon({
+/** Folder / project */
+export function FolderIcon({
   size = 16,
   color = "currentColor",
 }: {
@@ -40,14 +40,9 @@ export function InboxIcon({
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
       <path
-        d="M2.5 9.5L4.5 3.5h7l2 6"
-        stroke={color}
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M2.5 9.5v3a1 1 0 001 1h9a1 1 0 001-1v-3h-3.5l-1 1.5h-2l-1-1.5H2.5z"
+        d="M1.5 3.5a1 1 0 011-1h4l1.5 1.5h5.5a1 1 0 011 1v7.5a1 1 0 01-1 1h-11a1 1 0 01-1-1v-9z"
+        fill={color}
+        fillOpacity={0.15}
         stroke={color}
         strokeWidth="1.3"
         strokeLinejoin="round"

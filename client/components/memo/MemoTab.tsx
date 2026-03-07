@@ -195,12 +195,10 @@ export function MemoTab() {
                   </ToolbarSlot>
                 ) : undefined
               }
-              metaTop={
-                syncStatus !== "idle" && syncStatus !== "synced" ? (
-                  <SyncIndicator status={syncStatus} />
-                ) : undefined
-              }
             >
+              <div className={s["meta-status-row"]}>
+                <SyncIndicator status={syncStatus} />
+              </div>
               <MetaTitle>
                 <ContentHeaderName
                   name={activeMemo.name}

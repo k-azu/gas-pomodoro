@@ -2,11 +2,7 @@ import s from "./SyncIndicator.module.css";
 
 export type SyncStatus = "idle" | "syncing" | "synced" | "error";
 
-interface SyncIndicatorProps {
-  status: SyncStatus;
-}
-
-export function SyncIndicator({ status }: SyncIndicatorProps) {
+export function SyncIndicator({ status }: { status: SyncStatus }) {
   if (status === "idle" || status === "synced") return null;
 
   return (
