@@ -47,8 +47,8 @@ export async function setMockContentShouldFail(page: Page, shouldFail: boolean):
  */
 export async function selectMemo(page: Page, name: string): Promise<void> {
   await page.locator("[class*='sidebar-item']", { hasText: name }).click();
-  // Wait for editor to load
-  await page.waitForSelector(".ProseMirror", { timeout: 5_000 });
+  // Wait for editor to load (ProseMirror in rich text mode, or raw editor in markdown mode)
+  await page.waitForSelector(".ProseMirror, .mdg-raw-editor", { timeout: 5_000 });
 }
 
 /**
@@ -92,4 +92,27 @@ export async function waitForSyncComplete(page: Page): Promise<void> {
  */
 export async function getEditorText(page: Page): Promise<string> {
   return page.locator(".ProseMirror").innerText();
+}
+
+/**
+ * Switch to Markdown mode by clicking the Markdown button in the mode toggle.
+ */
+export async function switchToMarkdownMode(page: Page): Promise<void> {
+  await page.locator(".mdg-mode-btn", { hasText: "Markdown" }).click();
+  await page.waitForSelector(".mdg-raw-editor", { timeout: 3_000 });
+}
+
+/**
+ * Switch to Rich Text (WYSIWYG) mode by clicking the Rich Text button.
+ */
+export async function switchToRichTextMode(page: Page): Promise<void> {
+  await page.locator(".mdg-mode-btn", { hasText: "Rich Text" }).click();
+  await page.waitForSelector(".ProseMirror", { timeout: 3_000 });
+}
+
+/**
+ * Get the text content of the raw markdown editor (textarea).
+ */
+export async function getRawEditorText(page: Page): Promise<string> {
+  return page.locator(".mdg-raw-editor").inputValue();
 }

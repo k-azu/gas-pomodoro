@@ -164,8 +164,10 @@ export function MarkdownEditorWrapper({
           ) : (
             <EditorToolbar />
           )}
-          {children}
-          <EditorBody />
+          <div className="mdg-content-area">
+            {children}
+            <EditorBody />
+          </div>
         </div>
       </EditorProvider>
     );

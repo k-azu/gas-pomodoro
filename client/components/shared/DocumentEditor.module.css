@@ -28,6 +28,14 @@
   background: var(--surface);
   flex-shrink: 0;
 }
+/* Content area: shared padding for meta + editor body */
+.page-root :global(.mdg-content-area) {
+  padding-left: var(--content-px);
+  padding-right: var(--content-px);
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
 .page-root :global(.mdg-editor-body) {
   overflow: visible;
   margin-top: 4px;
@@ -39,18 +47,23 @@
   content: "";
   display: block;
   border-top: 1px solid #d1d5db;
-  margin: 0 var(--content-px) 12px;
+  margin-bottom: 12px;
 }
 .page-root :global(.mdg-editor-content:not(.mdg-sticky-header-clone)) {
   overflow: visible;
   flex: 1 0 auto;
-  padding-left: var(--content-px);
-  padding-right: var(--content-px);
+  padding-left: 0;
+  padding-right: 0;
+}
+.page-root :global(.mdg-raw-editor) {
+  padding-left: 0;
+  padding-right: 0;
+  min-height: 50vh;
 }
 
 /* Meta section — rendered between toolbar and editor body */
 .meta-section {
-  padding: 16px var(--content-px) 8px;
+  padding: 16px 0 8px;
 }
 
 /* Shared: toolbar slot (used by multiple tabs) */
