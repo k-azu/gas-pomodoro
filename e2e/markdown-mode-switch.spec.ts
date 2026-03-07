@@ -1,5 +1,8 @@
 /**
- * Markdown モード中のドキュメント切り替え
+ * Markdown モードとドキュメント切り替え
+ *
+ * ドキュメント切り替え時は常に WYSIWYG モードに戻る仕様。
+ * Markdown モードでの編集内容はキャッシュに正しく保存される。
  */
 import { test, expect } from "@playwright/test";
 import { idbGet, idbPut } from "./helpers/idb";
@@ -10,7 +13,6 @@ import {
   waitForSyncComplete,
   getEditorText,
   switchToMarkdownMode,
-  switchToRichTextMode,
   getRawEditorText,
 } from "./helpers/app";
 
@@ -18,8 +20,10 @@ const MEMO_STORE = "memos";
 const MEMO_1_ID = "mock-memo-1"; // "開発メモ"
 const MEMO_2_ID = "mock-memo-2"; // "議事録"
 
-test.describe("Markdown モード中のドキュメント切り替え", () => {
-  test("M1: マークダウンモード中にドキュメント切り替え → 内容が切り替わる", async ({ page }) => {
+test.describe("Markdown モードとドキュメント切り替え", () => {
+  test("M1: ドキュメント切り替え後は WYSIWYG モードに戻り正しい内容が表示される", async ({
+    page,
+  }) => {
     await gotoApp(page);
     await waitForSyncComplete(page);
 
@@ -40,17 +44,19 @@ test.describe("Markdown モード中のドキュメント切り替え", () => {
     const rawText = await getRawEditorText(page);
     expect(rawText).toContain("メモ2テキスト");
 
-    // マークダウンモードのまま memo1 に切り替え
+    // memo1 に切り替え → WYSIWYG に戻る
     await selectMemo(page, "開発メモ");
     await page.waitForTimeout(500);
 
-    // raw editor が memo1 の内容を表示していること
-    const rawTextAfterSwitch = await getRawEditorText(page);
-    expect(rawTextAfterSwitch).toContain("メモ1テキスト");
-    expect(rawTextAfterSwitch).not.toContain("メモ2テキスト");
+    // WYSIWYG で memo1 の内容が表示されている
+    const text = await getEditorText(page);
+    expect(text).toContain("メモ1テキスト");
+    expect(text).not.toContain("メモ2テキスト");
   });
 
-  test("M2: マークダウンモード → 切り替え → Rich Text モードで正しい内容", async ({ page }) => {
+  test("M2: マークダウンモード → ドキュメント切り替え → Rich Text で正しい内容", async ({
+    page,
+  }) => {
     await gotoApp(page);
     await waitForSyncComplete(page);
 
@@ -68,18 +74,17 @@ test.describe("Markdown モード中のドキュメント切り替え", () => {
     // マークダウンモードに切り替え
     await switchToMarkdownMode(page);
 
-    // マークダウンモードのまま memo1 に切り替え
+    // memo1 に切り替え → WYSIWYG に戻る
     await selectMemo(page, "開発メモ");
     await page.waitForTimeout(500);
 
-    // Rich Text モードに戻す
-    await switchToRichTextMode(page);
+    // 既に WYSIWYG なので直接確認
     const text = await getEditorText(page);
     expect(text).toContain("リッチ確認用1");
     expect(text).not.toContain("リッチ確認用2");
   });
 
-  test("M3: マークダウンモードで編集 → 切り替え → 元に戻ると編集内容が保存されている", async ({
+  test("M3: マークダウンモードで編集 → ドキュメント切り替え → 戻ると編集内容が保存されている", async ({
     page,
   }) => {
     await gotoApp(page);
@@ -100,11 +105,11 @@ test.describe("Markdown モード中のドキュメント切り替え", () => {
     await page.keyboard.insertText("\n追加行");
     await page.waitForTimeout(2500); // debounce flush を待つ
 
-    // memo2 に切り替え
+    // memo2 に切り替え → WYSIWYG に戻る（rawMarkdown が editor に同期されてからキャッシュ）
     await selectMemo(page, "議事録");
     await page.waitForTimeout(500);
 
-    // memo1 に戻る
+    // memo1 に戻る → WYSIWYG でキャッシュが復元される
     await selectMemo(page, "開発メモ");
     await page.waitForTimeout(500);
 
@@ -114,7 +119,7 @@ test.describe("Markdown モード中のドキュメント切り替え", () => {
     expect(rec.content).toContain("追加行");
   });
 
-  test("M4: キャッシュなし → IDB から読み込み（マークダウンモード）", async ({ page }) => {
+  test("M4: キャッシュなし → IDB から読み込み → WYSIWYG で正しい内容", async ({ page }) => {
     await gotoApp(page);
     await waitForSyncComplete(page);
 
@@ -127,19 +132,17 @@ test.describe("Markdown モード中のドキュメント切り替え", () => {
     record.content = "# IDB見出し\n\nIDB本文テキスト";
     await idbPut(page, MEMO_STORE, record);
 
-    // マークダウンモードに切り替え
-    await switchToMarkdownMode(page);
-
-    // マークダウンモードのまま memo2 に切り替え（キャッシュなし → IDB 読み込み）
+    // memo2 に切り替え（キャッシュなし → IDB 読み込み）
     await selectMemo(page, "議事録");
     await page.waitForTimeout(1000);
 
-    const rawText = await getRawEditorText(page);
-    expect(rawText).toContain("IDB見出し");
-    expect(rawText).toContain("IDB本文テキスト");
+    // WYSIWYG で IDB の内容が表示されている
+    const text = await getEditorText(page);
+    expect(text).toContain("IDB見出し");
+    expect(text).toContain("IDB本文テキスト");
   });
 
-  test("M5: マークダウンモードで往復 → 両ドキュメントの内容が正しい", async ({ page }) => {
+  test("M5: ドキュメント往復 → 両ドキュメントの内容が正しい", async ({ page }) => {
     await gotoApp(page);
     await waitForSyncComplete(page);
 
@@ -155,23 +158,48 @@ test.describe("Markdown モード中のドキュメント切り替え", () => {
     await typeInEditor(page, "往復テスト2");
     await page.waitForTimeout(300);
 
-    // マークダウンモードに切り替え
-    await switchToMarkdownMode(page);
-
-    // memo1 → memo2 → memo1 と往復
+    // memo1 → memo2 → memo1 と往復（常に WYSIWYG）
     await selectMemo(page, "開発メモ");
     await page.waitForTimeout(500);
-    let rawText = await getRawEditorText(page);
-    expect(rawText).toContain("往復テスト1");
+    let text = await getEditorText(page);
+    expect(text).toContain("往復テスト1");
 
     await selectMemo(page, "議事録");
     await page.waitForTimeout(500);
-    rawText = await getRawEditorText(page);
-    expect(rawText).toContain("往復テスト2");
+    text = await getEditorText(page);
+    expect(text).toContain("往復テスト2");
 
     await selectMemo(page, "開発メモ");
     await page.waitForTimeout(500);
+    text = await getEditorText(page);
+    expect(text).toContain("往復テスト1");
+  });
+
+  test("M6: Markdown で編集 → 切り替え → 再度 Markdown で正しい内容", async ({ page }) => {
+    await gotoApp(page);
+    await waitForSyncComplete(page);
+
+    await selectMemo(page, "開発メモ");
+    await waitForSyncComplete(page);
+    await typeInEditor(page, "マークダウン確認");
+    await page.waitForTimeout(300);
+
+    // Markdown モードに切り替え
+    await switchToMarkdownMode(page);
+    let rawText = await getRawEditorText(page);
+    expect(rawText).toContain("マークダウン確認");
+
+    // memo2 に切り替え → WYSIWYG に戻る
+    await selectMemo(page, "議事録");
+    await page.waitForTimeout(500);
+
+    // memo1 に戻る → WYSIWYG
+    await selectMemo(page, "開発メモ");
+    await page.waitForTimeout(500);
+
+    // 再度 Markdown モードに切り替え → 正しい内容が表示される
+    await switchToMarkdownMode(page);
     rawText = await getRawEditorText(page);
-    expect(rawText).toContain("往復テスト1");
+    expect(rawText).toContain("マークダウン確認");
   });
 });
