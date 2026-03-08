@@ -73,7 +73,6 @@ export function DocumentEditor({
 
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
-  const knownDocs = useRef(new Set<string>());
   const scrollPositions = useRef(new Map<string, number>());
 
   // Save scroll position when documentId prop signals an upcoming switch.
@@ -144,9 +143,6 @@ export function DocumentEditor({
         setContent(md);
       },
       switchDocument: (id, md?) => {
-        const prevId = activeDocIdRef.current;
-        if (prevId) knownDocs.current.add(prevId);
-        knownDocs.current.add(id);
         activeDocIdRef.current = id;
         setActiveDocId(id);
         if (md !== undefined) {
@@ -154,9 +150,8 @@ export function DocumentEditor({
           setContent(md);
         }
       },
-      hasDocument: (id) => knownDocs.current.has(id) || hasDocument(id),
+      hasDocument: (id) => hasDocument(id),
       invalidateDocument: (id) => {
-        knownDocs.current.delete(id);
         scrollPositions.current.delete(id);
         invalidateDocument(id);
       },
