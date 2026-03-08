@@ -146,3 +146,59 @@ export function ChevronDownIcon({
     </svg>
   );
 }
+
+/** Rich Text (formatted lines) */
+export function RichTextIcon({
+  size = 14,
+  color = "currentColor",
+}: {
+  size?: number;
+  color?: string;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M2 3.5h12M2 7h8M2 10.5h10M2 14h6"
+        stroke={color}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/** Markdown (code window) */
+export function MarkdownIcon({
+  size = 14,
+  color = "currentColor",
+}: {
+  size?: number;
+  color?: string;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <rect x="1" y="3" width="14" height="10" rx="1.5" stroke={color} strokeWidth="1.3" />
+      <path
+        d="M3.5 10V6L5.5 8.5L7.5 6v4M10 10l2-2.5L14 10M12 7.5v2.5"
+        stroke={color}
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

@@ -6,9 +6,13 @@
  * - Document switch always resets to WYSIWYG mode
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { EditorState } from "@tiptap/pm/state";
-import type { EditorMode, MentionTrigger } from "tiptap-markdown-editor";
-import { useEditor, getDefaultExtensions, parseMarkdown } from "tiptap-markdown-editor";
+import type { EditorMode, EditorState, MentionTrigger } from "tiptap-markdown-editor";
+import {
+  useEditor,
+  getDefaultExtensions,
+  parseMarkdown,
+  createEditorState,
+} from "tiptap-markdown-editor";
 
 interface UseMarkdownEditorOptions {
   value: string;
@@ -94,10 +98,7 @@ export function useMarkdownEditor({
       // New document — parse into doc and create fresh EditorState
       const json = parseMarkdown(editor, value);
       const doc = editor.schema.nodeFromJSON(json);
-      const newState = EditorState.create({
-        doc,
-        plugins: editor.state.plugins,
-      });
+      const newState = createEditorState(editor, doc);
       editor.view.updateState(newState);
       prevValueRef.current = value;
     }

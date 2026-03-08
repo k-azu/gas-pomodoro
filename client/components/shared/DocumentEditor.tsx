@@ -13,13 +13,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
 import {
   Toolbar,
-  ModeToggle,
   EditorBody,
   DEFAULT_TOOLBAR_ITEMS,
   insertImageWithUpload,
 } from "tiptap-markdown-editor";
 import type { MentionTrigger, ToolbarItem } from "tiptap-markdown-editor";
 import { useMarkdownEditor } from "../../hooks/useMarkdownEditor";
+import { RichTextIcon, MarkdownIcon } from "./Icons";
 import s from "./DocumentEditor.module.css";
 
 export interface MarkdownEditorRef {
@@ -75,15 +75,23 @@ export function DocumentEditor({
   onChangeRef.current = onChange;
   const scrollPositions = useRef(new Map<string, number>());
 
-  // Save scroll position when documentId prop signals an upcoming switch.
+  // Scroll key: encode both document and view mode (doc vs table)
+  const hasAfterMeta = !!afterMeta;
+  const scrollKeyOf = (docId: string | undefined, table: boolean) =>
+    table ? `${docId}:t` : (docId ?? "");
+
+  // Save scroll position when documentId or view mode changes.
   const prevDocIdPropRef = useRef(documentId);
-  if (documentId !== prevDocIdPropRef.current) {
+  const prevHasAfterMetaRef = useRef(hasAfterMeta);
+  if (documentId !== prevDocIdPropRef.current || hasAfterMeta !== prevHasAfterMetaRef.current) {
     const container = scrollRef.current;
     const prevId = activeDocIdRef.current;
     if (container && prevId) {
-      scrollPositions.current.set(prevId, container.scrollTop);
+      const key = scrollKeyOf(prevId, prevHasAfterMetaRef.current);
+      scrollPositions.current.set(key, container.scrollTop);
     }
     prevDocIdPropRef.current = documentId;
+    prevHasAfterMetaRef.current = hasAfterMeta;
   }
 
   const handleChange = useCallback((markdown: string) => {
@@ -153,6 +161,7 @@ export function DocumentEditor({
       hasDocument: (id) => hasDocument(id),
       invalidateDocument: (id) => {
         scrollPositions.current.delete(id);
+        scrollPositions.current.delete(`${id}:t`);
         invalidateDocument(id);
       },
       clear: () => {
@@ -163,18 +172,39 @@ export function DocumentEditor({
     };
   });
 
-  // Restore scroll position after document switch.
-  const prevDocIdForScroll = useRef(activeDocId);
+  // Restore scroll position after document or view mode switch.
+  // Content may not be fully rendered yet (tiptap re-render, entity IDB load),
+  // so scrollTop can get clamped to 0 by the browser. Retry until it sticks.
+  const prevScrollKeyRef = useRef(scrollKeyOf(activeDocId, hasAfterMeta));
   useEffect(() => {
-    if (activeDocId === prevDocIdForScroll.current) return;
-    prevDocIdForScroll.current = activeDocId;
+    const key = scrollKeyOf(activeDocId, hasAfterMeta);
+    if (key === prevScrollKeyRef.current) return;
+    prevScrollKeyRef.current = key;
 
     const container = scrollRef.current;
     if (!container || !activeDocId) return;
 
-    const saved = scrollPositions.current.get(activeDocId);
-    container.scrollTop = saved ?? 0;
-  }, [activeDocId]);
+    const saved = scrollPositions.current.get(key);
+    const target = saved ?? 0;
+    container.scrollTop = target;
+
+    if (target === 0 || container.scrollTop === target) return;
+
+    // scrollTop was clamped — poll until content renders and scrollHeight grows
+    let cancelled = false;
+    const deadline = performance.now() + 500;
+    const poll = () => {
+      if (cancelled) return;
+      container.scrollTop = target;
+      if (container.scrollTop >= target - 1 || performance.now() > deadline) return;
+      requestAnimationFrame(poll);
+    };
+    requestAnimationFrame(poll);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDocId, hasAfterMeta]);
 
   const hasToolbarSlots = toolbarLeft || toolbarRight;
 
@@ -188,20 +218,40 @@ export function DocumentEditor({
           {hasToolbarSlots ? (
             <div className="mdg-editor-toolbar-row">
               {toolbarLeft}
-              <div className="mdg-editor-header">
-                {toolbarItems !== false && editor && mode === "wysiwyg" && (
-                  <Toolbar editor={editor} items={toolbarItems} />
-                )}
-                <ModeToggle mode={mode} setMode={setMode} />
-              </div>
+              {afterMeta ? (
+                <div className={s["toolbar-spacer"]} />
+              ) : (
+                <div className="mdg-editor-header">
+                  {toolbarItems !== false && editor && mode === "wysiwyg" && (
+                    <Toolbar editor={editor} items={toolbarItems} />
+                  )}
+                  <button
+                    type="button"
+                    className={s["mode-switch-btn"]}
+                    onClick={() => setMode(mode === "wysiwyg" ? "markdown" : "wysiwyg")}
+                  >
+                    {mode === "wysiwyg" ? <MarkdownIcon /> : <RichTextIcon />}
+                    {mode === "wysiwyg" ? "Markdown" : "Rich Text"}
+                  </button>
+                </div>
+              )}
               {toolbarRight}
             </div>
           ) : (
-            <div className="mdg-editor-header">
-              {toolbarItems !== false && editor && mode === "wysiwyg" && (
+            <div className={afterMeta ? "mdg-editor-toolbar-row" : "mdg-editor-header"}>
+              {!afterMeta && toolbarItems !== false && editor && mode === "wysiwyg" && (
                 <Toolbar editor={editor} items={toolbarItems} />
               )}
-              <ModeToggle mode={mode} setMode={setMode} />
+              {!afterMeta && (
+                <button
+                  type="button"
+                  className={s["mode-switch-btn"]}
+                  onClick={() => setMode(mode === "wysiwyg" ? "markdown" : "wysiwyg")}
+                >
+                  {mode === "wysiwyg" ? <MarkdownIcon /> : <RichTextIcon />}
+                  {mode === "wysiwyg" ? "Markdown" : "Rich Text"}
+                </button>
+              )}
             </div>
           )}
           <div className="mdg-content-area">

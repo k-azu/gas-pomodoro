@@ -92,9 +92,7 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
 
   const toolbarRightSlot = isContainerType ? (
     <ToolbarSlot>
-      <button className={s["task-view-toggle"]} onClick={toggleView}>
-        {showingDoc ? "タスク" : "ドキュメント"}
-      </button>
+      <ViewModeToggle showingDoc={showingDoc} toggleView={toggleView} />
     </ToolbarSlot>
   ) : undefined;
 
@@ -160,6 +158,20 @@ function useEntity(storeName: string, entityType: string, id: string) {
   }, [entityType, storeName, id]);
 
   return [entity, setEntity] as const;
+}
+
+function ViewModeToggle({
+  showingDoc,
+  toggleView,
+}: {
+  showingDoc: boolean;
+  toggleView: () => void;
+}) {
+  return (
+    <button type="button" className={s["view-mode-btn"]} onClick={toggleView}>
+      {showingDoc ? "タスク一覧" : "ドキュメント"}
+    </button>
+  );
 }
 
 function ProjectMeta({

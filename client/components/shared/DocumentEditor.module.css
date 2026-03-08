@@ -3,6 +3,7 @@
   --content-px: 60px;
   flex: 1;
   overflow-y: auto;
+  overflow-anchor: none; /* prevent scroll anchoring from over-correcting during document switch */
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -65,13 +66,38 @@
   margin-bottom: 12px;
 }
 
+/* Spacer: fills space when editor header is hidden (afterMeta / table view) */
+.toolbar-spacer { flex: 1; }
+
 /* Shared: toolbar slot (used by multiple tabs) */
 .toolbar-slot {
   display: flex;
   align-items: center;
-  padding: 0 4px;
+  padding: 0 2px;
   flex-shrink: 0;
 }
+.toolbar-slot:last-child { padding-right: 6px; }
+
+/* Editor mode switch button (chip style) */
+.mode-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #f9fafb;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+  color: #6b7280;
+  transition: background-color 0.1s, color 0.1s, border-color 0.1s;
+  line-height: 1.5;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.mode-switch-btn:hover { background: #e5e7eb; color: #374151; border-color: #9ca3af; }
 
 /* Shared: meta title row (used by Task/Memo tabs) */
 .meta-title-row {

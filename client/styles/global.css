@@ -95,6 +95,7 @@ body {
 .mdg-editor-toolbar-row {
   display: flex;
   align-items: center;
+  min-height: 39px;
   border-bottom: 1px solid var(--border-subtle);
 }
 .mdg-editor-toolbar-row > .mdg-editor-header {
@@ -112,4 +113,3 @@ body {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
-

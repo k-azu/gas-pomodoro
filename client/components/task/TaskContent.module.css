@@ -53,25 +53,25 @@
   outline: none;
 }
 
-.task-view-toggle {
+/* View mode switch button (chip style) */
+.view-mode-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: transparent;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: inherit;
-  color: #374151;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #f9fafb;
   cursor: pointer;
-  transition: background-color 0.1s, border-color 0.1s;
+  font-size: 11px;
+  font-family: inherit;
+  color: #6b7280;
+  transition: background-color 0.1s, color 0.1s, border-color 0.1s;
+  line-height: 1.5;
+  flex-shrink: 0;
 }
 
-.task-view-toggle:hover { background: #e5e7eb; border-color: #d1d5db; }
+.view-mode-btn:hover { background: #e5e7eb; color: #374151; border-color: #9ca3af; }
 
 .task-wiki-container { min-height: 200px; }
 
