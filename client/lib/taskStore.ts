@@ -270,6 +270,34 @@ export function getAllTasks(): Promise<any[]> {
 }
 
 // =========================================================
+// Archived query helpers
+// =========================================================
+
+export function getArchivedCases(projectId: string): Promise<any[]> {
+  return EntityStore.getByIndex("cases", "projectId", projectId).then((items) =>
+    items
+      .filter((c) => c.isActive === false)
+      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)),
+  );
+}
+
+export function getArchivedDirectTasks(projectId: string): Promise<any[]> {
+  return EntityStore.getByIndex("tasks", "projectId", projectId).then((items) =>
+    items
+      .filter((t) => t.isActive === false && !t.caseId)
+      .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || "")),
+  );
+}
+
+export function getArchivedTasksForCase(caseId: string): Promise<any[]> {
+  return EntityStore.getByIndex("tasks", "caseId", caseId).then((items) =>
+    items
+      .filter((t) => t.isActive === false)
+      .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || "")),
+  );
+}
+
+// =========================================================
 // Reorder
 // =========================================================
 

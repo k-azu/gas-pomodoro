@@ -7,7 +7,7 @@
  */
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { UseTasksReturn } from "../../hooks/useTasks";
-import { STATUS_CONFIG, STATUS_ITEMS, statusLabelToKey } from "../../hooks/useTasks";
+import { STATUS_CONFIG, STATUS_ITEMS_WITH_ARCHIVED, statusLabelToKey } from "../../hooks/useTasks";
 import { useDocumentEditor } from "../../hooks/useDocumentEditor";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { useTaskRecordCache } from "../../hooks/useTaskRecordCache";
@@ -292,13 +292,18 @@ function TaskMeta({
       <RecordField label="ステータス">
         <ItemPicker
           mode="single"
-          items={STATUS_ITEMS}
+          items={STATUS_ITEMS_WITH_ARCHIVED}
           selected={[sc.label]}
           removable={false}
           onSelect={(selected) => {
             if (selected.length > 0) {
-              const key = statusLabelToKey(selected[0]);
-              tasks.updateTaskFields(id, { status: key });
+              const label = selected[0];
+              if (label === "Archived") {
+                tasks.updateTaskFields(id, { isActive: false });
+              } else {
+                const key = statusLabelToKey(label);
+                tasks.updateTaskFields(id, { status: key });
+              }
             }
           }}
           placeholder="ステータス"

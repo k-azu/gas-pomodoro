@@ -127,3 +127,38 @@
 
 .task-table-add:hover { color: var(--text); background: var(--bg); }
 .task-table-add-disabled { opacity: 0.4; pointer-events: none; cursor: default; }
+
+/* Archive */
+.archive-row { opacity: 0.65; }
+.archive-row:hover { opacity: 1; }
+
+.archive-cases-section {
+  margin-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 4px;
+}
+
+.archive-case-group { margin: 4px 0; }
+
+.archive-case-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.archive-case-name { font-weight: 500; }
+
+.archive-unarchive-btn {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.archive-unarchive-btn:hover { color: var(--text); border-color: var(--text-secondary); }

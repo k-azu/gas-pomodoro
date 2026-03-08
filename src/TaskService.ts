@@ -66,7 +66,6 @@ function getAllTaskData(): {
   if (projLastRow > 1) {
     const projData = projSheet.getRange(2, 1, projLastRow - 1, 8).getValues();
     projects = projData
-      .filter((row) => row[5] === true)
       .map((row) => ({
         id: String(row[0]),
         name: String(row[1]),
@@ -86,7 +85,6 @@ function getAllTaskData(): {
   if (casesLastRow > 1) {
     const casesData = casesSheet.getRange(2, 1, casesLastRow - 1, 8).getValues();
     cases = casesData
-      .filter((row) => row[5] === true)
       .map((row) => ({
         id: String(row[0]),
         projectId: String(row[1]),
@@ -106,7 +104,6 @@ function getAllTaskData(): {
   if (tasksLastRow > 1) {
     const tasksData = tasksSheet.getRange(2, 1, tasksLastRow - 1, 13).getValues();
     tasks = tasksData
-      .filter((row) => row[7] === true)
       .map((row) => ({
         id: String(row[0]),
         projectId: String(row[1]),
@@ -302,7 +299,7 @@ function updateProject(
 
 function updateCase(
   id: string,
-  fields: { name?: string; content?: string },
+  fields: { name?: string; content?: string; isActive?: boolean },
 ): { success: boolean; updatedAt?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Cases")!;
@@ -315,6 +312,7 @@ function updateCase(
       const row = i + 2;
       if (fields.name !== undefined) sheet.getRange(row, 3).setValue(fields.name);
       if (fields.content !== undefined) sheet.getRange(row, 4).setValue(fields.content);
+      if (fields.isActive !== undefined) sheet.getRange(row, 6).setValue(fields.isActive);
       const updatedAt = new Date().toISOString();
       sheet.getRange(row, 8).setValue(updatedAt);
       invalidateTaskCache();
@@ -332,6 +330,7 @@ function updateTask(
     status?: string;
     startedAt?: string;
     dueDate?: string;
+    isActive?: boolean;
   },
 ): { success: boolean; updatedAt?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -354,6 +353,7 @@ function updateTask(
           sheet.getRange(row, 10).setValue("");
         }
       }
+      if (fields.isActive !== undefined) sheet.getRange(row, 8).setValue(fields.isActive);
       if (fields.startedAt !== undefined) sheet.getRange(row, 11).setValue(fields.startedAt);
       if (fields.dueDate !== undefined) sheet.getRange(row, 12).setValue(fields.dueDate);
       const updatedAt = new Date().toISOString();

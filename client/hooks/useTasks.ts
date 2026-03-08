@@ -62,6 +62,15 @@ export const STATUS_ITEMS = Object.keys(STATUS_CONFIG).map((key) => ({
   color: STATUS_CONFIG[key].color,
 }));
 
+// "Archived" を含むドロップダウン用アイテム（アーカイブセクション専用）
+export const STATUS_ITEMS_WITH_ARCHIVED = [...STATUS_ITEMS, { name: "Archived", color: "#bdbdbd" }];
+
+// "Archived" を含む全定義（表示・色の解決用）
+export const ALL_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  ...STATUS_CONFIG,
+  archived: { label: "Archived", color: "#bdbdbd" },
+};
+
 export function statusLabelToKey(label: string): TaskStatus {
   for (const [key, cfg] of Object.entries(STATUS_CONFIG)) {
     if (cfg.label === label) return key as TaskStatus;
@@ -105,6 +114,11 @@ export interface UseTasksReturn {
 
   reorderProjects: (ids: string[]) => void;
   reorderCases: (projectId: string, ids: string[]) => void;
+
+  loadArchived: (projectId: string) => Promise<void>;
+  getArchivedCasesFor: (projectId: string) => CaseItem[];
+  getArchivedDirectTasks: (projectId: string) => TaskItem[];
+  unarchiveCase: (caseId: string) => Promise<void>;
 
   isLoading: boolean;
 }
@@ -414,6 +428,41 @@ export function useTasks(): UseTasksReturn {
     [refreshFromStore, selectNode],
   );
 
+  // =========================================================
+  // Archived data
+  // =========================================================
+  const [archivedCases, setArchivedCases] = useState<CaseItem[]>([]);
+  const [archivedTasks, setArchivedTasks] = useState<TaskItem[]>([]);
+
+  const loadArchived = useCallback(async (projectId: string) => {
+    const [cases, tasks] = await Promise.all([
+      TaskStore.getArchivedCases(projectId),
+      TaskStore.getArchivedDirectTasks(projectId),
+    ]);
+    setArchivedCases((prev) => [...prev.filter((c) => c.projectId !== projectId), ...cases]);
+    setArchivedTasks((prev) => [...prev.filter((t) => t.projectId !== projectId), ...tasks]);
+  }, []);
+
+  const getArchivedCasesFor = useCallback(
+    (projectId: string) => archivedCases.filter((c) => c.projectId === projectId),
+    [archivedCases],
+  );
+
+  const getArchivedDirectTasks = useCallback(
+    (projectId: string) => archivedTasks.filter((t) => t.projectId === projectId && !t.caseId),
+    [archivedTasks],
+  );
+
+  const unarchiveCase = useCallback(
+    async (caseId: string) => {
+      await TaskStore.updateCase(caseId, { isActive: true });
+      const caseTasks = await TaskStore.getArchivedTasksForCase(caseId);
+      await Promise.all(caseTasks.map((t) => TaskStore.updateTask(t.id, { isActive: true })));
+      await refreshFromStore();
+    },
+    [refreshFromStore],
+  );
+
   // Reorder
   const reorderProjects = useCallback((ids: string[]) => {
     TaskStore.reorderProjects(ids);
@@ -463,6 +512,10 @@ export function useTasks(): UseTasksReturn {
     archiveNode,
     reorderProjects,
     reorderCases,
+    loadArchived,
+    getArchivedCasesFor,
+    getArchivedDirectTasks,
+    unarchiveCase,
     isLoading,
   };
 }

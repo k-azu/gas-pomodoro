@@ -88,7 +88,7 @@ body {
 }
 
 .editor-full-container .mdg-editor { border: none; border-radius: 0; min-height: 0; }
-.editor-full-container .mdg-editor-header { background: transparent; border-radius: 0; border-bottom: 1px solid var(--border-subtle); }
+.editor-full-container .mdg-editor-header { background: transparent; border-radius: 0; border-bottom: 1px solid var(--border-subtle); min-height: 39px; }
 .editor-full-container .mdg-toolbar-btn:hover { background: #ffebee; border-color: #ffcdd2; }
 
 /* Toolbar row: [left slot] [editor toolbar] [right slot] */

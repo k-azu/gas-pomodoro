@@ -112,14 +112,7 @@ export function TaskTab() {
               label: "アーカイブ",
               danger: true,
               onClick: () => {
-                let msg = `「${contextMenu.data.name}」をアーカイブしますか？`;
-                if (contextMenu.type === "project")
-                  msg += "\n（配下の案件・タスクもアーカイブされます）";
-                else if (contextMenu.type === "case")
-                  msg += "\n（配下のタスクもアーカイブされます）";
-                if (confirm(msg)) {
-                  tasks.archiveNode(contextMenu.type, contextMenu.data.id);
-                }
+                tasks.archiveNode(contextMenu.type, contextMenu.data.id);
               },
             },
           ],
