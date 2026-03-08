@@ -1,4 +1,4 @@
-.task-table-content { flex: 1; overflow: auto; padding: 8px 40px; }
+.task-table-content { flex: 1; overflow: auto; padding: 8px 0; }
 .task-table-group { margin-bottom: 16px; min-width: 700px; }
 .task-table-group-header {
   display: flex;

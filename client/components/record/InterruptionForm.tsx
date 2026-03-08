@@ -9,7 +9,7 @@ import { RecordField } from "../shared/RecordField";
 import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
 import { DocumentEditor } from "../shared/DocumentEditor";
-import type { MarkdownEditorRef } from "../shared/MarkdownEditorWrapper";
+import type { MarkdownEditorRef } from "../shared/DocumentEditor";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { useFormDraft } from "../../hooks/useFormDraft";
 import { STORAGE_KEYS } from "../../lib/localStorage";

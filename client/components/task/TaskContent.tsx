@@ -20,7 +20,7 @@ import { FolderIcon } from "../shared/Icons";
 import { SidebarExpandButton } from "../shared/Sidebar";
 import { RecordField } from "../shared/RecordField";
 import { RecordRow } from "../shared/RecordRow";
-import { DocumentEditor, ToolbarSlot, MetaTitle, pageRootClass } from "../shared/DocumentEditor";
+import { DocumentEditor, ToolbarSlot, MetaTitle } from "../shared/DocumentEditor";
 import { SyncIndicator, type SyncStatus } from "../shared/SyncIndicator";
 import { TaskTableView } from "./TaskTableView";
 import s from "./TaskContent.module.css";
@@ -98,46 +98,37 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
     </ToolbarSlot>
   ) : undefined;
 
+  const tableSlot =
+    !showingDoc && isContainerType ? (
+      <TaskTableView tasks={tasks} parentType={type as "project" | "case"} parentId={id} />
+    ) : undefined;
+
   return (
     <div className={s["task-detail"]}>
-      {/* Doc view — always mounted, hidden when table view active */}
-      <div style={{ display: showingDoc ? "contents" : "none" }}>
-        <DocumentEditor
-          {...editorConfig.editorProps}
-          initialValue={initialContent}
-          documentId={id}
-          onChange={handleEditorChange}
-          placeholder="ドキュメントを入力..."
-          editorRef={editorRef}
-          readOnly={readOnly}
-          toolbarLeft={toolbarLeftSlot}
-          toolbarRight={toolbarRightSlot}
-          className={s["task-wiki-container"]}
-        >
-          {/* Meta section — keyed to remount per type+id */}
-          {type === "project" && (
-            <ProjectMeta key={`p-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
-          )}
-          {type === "case" && (
-            <CaseMeta key={`c-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
-          )}
-          {type === "task" && (
-            <TaskMeta key={`t-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
-          )}
-        </DocumentEditor>
-      </div>
-
-      {/* Table view — project/case only */}
-      {!showingDoc && isContainerType && (
-        <div className={pageRootClass}>
-          <div className="mdg-editor-toolbar-row">
-            {toolbarLeftSlot}
-            <div style={{ flex: 1, minHeight: 38 }} />
-            {toolbarRightSlot}
-          </div>
-          <TaskTableView tasks={tasks} parentType={type as "project" | "case"} parentId={id} />
-        </div>
-      )}
+      <DocumentEditor
+        {...editorConfig.editorProps}
+        initialValue={initialContent}
+        documentId={id}
+        onChange={handleEditorChange}
+        placeholder="ドキュメントを入力..."
+        editorRef={editorRef}
+        readOnly={readOnly}
+        toolbarLeft={toolbarLeftSlot}
+        toolbarRight={toolbarRightSlot}
+        className={s["task-wiki-container"]}
+        afterMeta={tableSlot}
+      >
+        {/* Meta section — keyed to remount per type+id */}
+        {type === "project" && (
+          <ProjectMeta key={`p-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
+        )}
+        {type === "case" && (
+          <CaseMeta key={`c-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
+        )}
+        {type === "task" && (
+          <TaskMeta key={`t-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
+        )}
+      </DocumentEditor>
 
       {/* Work records — task only */}
       {type === "task" && <TaskWorkRecords key={id} id={id} />}

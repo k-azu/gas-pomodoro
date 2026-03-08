@@ -12,7 +12,7 @@ import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
 import { HierarchicalTaskPicker } from "../shared/HierarchicalTaskPicker";
 import { DocumentEditor } from "../shared/DocumentEditor";
-import type { MarkdownEditorRef } from "../shared/MarkdownEditorWrapper";
+import type { MarkdownEditorRef } from "../shared/DocumentEditor";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { blobUrlsToDrive, resolveDriveUrls } from "../../lib/imageCache";
 import { serverCall } from "../../lib/serverCall";

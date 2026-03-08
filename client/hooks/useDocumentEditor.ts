@@ -15,7 +15,7 @@
  * suppressSaveRef only covers resolve (setValue of server content shouldn't save back).
  */
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { MarkdownEditorRef } from "../components/shared/MarkdownEditorWrapper";
+import type { MarkdownEditorRef } from "../components/shared/DocumentEditor";
 import type { SyncStatus } from "../components/shared/SyncIndicator";
 import * as EntityStore from "../lib/entityStore";
 
