@@ -94,10 +94,29 @@
   transition: background-color 0.1s, color 0.1s, border-color 0.1s;
   line-height: 1.5;
   flex-shrink: 0;
-  margin-left: auto;
+  margin-left: auto; /* fallback when char-count is absent */
+}
+
+/* When char-count precedes mode-switch, char-count takes over margin-left:auto */
+.char-count + .mode-switch-btn {
+  margin-left: 0;
 }
 
 .mode-switch-btn:hover { background: #e5e7eb; color: #374151; border-color: #9ca3af; }
+
+/* Character count (shown before mode switch button) */
+.char-count {
+  font-size: 11px;
+  color: #9ca3af;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: auto;
+  margin-right: 4px;
+}
+.char-count[data-over] {
+  color: #dc2626;
+  font-weight: 600;
+}
 
 /* Shared: meta title row (used by Task/Memo tabs) */
 .meta-title-row {

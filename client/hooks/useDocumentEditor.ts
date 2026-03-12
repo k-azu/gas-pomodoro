@@ -144,7 +144,8 @@ export function useDocumentEditor({
     };
 
     if (isSwitch && editorRef.current) {
-      flushPendingSave();
+      // flushPendingSave は cleanup（265行目）で実行済み。
+      // ここで再度呼ぶと currentDocIdRef が旧IDのまま同じ flushSync が2回走る。
       const hasDoc = editorRef.current.hasDocument(id);
       const resolveStatus = _resolveStatus.get(id);
       // resolve が一度も実行されていないドキュメントはキャッシュが空の可能性がある
@@ -153,6 +154,11 @@ export function useDocumentEditor({
       if (hasDoc && !needsResolve) {
         // キャッシュあり＆resolve 済み → IDB スキップ、content なしで切り替え
         currentDocIdRef.current = id;
+        // 前ドキュメントの resolve 途中で切り替えた場合、suppressSaveRef が
+        // true のまま残る可能性がある。synced 済みなら必ずリセットする。
+        if (!resolveContent || _resolveStatus.get(id) === "synced") {
+          suppressSaveRef.current = false;
+        }
         editorRef.current.switchDocument(id);
         // Kick off background resolve after switch (idempotent)
         if (resolveContent) ensureResolved(id, resolveContent);

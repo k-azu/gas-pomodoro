@@ -112,6 +112,7 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
         placeholder="ドキュメントを入力..."
         editorRef={editorRef}
         readOnly={readOnly}
+        maxCharCount={50000}
         toolbarLeft={toolbarLeftSlot}
         toolbarRight={toolbarRightSlot}
         className={s["task-wiki-container"]}

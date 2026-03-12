@@ -47,6 +47,8 @@ interface DocumentEditorProps {
   readOnly?: boolean;
   editorRef?: React.RefObject<MarkdownEditorRef | null>;
   className?: string;
+  /** Show character count in toolbar; warn when content exceeds this limit */
+  maxCharCount?: number;
 }
 
 export function DocumentEditor({
@@ -63,6 +65,7 @@ export function DocumentEditor({
   mentions,
   readOnly = false,
   editorRef: externalRef,
+  maxCharCount,
 }: DocumentEditorProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -207,6 +210,11 @@ export function DocumentEditor({
   }, [activeDocId, hasAfterMeta]);
 
   const hasToolbarSlots = toolbarLeft || toolbarRight;
+  const charCountEl = maxCharCount ? (
+    <span className={s["char-count"]} data-over={content.length > maxCharCount ? "" : undefined}>
+      {content.length.toLocaleString()} / {maxCharCount.toLocaleString()}
+    </span>
+  ) : null;
 
   return (
     <div
@@ -225,9 +233,10 @@ export function DocumentEditor({
                   {toolbarItems !== false && editor && mode === "wysiwyg" && (
                     <Toolbar editor={editor} items={toolbarItems} />
                   )}
+                  {charCountEl}
                   <button
                     type="button"
-                    className={s["mode-switch-btn"]}
+                    className={`${s["mode-switch-btn"]} mdg-mode-btn`}
                     onClick={() => setMode(mode === "wysiwyg" ? "markdown" : "wysiwyg")}
                   >
                     {mode === "wysiwyg" ? <MarkdownIcon /> : <RichTextIcon />}
@@ -242,10 +251,11 @@ export function DocumentEditor({
               {!afterMeta && toolbarItems !== false && editor && mode === "wysiwyg" && (
                 <Toolbar editor={editor} items={toolbarItems} />
               )}
+              {!afterMeta && charCountEl}
               {!afterMeta && (
                 <button
                   type="button"
-                  className={s["mode-switch-btn"]}
+                  className={`${s["mode-switch-btn"]} mdg-mode-btn`}
                   onClick={() => setMode(mode === "wysiwyg" ? "markdown" : "wysiwyg")}
                 >
                   {mode === "wysiwyg" ? <MarkdownIcon /> : <RichTextIcon />}

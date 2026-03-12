@@ -88,6 +88,7 @@ export function InterruptionForm() {
         onChange={(md) => triggerSave(md)}
         placeholder="中断の内容を記録..."
         editorRef={editorRef}
+        maxCharCount={50000}
       >
         <RecordField label="作業に含める">
           <TypeToggle checked={isWork} onChange={setIsWork} label="" />

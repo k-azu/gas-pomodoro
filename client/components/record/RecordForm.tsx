@@ -256,6 +256,7 @@ export function RecordForm() {
         onChange={(md) => triggerSave(md)}
         placeholder="何に取り組みましたか？"
         editorRef={editorRef}
+        maxCharCount={50000}
       >
         <button className={s["copy-previous-btn"]} onClick={copyFromPrevious}>
           前回をコピー

@@ -190,6 +190,7 @@ export function MemoTab() {
               placeholder="メモを入力..."
               editorRef={editorRef}
               readOnly={readOnly}
+              maxCharCount={50000}
               toolbarLeft={
                 sidebarCollapsed ? (
                   <ToolbarSlot>

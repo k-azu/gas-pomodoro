@@ -27,13 +27,14 @@ const isDev = !window.google?.script?.run;
 
 type MockScenario = "default" | "serverNewer" | "localNewer";
 
-function readMockParams(): { scenario: MockScenario; delay: number } {
-  if (!isDev) return { scenario: "default", delay: 0 };
+function readMockParams(): { scenario: MockScenario; delay: number; largeContent: boolean } {
+  if (!isDev) return { scenario: "default", delay: 0, largeContent: false };
   const params = new URLSearchParams(window.location.search);
   const raw = params.get("mockScenario") || "default";
   const scenario: MockScenario = raw === "serverNewer" || raw === "localNewer" ? raw : "default";
   const delay = Math.max(0, Number(params.get("mockDelay")) || 0);
-  return { scenario, delay };
+  const largeContent = params.get("mockLargeContent") === "1";
+  return { scenario, delay, largeContent };
 }
 
 const mockParams = readMockParams();
@@ -395,6 +396,26 @@ const CONTENT_FUNCTIONS = new Set([
   "getMemoContent",
 ]);
 
+/** Generate large mock content for char-count limit testing. Includes `prefix` for keyword matching. */
+function generateLargeContent(charTarget: number, prefix: string): string {
+  const block = [
+    "## セクション",
+    "",
+    "これはダミーテキストです。文字数制限のテストのために生成されています。",
+    "IndexedDB からスプレッドシートへの保存時、セルの上限は 50,000 文字です。",
+    "",
+    "- リスト項目 A: パフォーマンス計測の結果を記録する",
+    "- リスト項目 B: エラーハンドリングの改善を検討する",
+    "- リスト項目 C: テストカバレッジを向上させる",
+    "",
+  ].join("\n");
+  let content = prefix + "\n\n";
+  while (content.length < charTarget) {
+    content += block;
+  }
+  return content;
+}
+
 /** Per-ID mock content (simulates server-side content for specific entities) */
 const MOCK_CONTENT_BY_ID: Record<string, { content: string; updatedAt: string }> = {
   "mock-memo-1": {
@@ -475,19 +496,10 @@ const MOCK_CONTENT_BY_ID: Record<string, { content: string; updatedAt: string }>
     updatedAt: "2025-04-01T00:00:00.000Z",
   },
   "mock-memo-5": {
-    content: [
-      "# バグトラッカー",
-      "",
-      "## 未解決",
-      "",
-      "- タイマーが稀にリセットされる問題",
-      "- カテゴリ削除時のバリデーション不足",
-      "",
-      "## 解決済み",
-      "",
-      "- ~~ログ保存時のタイムゾーンずれ~~",
-      "- ~~中断カウントの集計ミス~~",
-    ].join("\n"),
+    content: generateLargeContent(
+      51000,
+      "# バグトラッカー\n\n## 未解決\n\n- タイマーが稀にリセットされる問題",
+    ),
     updatedAt: "2025-05-01T00:00:00.000Z",
   },
 };
@@ -496,8 +508,8 @@ function getContentMockResponse(functionName: string, id?: string): unknown {
   if (typeof window !== "undefined" && (window as any).__mockContentOverride !== undefined) {
     return (window as any).__mockContentOverride;
   }
-  // Per-ID content: only when mockDelay > 0 (sync behavior testing)
-  if (mockParams.delay > 0 && id && MOCK_CONTENT_BY_ID[id]) {
+  // Per-ID content: enabled by ?mockDelay>0 (sync testing) or ?mockLargeContent=1 (char limit testing)
+  if ((mockParams.delay > 0 || mockParams.largeContent) && id && MOCK_CONTENT_BY_ID[id]) {
     return MOCK_CONTENT_BY_ID[id];
   }
   const { scenario } = mockParams;

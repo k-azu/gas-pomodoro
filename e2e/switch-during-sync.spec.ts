@@ -151,6 +151,11 @@ test.describe("同期中のドキュメント切替", () => {
     await page.waitForTimeout(2500); // Wait for debounce flush
 
     // Reload with delay → triggers async resolve
+    // Override mock content to null so resolve keeps local IDB content
+    // (without this, MOCK_CONTENT_BY_ID returns different content that overwrites typed text)
+    await page.addInitScript(() => {
+      (window as any).__mockContentOverride = null;
+    });
     await page.goto("/?mockDelay=1000#tab=memo");
     await page.waitForSelector("[class*='sidebar']", { timeout: 15_000 });
 

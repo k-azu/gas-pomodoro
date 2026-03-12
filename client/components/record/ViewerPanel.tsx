@@ -280,6 +280,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
         onChange={(md) => setMarkdownDirty(md !== origMarkdown.current)}
         placeholder=""
         editorRef={editorRef}
+        maxCharCount={50000}
       >
         {vs.startTime && vs.endTime && (
           <RecordField label="時間">
