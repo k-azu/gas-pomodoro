@@ -12,7 +12,7 @@ import { serverCall } from "./serverCall";
 // Debug Logging
 // =========================================================
 
-let _debugSync = false;
+let _debugSync = true;
 
 /** Enable/disable sync debug logging. Call `EntityStore.setDebugSync(true)` from DevTools. */
 export function setDebugSync(enabled: boolean): void {
@@ -111,7 +111,14 @@ export function init(
   _dbVersion = dbVersion;
   _onUpgrade = opts?.onUpgrade ?? null;
   return openDB().then(() => {
-    window.addEventListener("beforeunload", flushAllSyncs);
+    window.addEventListener("beforeunload", (e) => {
+      const pending = hasPendingChanges();
+      flushAllSyncs();
+      if (pending) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    });
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") flushAllSyncs();
     });
@@ -373,7 +380,12 @@ export function archiveEntity(storeName: string, id: string): Promise<void> {
 // Content Management
 // =========================================================
 
-export function saveContent(storeName: string, id: string, content: string): Promise<void> {
+export function saveContent(
+  storeName: string,
+  id: string,
+  content: string,
+  opts?: { immediateSync?: boolean },
+): Promise<void> {
   _entityStoreMap[id] = storeName;
   return withLock(id, () =>
     get(storeName, id).then((existing) => {
@@ -387,7 +399,15 @@ export function saveContent(storeName: string, id: string, content: string): Pro
       existing.content = content;
       existing._contentDirtyAt = now;
       return put(storeName, existing).then(() => {
-        scheduleContentSync(storeName, id);
+        if (opts?.immediateSync) {
+          if (_contentSyncDebounces[id]) {
+            clearTimeout(_contentSyncDebounces[id]);
+            delete _contentSyncDebounces[id];
+          }
+          syncContentToServer(storeName, id);
+        } else {
+          scheduleContentSync(storeName, id);
+        }
       });
     }),
   );
@@ -627,6 +647,15 @@ function flushReorderSync(storeName: string): void {
       state.saving = false;
       if (state.pending) flushReorderSync(storeName);
     });
+}
+
+/** Returns true if any debounced sync (metadata/content/reorder) is still pending. */
+export function hasPendingChanges(): boolean {
+  return (
+    Object.keys(_metaDebounces).length > 0 ||
+    Object.keys(_contentSyncDebounces).length > 0 ||
+    Object.values(_reorderState).some((s) => s.pending !== null)
+  );
 }
 
 export function flushAllSyncs(): void {

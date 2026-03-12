@@ -176,8 +176,12 @@ export function getTags(): MemoTag[] {
 // Content (backward compat wrappers)
 // =========================================================
 
-export function saveContent(id: string, content: string): Promise<void> {
-  return EntityStore.saveContent("memos", id, content);
+export function saveContent(
+  id: string,
+  content: string,
+  opts?: { immediateSync?: boolean },
+): Promise<void> {
+  return EntityStore.saveContent("memos", id, content, opts);
 }
 
 export function getContent(id: string): Promise<string | null> {

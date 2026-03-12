@@ -61,7 +61,8 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
     id,
     loadContent: useCallback((id: string) => TaskStore.getContent(id, storeName), [storeName]),
     saveContent: useCallback(
-      (id: string, md: string) => TaskStore.saveContent(id, md, storeName),
+      (id: string, md: string, opts?: { immediateSync?: boolean }) =>
+        TaskStore.saveContent(id, md, storeName, opts),
       [storeName],
     ),
     flushSync: useCallback((id: string) => TaskStore.flushContentSync(storeName, id), [storeName]),

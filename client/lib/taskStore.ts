@@ -329,8 +329,13 @@ export function reorderTasks(parentId: string, orderedIds: string[]): Promise<vo
 // Content
 // =========================================================
 
-export function saveContent(id: string, content: string, storeName: string): Promise<void> {
-  return EntityStore.saveContent(storeName, id, content);
+export function saveContent(
+  id: string,
+  content: string,
+  storeName: string,
+  opts?: { immediateSync?: boolean },
+): Promise<void> {
+  return EntityStore.saveContent(storeName, id, content, opts);
 }
 
 export function getContent(id: string, storeName: string): Promise<string | null> {

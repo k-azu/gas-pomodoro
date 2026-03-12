@@ -42,9 +42,11 @@ export function MemoTab() {
   } = useDocumentEditor({
     id: memo.activeId || "",
     loadContent: useCallback((id: string) => MemoStore.getContent(id), []),
-    saveContent: useCallback((id: string, md: string) => {
-      MemoStore.saveContent(id, md);
-    }, []),
+    saveContent: useCallback(
+      (id: string, md: string, opts?: { immediateSync?: boolean }) =>
+        MemoStore.saveContent(id, md, opts),
+      [],
+    ),
     flushSync: useCallback((id: string) => MemoStore.flushContentSync(id), []),
     resolveContent: useCallback((id: string) => MemoStore.resolveWithServer(id), []),
     ...editorConfig.hookOptions,

@@ -22,7 +22,7 @@ import * as EntityStore from "../lib/entityStore";
 interface UseDocumentEditorOptions {
   id: string;
   loadContent: (id: string) => Promise<string | null>;
-  saveContent: (id: string, content: string) => void;
+  saveContent: (id: string, content: string, opts?: { immediateSync?: boolean }) => Promise<void>;
   /** Flush server sync for the given id (bypass 30s debounce) */
   flushSync?: (id: string) => void;
   resolveContent?: (id: string) => Promise<{ useServer: boolean; content?: string } | null>;
@@ -95,13 +95,25 @@ export function useDocumentEditor({
       saveTimerRef.current = null;
     }
     const pending = pendingContentRef.current;
-    doSave();
-    if (pending) flushSyncRef.current?.(pending.id);
-  }, [doSave]);
+    if (pending) {
+      pendingContentRef.current = null;
+      saveContentRef.current(pending.id, pending.content, { immediateSync: true });
+    } else {
+      // 2s debounce 済みだが 30s debounce が残っている場合
+      flushSyncRef.current?.(currentDocIdRef.current);
+    }
+  }, []);
 
-  // Flush on page reload / tab close
+  // Flush on page reload / tab close, warn if editor has unsaved content
   useEffect(() => {
-    const handleBeforeUnload = () => flushPendingSave();
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const hasPending = pendingContentRef.current !== null;
+      flushPendingSave();
+      if (hasPending) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [flushPendingSave]);
