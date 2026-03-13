@@ -57,6 +57,7 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
     onChange: handleEditorChange,
     syncStatus,
     readOnly,
+    flushPendingSave,
   } = useDocumentEditor({
     id,
     loadContent: useCallback((id: string) => TaskStore.getContent(id, storeName), [storeName]),
@@ -75,9 +76,9 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
 
   // --- Toggle view (project/case only) ---
   const toggleView = useCallback(() => {
-    editorRef.current?.flushSave();
+    flushPendingSave();
     tasks.setViewMode(id, showingDoc ? "table" : "doc");
-  }, [id, showingDoc, tasks, editorRef]);
+  }, [id, showingDoc, tasks, flushPendingSave]);
 
   // --- Loading guard ---
   if (initialContent === null)

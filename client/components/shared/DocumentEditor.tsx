@@ -29,7 +29,6 @@ export interface MarkdownEditorRef {
   hasDocument: (id: string) => boolean;
   invalidateDocument: (id: string) => void;
   clear: () => void;
-  flushSave: () => void;
 }
 
 interface DocumentEditorProps {
@@ -171,7 +170,6 @@ export function DocumentEditor({
         contentRef.current = "";
         setContent("");
       },
-      flushSave: () => {},
     };
   });
 

@@ -71,11 +71,17 @@ export function useDocumentEditor({
   const suppressSaveRef = useRef(false);
   // Track which document the editor is actually displaying
   const currentDocIdRef = useRef(id);
-  // Stable refs — avoids adding to useEffect deps
+  // Stable refs — updated in a separate useEffect so that the main effect's
+  // cleanup (flushPendingSave) still reads the OLD refs when the document switches.
+  // React runs effects in declaration order: ref-update cleanup (noop) → main cleanup
+  // (flush with old ref) → ref-update setup (update refs) → main setup (new doc).
   const saveContentRef = useRef(saveContent);
-  saveContentRef.current = saveContent;
   const flushSyncRef = useRef(flushSync);
-  flushSyncRef.current = flushSync;
+
+  useEffect(() => {
+    saveContentRef.current = saveContent;
+    flushSyncRef.current = flushSync;
+  }, [saveContent, flushSync]);
   // 2-second debounce for IDB writes (matches old EditorManager saveDebounceMs: 2000)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingContentRef = useRef<{ id: string; content: string } | null>(null);
@@ -293,5 +299,5 @@ export function useDocumentEditor({
     [transformOnSave, doSave],
   );
 
-  return { editorRef, initialContent, onChange, syncStatus, readOnly };
+  return { editorRef, initialContent, onChange, syncStatus, readOnly, flushPendingSave };
 }
