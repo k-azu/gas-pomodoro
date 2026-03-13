@@ -24,6 +24,10 @@ interface UseMarkdownEditorOptions {
   onFocus?: () => void;
   onBlur?: () => void;
   mentions?: MentionTrigger[];
+  /** Ref controlling addToHistory for external value sync.
+   * Set to false before initial-load switchDocument to prevent undo entry.
+   * Automatically reset to true after consumed. */
+  addToHistoryRef?: React.RefObject<boolean>;
 }
 
 export function useMarkdownEditor({
@@ -36,6 +40,7 @@ export function useMarkdownEditor({
   onFocus,
   onBlur,
   mentions,
+  addToHistoryRef,
 }: UseMarkdownEditorOptions) {
   const [mode, setModeState] = useState<EditorMode>(defaultMode);
   const [rawMarkdown, setRawMarkdownState] = useState(value);
@@ -118,7 +123,9 @@ export function useMarkdownEditor({
     const json = parseMarkdown(editor, value);
     const doc = editor.schema.nodeFromJSON(json);
     const tr = editor.state.tr.replaceWith(0, editor.state.doc.content.size, doc.content);
-    tr.setMeta("addToHistory", true);
+    const addToHistory = addToHistoryRef?.current ?? true;
+    if (addToHistoryRef) addToHistoryRef.current = true; // reset after consume
+    tr.setMeta("addToHistory", addToHistory);
     tr.setMeta("skipOnChange", true);
     editor.view.dispatch(tr);
     prevValueRef.current = value;

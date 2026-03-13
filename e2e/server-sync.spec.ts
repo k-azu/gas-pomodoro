@@ -151,6 +151,41 @@ test.describe("C. サーバー同期と競合解決", () => {
     await waitForSyncComplete(page);
   });
 
+  test("C7: サーバー上書き後に undo で IDB 内容に戻せる", async ({ page }) => {
+    await gotoApp(page);
+    await waitForSyncComplete(page);
+    await selectMemo(page, "開発メモ");
+    await typeInEditor(page, "ローカルの内容");
+    await page.waitForTimeout(2500); // debounce flush
+
+    // Clear dirty flag so resolve applies server content
+    await clearDirtyAt(page, MEMO_STORE, MEMO_1_ID);
+
+    // Mock server with different content
+    await setMockContentOverride(page, {
+      content: "サーバーで上書きされた内容",
+      updatedAt: new Date().toISOString(),
+    });
+
+    await page.reload();
+    await page.waitForSelector("[class*='sidebar']", { timeout: 10_000 });
+    await selectMemo(page, "開発メモ");
+    await waitForSyncComplete(page);
+
+    // Server content should be displayed
+    const editor = page.locator(".ProseMirror");
+    await expect(editor).toContainText("サーバーで上書きされた内容", { timeout: 5_000 });
+
+    // Ctrl+Z should undo the server overwrite and restore IDB content
+    await editor.click();
+    await page.keyboard.press("Control+z");
+    await page.waitForTimeout(200);
+
+    const text = await getEditorText(page);
+    expect(text).toContain("ローカルの内容");
+    expect(text).not.toContain("サーバーで上書きされた内容");
+  });
+
   test("E1: サーバーエラー → error indicator + 内容保持", async ({ page }) => {
     // Seed content
     await gotoApp(page);

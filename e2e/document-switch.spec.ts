@@ -146,6 +146,37 @@ test.describe("B. ドキュメント切り替え", () => {
     expect(text).not.toContain("**");
   });
 
+  test("B7: キャッシュなし IDB ロード後に undo でドキュメントが空にならない", async ({ page }) => {
+    await gotoApp(page);
+    await waitForSyncComplete(page);
+
+    // Open memo1 first (memo2 has never been opened → no cache)
+    await selectMemo(page, "開発メモ");
+    await waitForSyncComplete(page);
+
+    // Seed content to memo2 directly in IDB
+    const record = await idbGet(page, MEMO_STORE, MEMO_2_ID);
+    record.content = "IDBから読み込んだ内容";
+    await idbPut(page, MEMO_STORE, record);
+
+    // Switch to memo2 (no cache → reads from IDB)
+    await selectMemo(page, "議事録");
+    await waitForSyncComplete(page);
+
+    const editor = page.locator(".ProseMirror");
+    await expect(editor).toContainText("IDBから読み込んだ内容", { timeout: 3_000 });
+
+    // Press Ctrl+Z — content should NOT become empty
+    await editor.click();
+    for (let i = 0; i < 10; i++) {
+      await page.keyboard.press("Control+z");
+    }
+    await page.waitForTimeout(200);
+
+    const text = await getEditorText(page);
+    expect(text).toContain("IDBから読み込んだ内容");
+  });
+
   test("B6: キャッシュあり切り替え後の undo で入力が取り消される", async ({ page }) => {
     await gotoApp(page);
     await waitForSyncComplete(page);
