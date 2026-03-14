@@ -1,9 +1,9 @@
 /**
- * useMarkdownEditor — app-level hook with document switching support
+ * useMarkdownEditor — app-level hook with document switching support (uncontrolled)
  *
- * Based on demo/useMarkdownEditor.ts (single-document), extended with:
- * - EditorState cache per documentId (undo history, cursor)
- * - Document switch always resets to WYSIWYG mode
+ * The editor is the single source of truth for content.
+ * External updates use imperative methods (switchDocument, applyContent).
+ * No value prop / value sync effect — eliminates prevValueRef circular dependency.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditorMode, EditorState, MentionTrigger } from "tiptap-markdown-editor";
@@ -15,126 +15,167 @@ import {
 } from "tiptap-markdown-editor";
 
 interface UseMarkdownEditorOptions {
-  value: string;
+  initialContent?: string;
   onChange: (markdown: string) => void;
-  documentId?: string;
+  onCharCount?: (count: number) => void;
   defaultMode?: EditorMode;
   readOnly?: boolean;
   onImageUpload?: (file: File) => Promise<string>;
   onFocus?: () => void;
   onBlur?: () => void;
   mentions?: MentionTrigger[];
-  /** Ref controlling addToHistory for external value sync.
-   * Set to false before initial-load switchDocument to prevent undo entry.
-   * Automatically reset to true after consumed. */
-  addToHistoryRef?: React.RefObject<boolean>;
 }
 
 export function useMarkdownEditor({
-  value,
+  initialContent = "",
   onChange,
-  documentId,
+  onCharCount,
   defaultMode = "wysiwyg",
   readOnly = false,
   onImageUpload,
   onFocus,
   onBlur,
   mentions,
-  addToHistoryRef,
 }: UseMarkdownEditorOptions) {
   const [mode, setModeState] = useState<EditorMode>(defaultMode);
-  const [rawMarkdown, setRawMarkdownState] = useState(value);
+  const [rawMarkdown, setRawMarkdownState] = useState(initialContent);
   const rawMarkdownRef = useRef(rawMarkdown);
   rawMarkdownRef.current = rawMarkdown;
-  // Guards the external value sync effect against redundant dispatches.
-  // Updated in onUpdate/setRawMarkdown (to track editor content during typing)
-  // and in doc-switch/value-sync effects (to track value prop changes).
-  // Do NOT update in setMode — doing so desynchronizes the guard from the
-  // value prop on cache-hit document switches (see M7/M8 tests).
-  const prevValueRef = useRef(value);
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+
+  // Stable callback refs to avoid stale closures in useEditor
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const onCharCountRef = useRef(onCharCount);
+  onCharCountRef.current = onCharCount;
+  const onFocusRef = useRef(onFocus);
+  onFocusRef.current = onFocus;
+  const onBlurRef = useRef(onBlur);
+  onBlurRef.current = onBlur;
 
   const editor = useEditor({
     extensions: getDefaultExtensions({ onImageUpload, mentions }),
-    ...(value ? { content: value, contentType: "markdown" as const } : {}),
+    ...(initialContent ? { content: initialContent, contentType: "markdown" as const } : {}),
     editable: !readOnly,
     onUpdate({ editor, transaction }) {
       if (transaction.getMeta("skipOnChange")) return;
       const markdown = editor.getMarkdown();
-      prevValueRef.current = markdown;
-      onChange(markdown);
+      onChangeRef.current(markdown);
+      onCharCountRef.current?.(markdown.length);
     },
     onFocus() {
-      onFocus?.();
+      onFocusRef.current?.();
     },
     onBlur() {
-      onBlur?.();
+      onBlurRef.current?.();
     },
   });
 
   // --- Document switching ---
+  // Hook is stateless w.r.t. document identity — caller always provides fromId.
   const stateCacheRef = useRef(new Map<string, EditorState>());
-  const prevDocIdRef = useRef(documentId);
 
-  useEffect(() => {
-    if (!editor || !editor.markdown) return;
-    if (documentId === prevDocIdRef.current) return;
+  /**
+   * Switch to a different document or update current document's content.
+   *
+   * @param id      Target document ID
+   * @param opts.fromId   Outgoing document ID. When provided and !== id,
+   *                      the current EditorState is saved under this key and
+   *                      mode is reset to WYSIWYG.
+   * @param opts.markdown Content to set. undefined = restore from cache.
+   * @param opts.addToHistory Whether the content change is undoable (default: true).
+   */
+  const switchDocument = useCallback(
+    (
+      id: string,
+      opts?: {
+        fromId?: string;
+        markdown?: string;
+        addToHistory?: boolean;
+      },
+    ) => {
+      if (!editor || !editor.markdown) return;
+      const { fromId, markdown, addToHistory = true } = opts ?? {};
 
-    // Save current document's EditorState
-    if (prevDocIdRef.current != null) {
-      if (mode === "markdown") {
-        const json = parseMarkdown(editor, rawMarkdownRef.current);
-        const doc = editor.schema.nodeFromJSON(json);
-        const tr = editor.state.tr.replaceWith(0, editor.state.doc.content.size, doc.content);
-        tr.setMeta("skipOnChange", true);
-        tr.setMeta("addToHistory", false);
-        editor.view.dispatch(tr);
+      // Save outgoing document & reset mode
+      if (fromId != null && fromId !== id) {
+        if (modeRef.current === "markdown") {
+          // Sync raw markdown back to ProseMirror before caching
+          const json = parseMarkdown(editor, rawMarkdownRef.current);
+          const doc = editor.schema.nodeFromJSON(json);
+          const tr = editor.state.tr.replaceWith(0, editor.state.doc.content.size, doc.content);
+          tr.setMeta("skipOnChange", true);
+          tr.setMeta("addToHistory", false);
+          editor.view.dispatch(tr);
+          setModeState("wysiwyg");
+        }
+        stateCacheRef.current.set(fromId, editor.state);
       }
-      stateCacheRef.current.set(prevDocIdRef.current, editor.state);
-    }
-    prevDocIdRef.current = documentId;
 
-    // Always reset to WYSIWYG on document switch (state-only, no parse/dispatch)
-    if (mode === "markdown") {
-      setModeState("wysiwyg");
-    }
-
-    if (documentId != null) {
-      const cached = stateCacheRef.current.get(documentId);
-      if (cached) {
-        editor.view.updateState(cached);
-        prevValueRef.current = value;
+      // Restore from cache
+      if (markdown === undefined) {
+        const cached = stateCacheRef.current.get(id);
+        if (cached) {
+          editor.view.updateState(cached);
+          onCharCountRef.current?.(editor.getMarkdown().length);
+        }
         return;
       }
-      // New document — parse into doc and create fresh EditorState
-      const json = parseMarkdown(editor, value);
-      const doc = editor.schema.nodeFromJSON(json);
-      const newState = createEditorState(editor, doc);
-      editor.view.updateState(newState);
-      prevValueRef.current = value;
+
+      // New content — parse and apply
+      if (!addToHistory) {
+        // No undo entry: create fresh EditorState
+        const json = parseMarkdown(editor, markdown);
+        const doc = editor.schema.nodeFromJSON(json);
+        const newState = createEditorState(editor, doc);
+        editor.view.updateState(newState);
+      } else {
+        // With undo: replaceWith transaction
+        const json = parseMarkdown(editor, markdown);
+        const doc = editor.schema.nodeFromJSON(json);
+        const tr = editor.state.tr.replaceWith(0, editor.state.doc.content.size, doc.content);
+        tr.setMeta("addToHistory", true);
+        tr.setMeta("skipOnChange", true);
+        editor.view.dispatch(tr);
+      }
+      onCharCountRef.current?.(markdown.length);
+    },
+    [editor],
+  );
+
+  /**
+   * Apply content to the current document (e.g. after server resolve).
+   * Does NOT call onChange — caller is responsible for save suppression.
+   */
+  const applyContent = useCallback(
+    (markdown: string, opts?: { addToHistory?: boolean }) => {
+      if (!editor) return;
+      const addToHistory = opts?.addToHistory ?? true;
+
+      if (modeRef.current === "markdown") {
+        setRawMarkdownState(markdown);
+        rawMarkdownRef.current = markdown;
+      } else {
+        const json = parseMarkdown(editor, markdown);
+        const doc = editor.schema.nodeFromJSON(json);
+        const tr = editor.state.tr.replaceWith(0, editor.state.doc.content.size, doc.content);
+        tr.setMeta("addToHistory", addToHistory);
+        tr.setMeta("skipOnChange", true);
+        editor.view.dispatch(tr);
+      }
+      onCharCountRef.current?.(markdown.length);
+    },
+    [editor],
+  );
+
+  /** Get current markdown content from the editor */
+  const getMarkdown = useCallback(() => {
+    if (modeRef.current === "markdown") {
+      return rawMarkdownRef.current;
     }
-  }, [documentId, editor, value, mode]);
-
-  // --- External value sync (controlled component) ---
-  useEffect(() => {
-    if (!editor || !editor.markdown) return;
-    if (value === prevValueRef.current) return;
-
-    if (mode !== "wysiwyg") {
-      setRawMarkdownState(value);
-      prevValueRef.current = value;
-      return;
-    }
-
-    const json = parseMarkdown(editor, value);
-    const doc = editor.schema.nodeFromJSON(json);
-    const tr = editor.state.tr.replaceWith(0, editor.state.doc.content.size, doc.content);
-    const addToHistory = addToHistoryRef?.current ?? true;
-    if (addToHistoryRef) addToHistoryRef.current = true; // reset after consume
-    tr.setMeta("addToHistory", addToHistory);
-    tr.setMeta("skipOnChange", true);
-    editor.view.dispatch(tr);
-    prevValueRef.current = value;
-  }, [value, editor, mode]);
+    return editor?.getMarkdown() ?? "";
+  }, [editor]);
 
   // Sync editable state
   useEffect(() => {
@@ -157,21 +198,19 @@ export function useMarkdownEditor({
         tr.setMeta("addToHistory", false);
         tr.setMeta("skipOnChange", true);
         editor.view.dispatch(tr);
-        onChange(current);
+        onChangeRef.current(current);
       }
       setModeState(newMode);
     },
-    [editor, onChange],
+    [editor],
   );
 
-  const setRawMarkdown = useCallback(
-    (markdown: string) => {
-      setRawMarkdownState(markdown);
-      prevValueRef.current = markdown;
-      onChange(markdown);
-    },
-    [onChange],
-  );
+  const setRawMarkdown = useCallback((markdown: string) => {
+    setRawMarkdownState(markdown);
+    rawMarkdownRef.current = markdown;
+    onChangeRef.current(markdown);
+    onCharCountRef.current?.(markdown.length);
+  }, []);
 
   /** Invalidate cached EditorState for a document (e.g. after content resolve) */
   const invalidateDocument = useCallback((id: string) => {
@@ -189,6 +228,9 @@ export function useMarkdownEditor({
     setMode,
     rawMarkdown,
     setRawMarkdown,
+    switchDocument,
+    applyContent,
+    getMarkdown,
     hasDocument,
     invalidateDocument,
   };

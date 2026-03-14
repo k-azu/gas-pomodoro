@@ -68,11 +68,9 @@ export function DocumentEditor({
 }: DocumentEditorProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const [content, setContent] = useState(initialValue);
   const [charCount, setCharCount] = useState(initialValue.length);
   const [activeDocId, setActiveDocId] = useState(documentId);
   const activeDocIdRef = useRef(documentId);
-  const contentRef = useRef(initialValue);
 
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -98,43 +96,28 @@ export function DocumentEditor({
   }
 
   const handleChange = useCallback((markdown: string) => {
-    if (markdown === contentRef.current) return;
-    contentRef.current = markdown;
-    setContent(markdown);
-    setCharCount(markdown.length);
     onChangeRef.current?.(markdown);
   }, []);
 
-  // Controls addToHistory for external value sync in useMarkdownEditor.
-  // switchDocument sets false (initial load → no undo), auto-reset to true after consumed.
-  // setValue keeps true (resolve → undoable).
-  const addToHistoryRef = useRef(true);
-
-  const { editor, mode, setMode, rawMarkdown, setRawMarkdown, hasDocument, invalidateDocument } =
-    useMarkdownEditor({
-      value: content,
-      onChange: handleChange,
-      documentId: activeDocId,
-      readOnly,
-      onImageUpload,
-      mentions,
-      addToHistoryRef,
-    });
-
-  // Sync charCount (and contentRef) after document switch.
-  // Cache-hit switchDocument(id) skips setContent — tiptap restores internally
-  // via updateState but doesn't fire onUpdate.  useMarkdownEditor's effect runs
-  // first (declared earlier), so editor already holds the restored content here.
-  // Only update charCount + contentRef; do NOT call setContent because `content`
-  // feeds `value` to useMarkdownEditor and would trigger external value sync.
-  const prevSyncDocIdRef = useRef(activeDocId);
-  useEffect(() => {
-    if (!editor || activeDocId === prevSyncDocIdRef.current) return;
-    prevSyncDocIdRef.current = activeDocId;
-    const md = editor.getMarkdown();
-    contentRef.current = md;
-    setCharCount(md.length);
-  }, [activeDocId, editor]);
+  const {
+    editor,
+    mode,
+    setMode,
+    rawMarkdown,
+    setRawMarkdown,
+    switchDocument: editorSwitchDoc,
+    applyContent,
+    getMarkdown: editorGetMarkdown,
+    hasDocument,
+    invalidateDocument,
+  } = useMarkdownEditor({
+    initialContent: initialValue,
+    onChange: handleChange,
+    onCharCount: setCharCount,
+    readOnly,
+    onImageUpload,
+    mentions,
+  });
 
   // Resolve toolbar items with image upload action
   const toolbarItems = useMemo((): ToolbarItem[] | false => {
@@ -170,21 +153,17 @@ export function DocumentEditor({
   useEffect(() => {
     if (!externalRef) return;
     externalRef.current = {
-      getValue: () => contentRef.current,
-      setValue: (md) => {
-        contentRef.current = md;
-        setContent(md);
-        setCharCount(md.length);
-      },
+      getValue: () => editorGetMarkdown(),
+      setValue: (md) => applyContent(md, { addToHistory: true }),
       switchDocument: (id, md?) => {
+        const fromId = activeDocIdRef.current;
         activeDocIdRef.current = id;
         setActiveDocId(id);
-        if (md !== undefined) {
-          addToHistoryRef.current = false; // initial load → no undo entry
-          contentRef.current = md;
-          setContent(md);
-          setCharCount(md.length);
-        }
+        editorSwitchDoc(id, {
+          fromId,
+          markdown: md,
+          addToHistory: md !== undefined ? false : undefined,
+        });
       },
       hasDocument: (id) => hasDocument(id),
       invalidateDocument: (id) => {
@@ -193,9 +172,7 @@ export function DocumentEditor({
         invalidateDocument(id);
       },
       clear: () => {
-        contentRef.current = "";
-        setContent("");
-        setCharCount(0);
+        applyContent("", { addToHistory: false });
       },
     };
   });
