@@ -46,6 +46,11 @@ export function useMarkdownEditor({
   const [rawMarkdown, setRawMarkdownState] = useState(value);
   const rawMarkdownRef = useRef(rawMarkdown);
   rawMarkdownRef.current = rawMarkdown;
+  // Guards the external value sync effect against redundant dispatches.
+  // Updated in onUpdate/setRawMarkdown (to track editor content during typing)
+  // and in doc-switch/value-sync effects (to track value prop changes).
+  // Do NOT update in setMode — doing so desynchronizes the guard from the
+  // value prop on cache-hit document switches (see M7/M8 tests).
   const prevValueRef = useRef(value);
 
   const editor = useEditor({
@@ -152,7 +157,6 @@ export function useMarkdownEditor({
         tr.setMeta("addToHistory", false);
         tr.setMeta("skipOnChange", true);
         editor.view.dispatch(tr);
-        prevValueRef.current = current;
         onChange(current);
       }
       setModeState(newMode);
