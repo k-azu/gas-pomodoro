@@ -61,9 +61,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       completionStatus: "completed",
       pomodoroSetIndex: timerState.pomodoroSetIndex,
     };
-    await serverCall("saveRecord", record);
-    // Write-through to IDB cache
-    await RecordCache.upsertRecord(record);
+    try {
+      await serverCall("saveRecord", record);
+      await RecordCache.upsertRecord(record);
+    } catch (err) {
+      console.error("休憩記録の保存に失敗:", err);
+    }
   }, []);
 
   // refreshAll is now a no-op (cache events drive UI updates)

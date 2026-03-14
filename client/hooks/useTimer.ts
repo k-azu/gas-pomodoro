@@ -389,26 +389,22 @@ export function useTimer(
     clearStateAction();
   }, [clearStateAction]);
 
-  const continueWork = useCallback(async () => {
+  const continueWork = useCallback(() => {
     const s = stateRef.current;
     if (s.phase !== "breakDone" && s.phase !== "shortBreak" && s.phase !== "longBreak") return;
     const bt = s.breakType || s.phase;
     setState((prev) => ({ ...prev, breakType: bt as "shortBreak" | "longBreak" }));
-    if (saveBreakRecord) {
-      await saveBreakRecord(stateRef.current);
-    }
+    saveBreakRecord?.(stateRef.current); // fire-and-forget (error handled internally)
     refreshAll?.();
     startTimer("work", s.config.workMinutes);
   }, [saveBreakRecord, refreshAll, startTimer]);
 
-  const endSession = useCallback(async () => {
+  const endSession = useCallback(() => {
     const s = stateRef.current;
     if (s.phase !== "breakDone" && s.phase !== "shortBreak" && s.phase !== "longBreak") return;
     const bt = s.breakType || s.phase;
     setState((prev) => ({ ...prev, breakType: bt as "shortBreak" | "longBreak" }));
-    if (saveBreakRecord) {
-      await saveBreakRecord(stateRef.current);
-    }
+    saveBreakRecord?.(stateRef.current); // fire-and-forget (error handled internally)
     clearStateAction();
     refreshAll?.();
   }, [saveBreakRecord, clearStateAction, refreshAll]);
