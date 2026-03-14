@@ -6,7 +6,7 @@
 import * as EntityStore from "./entityStore";
 import type { TaskStatus } from "../types/entities";
 
-const STATUS_ORDER: Record<string, number> = {
+export const STATUS_ORDER: Record<string, number> = {
   docs: 0,
   doing: 1,
   review: 2,

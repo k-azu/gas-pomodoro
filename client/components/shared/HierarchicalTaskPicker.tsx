@@ -7,6 +7,7 @@ import { RecordField } from "./RecordField";
 import { ItemPicker } from "./ItemPicker";
 import s from "./HierarchicalTaskPicker.module.css";
 import * as TaskStore from "../../lib/taskStore";
+import { STATUS_ORDER } from "../../lib/taskStore";
 import { on as esOn, off as esOff } from "../../lib/entityStore";
 import { STATUS_CONFIG } from "../../hooks/useTasks";
 
@@ -33,6 +34,7 @@ interface TaskItem {
   caseId: string;
   name: string;
   status: string;
+  createdAt: string;
 }
 
 export function HierarchicalTaskPicker({
@@ -66,6 +68,7 @@ export function HierarchicalTaskPicker({
           caseId: t.caseId || "",
           name: t.name,
           status: t.status || "todo",
+          createdAt: t.createdAt || "",
         })),
       );
     } catch {
@@ -120,13 +123,20 @@ export function HierarchicalTaskPicker({
     caseNameMap[c.id] = label;
   });
 
-  // Task picker: filter by selected project/case
-  const filteredTasks = allTasks.filter((t) => {
-    if (t.status === "done" || t.status === "docs") return false;
-    if (caseId) return t.caseId === caseId;
-    if (projectId) return t.projectId === projectId;
-    return true;
-  });
+  // Task picker: filter by selected project/case, sort by status → createdAt
+  const filteredTasks = allTasks
+    .filter((t) => {
+      if (t.status === "done") return false;
+      if (caseId) return t.caseId === caseId;
+      if (projectId) return t.projectId === projectId;
+      return true;
+    })
+    .sort((a, b) => {
+      const sa = STATUS_ORDER[a.status] ?? 99;
+      const sb = STATUS_ORDER[b.status] ?? 99;
+      if (sa !== sb) return sa - sb;
+      return (a.createdAt || "").localeCompare(b.createdAt || "");
+    });
   const taskPickerItems = filteredTasks.map((t) => {
     const statusColor = (STATUS_CONFIG[t.status] || { color: "#9e9e9e" }).color;
     let label = t.name;
