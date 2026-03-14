@@ -12,7 +12,7 @@ scripts/         ビルドスクリプト
 
 - **クライアント**: `client/` 配下の React アプリを Vite で IIFE バンドルにビルドし、`src/ClientBundle.html` として GAS に配信
 - **React**: esbuild で別途バンドルし `src/ReactVendor.html` として分離配信
-- **エディタ**: [tiptap-markdown-editor](https://tiptap-markdown-editor.pages.dev/) を CDN から読み込み
+- **エディタ**: [tiptap-markdown-editor](https://tiptap-markdown-editor.pages.dev/) を CDN から読み込み（ローカルにリポジトリがあれば自動で link 解決）
 - **サーバー**: `src/*.ts` を clasp が GAS にトランスパイル
 
 ## セットアップ
@@ -20,18 +20,21 @@ scripts/         ビルドスクリプト
 ### 前提条件
 
 - Node.js
+- [pnpm](https://pnpm.io/installation)（`corepack enable` で自動インストール可能）
 - Google アカウント
 
 ### 1. 依存パッケージのインストール
 
 ```bash
-npm install
+pnpm install
 ```
+
+> **Note**: このプロジェクトは pnpm を強制しています。`npm install` や `yarn` は実行できません。
 
 ### 2. clasp にログイン
 
 ```bash
-npm run login
+pnpm run login
 ```
 
 ブラウザが開くので Google アカウントで認証する。
@@ -41,10 +44,11 @@ npm run login
 **新規作成する場合:**
 
 ```bash
-npx clasp create --type sheets --rootDir src/ --title "Pomodoro Timer"
+pnpm exec clasp create --type sheets --rootDir src/ --title "Pomodoro Timer"
+mv src/.clasp.json .clasp.json
 ```
 
-これで `.clasp.json` が自動生成され、Spreadsheet と GAS プロジェクトが作られる。
+`clasp create` は `.clasp.json` を `src/` 内に生成するため、プロジェクトルートに移動する必要がある。
 
 **既存の GAS プロジェクトに接続する場合:**
 
@@ -62,14 +66,14 @@ npx clasp create --type sheets --rootDir src/ --title "Pomodoro Timer"
 ### 4. デプロイ
 
 ```bash
-npm run deploy
+pnpm run deploy
 ```
 
 初回プッシュでシート（PomodoroLog, Categories, TimerConfig 等）が自動作成される。
 
 ### 5. Web アプリとして公開
 
-1. `npm run open` で GAS エディタを開く
+1. `pnpm run open` で GAS エディタを開く
 2. 「デプロイ」→「新しいデプロイ」
 3. 種類：「ウェブアプリ」を選択
 4. 次のユーザーとして実行：「自分」
@@ -79,22 +83,33 @@ npm run deploy
 
 デプロイ後に表示される URL でタイマーにアクセスできる。
 
-## npm scripts
+## エディタ (tiptap-markdown-editor)
+
+リッチテキストエディタとして [tiptap-markdown-editor](https://tiptap-markdown-editor.pages.dev/) を使用。
+
+| 状況 | 解決方法 |
+|------|----------|
+| `../tiptap-markdown-editor` がローカルにある | Vite がローカルから解決（HMR・フル型サポート） |
+| ローカルにない（一般利用者） | CDN から自動読み込み（フォールバック型定義で typecheck も通る） |
+
+Vite プラグインが起動時に自動判定するため、設定変更は不要。
+
+## pnpm scripts
 
 | コマンド | 説明 |
 |---------|------|
-| `npm run dev` | Vite 開発サーバー起動（ローカル開発用） |
-| `npm run build:gas` | クライアントビルド → GAS 用 HTML 生成 |
-| `npm run deploy` | ビルド + clasp push（**通常はこれを使う**） |
-| `npm run push` | clasp push のみ（ビルド済みの場合） |
-| `npm run open` | GAS エディタを開く |
-| `npm run typecheck` | TypeScript 型チェック |
-| `npm run format` | Prettier でフォーマット |
+| `pnpm run dev` | Vite 開発サーバー起動（ローカル開発用） |
+| `pnpm run build:gas` | クライアントビルド → GAS 用 HTML 生成 |
+| `pnpm run deploy` | ビルド + clasp push（**通常はこれを使う**） |
+| `pnpm run push` | clasp push のみ（ビルド済みの場合） |
+| `pnpm run open` | GAS エディタを開く |
+| `pnpm run typecheck` | TypeScript 型チェック |
+| `pnpm run format` | Prettier でフォーマット |
 
 ### ビルドパイプライン
 
 ```
-npm run deploy
+pnpm run deploy
   ├─ vite build          → dist/assets/index.js, dist/assets/gas-pomodoro.css
   ├─ tsx build-gas.ts
   │   ├─ esbuild         → src/ReactVendor.html  (React + jsx-runtime IIFE)
