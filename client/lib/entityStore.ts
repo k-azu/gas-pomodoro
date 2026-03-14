@@ -231,6 +231,40 @@ export function remove(storeName: string, id: string): Promise<void> {
   );
 }
 
+export function clear(storeName: string): Promise<void> {
+  return openDB().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, "readwrite");
+        tx.objectStore(storeName).clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => {
+          console.error("[EntityStore] clear failed:", storeName, tx.error);
+          reject(tx.error);
+        };
+      }),
+  );
+}
+
+export function putBatch(storeName: string, items: any[]): Promise<void> {
+  if (items.length === 0) return Promise.resolve();
+  return openDB().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(storeName, "readwrite");
+        const store = tx.objectStore(storeName);
+        for (const item of items) {
+          store.put(item);
+        }
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => {
+          console.error("[EntityStore] putBatch failed:", storeName, tx.error);
+          reject(tx.error);
+        };
+      }),
+  );
+}
+
 export function getByIndex(storeName: string, indexName: string, val: string): Promise<any[]> {
   return openDB().then(
     (db) =>

@@ -1,4 +1,11 @@
+// Bump when sheet structure changes (new columns, new sheets, etc.)
+// so that existing deployments re-run initializeSpreadsheet().
+const SCHEMA_VERSION = "1";
+
 function initializeSpreadsheet(): void {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty("schemaVersion") === SCHEMA_VERSION) return;
+
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   // PomodoroLog sheet
@@ -228,4 +235,6 @@ function initializeSpreadsheet(): void {
       ["Test (1min)", 1, 1, 1, 4, false],
     ]);
   }
+
+  props.setProperty("schemaVersion", SCHEMA_VERSION);
 }

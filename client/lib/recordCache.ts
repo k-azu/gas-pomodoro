@@ -59,13 +59,14 @@ export async function populateFromBulk(
   records: PomodoroRecord[],
   interruptions: InterruptionRecord[],
 ): Promise<void> {
-  // Clear existing stores then insert (full replacement)
-  await clearStore(STORE_RECORDS);
-  await clearStore(STORE_INTERRUPTIONS);
+  // Clear existing stores in parallel (IDB native clear, single operation)
+  await Promise.all([EntityStore.clear(STORE_RECORDS), EntityStore.clear(STORE_INTERRUPTIONS)]);
 
-  // Insert all records
-  await Promise.all(records.map((r) => EntityStore.put(STORE_RECORDS, r)));
-  await Promise.all(interruptions.map((r) => EntityStore.put(STORE_INTERRUPTIONS, r)));
+  // Batch insert (single transaction per store, parallel across stores)
+  await Promise.all([
+    EntityStore.putBatch(STORE_RECORDS, records),
+    EntityStore.putBatch(STORE_INTERRUPTIONS, interruptions),
+  ]);
 
   // Compute oldestCachedDate = day after the oldest record's date
   if (records.length > 0) {
@@ -86,9 +87,11 @@ export async function populateFromServerResponse(
   records: PomodoroRecord[],
   interruptions: InterruptionRecord[],
 ): Promise<void> {
-  // Upsert records for this date
-  await Promise.all(records.map((r) => EntityStore.put(STORE_RECORDS, r)));
-  await Promise.all(interruptions.map((r) => EntityStore.put(STORE_INTERRUPTIONS, r)));
+  // Upsert records for this date (batch per store, parallel across stores)
+  await Promise.all([
+    EntityStore.putBatch(STORE_RECORDS, records),
+    EntityStore.putBatch(STORE_INTERRUPTIONS, interruptions),
+  ]);
   EntityStore.emit(EVENT_CHANGED, { op: "populate", dateStr: _dateStr });
 }
 
@@ -134,7 +137,7 @@ export async function upsertRecord(record: PomodoroRecord): Promise<void> {
 }
 
 export async function upsertInterruptions(interruptions: InterruptionRecord[]): Promise<void> {
-  await Promise.all(interruptions.map((r) => EntityStore.put(STORE_INTERRUPTIONS, r)));
+  await EntityStore.putBatch(STORE_INTERRUPTIONS, interruptions);
   if (interruptions.length > 0) {
     EntityStore.emit(EVENT_CHANGED, { op: "upsert" });
   }
@@ -200,13 +203,4 @@ export function on(cb: (data: any) => void): void {
 
 export function off(cb: (data: any) => void): void {
   EntityStore.off(EVENT_CHANGED, cb);
-}
-
-// =========================================================
-// Internal helpers
-// =========================================================
-
-async function clearStore(storeName: string): Promise<void> {
-  const items = await EntityStore.getAll(storeName);
-  await Promise.all(items.map((item) => EntityStore.remove(storeName, item.id)));
 }

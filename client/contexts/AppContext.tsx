@@ -99,20 +99,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         MemoStore.init(d.memos || [], d.memoTags || []);
         RecordCache.registerStores();
         await TaskStore.init({ projects: d.projects, cases: d.cases, tasks: d.tasks });
-        await MemoStore.loadData();
-        await TaskStore.loadData();
 
-        // Populate IDB cache with bulk server data
-        await RecordCache.populateFromBulk(
+        // Load MemoStore and TaskStore in parallel (independent IDB stores)
+        await Promise.all([MemoStore.loadData(), TaskStore.loadData()]);
+
+        // Show UI immediately (RecordCache populates in background)
+        setIsLoading(false);
+
+        // Populate IDB cache with bulk server data (non-blocking)
+        RecordCache.populateFromBulk(
           d.recentRecordsBulk || [],
           d.recentInterruptionsBulk || [],
-        );
+        ).catch((e) => console.error("RecordCache populate failed:", e));
       })
       .catch((e) => {
         console.error("Init failed:", e);
         setError(String(e));
-      })
-      .finally(() => {
         setIsLoading(false);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
