@@ -10,8 +10,8 @@ import { RecordField } from "../shared/RecordField";
 import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
 import { HierarchicalTaskPicker } from "../shared/HierarchicalTaskPicker";
-import { DocumentEditor } from "../shared/DocumentEditor";
-import type { MarkdownEditorRef } from "../shared/DocumentEditor";
+import { EditorLayout } from "../shared/EditorLayout";
+import { useMarkdownEditor } from "../../hooks/useMarkdownEditor";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { useFormDraft } from "../../hooks/useFormDraft";
 import { STORAGE_KEYS } from "../../lib/localStorage";
@@ -37,7 +37,7 @@ export function RecordForm() {
   const editorConfig = useEditorConfig();
   const { state } = timer;
 
-  const editorRef = useRef<MarkdownEditorRef | null>(null);
+  const [charCount, setCharCount] = useState(0);
 
   // Draft persistence
   const { initialDraft, saveDraft, clearDraft } = useFormDraft<RecordDraft>(
@@ -74,10 +74,28 @@ export function RecordForm() {
     taskId: selectedTaskId,
   };
 
+  const {
+    editor,
+    mode,
+    setMode,
+    rawMarkdown,
+    setRawMarkdown,
+    getMarkdown,
+    applyContent,
+    resetContent,
+  } = useMarkdownEditor({
+    initialContent: restoredDraft?.desc ?? "",
+    onChange: (md) => triggerSave(md),
+    onCharCount: setCharCount,
+    ...editorConfig.editorProps,
+  });
+
   // Save draft helper (reads desc from editor + meta from ref)
+  const getMarkdownRef = useRef(getMarkdown);
+  getMarkdownRef.current = getMarkdown;
   const triggerSave = useCallback(
     (descOverride?: string) => {
-      const desc = descOverride ?? editorRef.current?.getValue() ?? "";
+      const desc = descOverride ?? getMarkdownRef.current();
       saveDraft({
         startTimestamp: state.startTimestamp!,
         desc,
@@ -155,9 +173,9 @@ export function RecordForm() {
     try {
       const result = (await serverCall("getLastWorkRecord")) as any;
       if (!result) return;
-      if (result.content && editorRef.current) {
+      if (result.content) {
         const resolved = await resolveDriveUrls(result.content);
-        editorRef.current.setValue(resolved);
+        applyContent(resolved, { addToHistory: true });
       }
       if (result.category) {
         setSelectedCategory([result.category]);
@@ -168,7 +186,7 @@ export function RecordForm() {
     } catch {
       // ignore
     }
-  }, []);
+  }, [applyContent]);
 
   // Submit record
   const submitAndDo = useCallback(
@@ -178,7 +196,7 @@ export function RecordForm() {
 
       try {
         const endTime = new Date();
-        const content = blobUrlsToDrive(editorRef.current?.getValue() || "").trim();
+        const content = blobUrlsToDrive(getMarkdown() || "").trim();
         const category = selectedCategory[0] || "";
         const startTime = new Date(state.startTimestamp!);
         const actualSeconds = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
@@ -224,7 +242,7 @@ export function RecordForm() {
         clearDraft();
 
         // Clear form
-        editorRef.current?.clear();
+        resetContent("");
         setSelectedCategory([]);
         setSelectedProjectId(null);
         setSelectedCaseId(null);
@@ -244,19 +262,32 @@ export function RecordForm() {
         setIsSubmitting(false);
       }
     },
-    [state, selectedCategory, selectedProjectId, selectedCaseId, selectedTaskId, timer, clearDraft],
+    [
+      state,
+      selectedCategory,
+      selectedProjectId,
+      selectedCaseId,
+      selectedTaskId,
+      timer,
+      clearDraft,
+      getMarkdown,
+      resetContent,
+    ],
   );
 
   return (
     <div className={s["record-form"]}>
       <SaveOverlay visible={isSubmitting} />
-      <DocumentEditor
-        {...editorConfig.editorProps}
-        initialValue={restoredDraft?.desc ?? ""}
-        onChange={(md) => triggerSave(md)}
-        placeholder="何に取り組みましたか？"
-        editorRef={editorRef}
+      <EditorLayout
+        editor={editor}
+        mode={mode}
+        setMode={setMode}
+        rawMarkdown={rawMarkdown}
+        setRawMarkdown={setRawMarkdown}
+        charCount={charCount}
         maxCharCount={50000}
+        placeholder="何に取り組みましたか？"
+        onImageUpload={editorConfig.editorProps.onImageUpload}
       >
         <button className={s["copy-previous-btn"]} onClick={copyFromPrevious}>
           前回をコピー
@@ -280,7 +311,7 @@ export function RecordForm() {
           taskId={selectedTaskId}
           onChange={handleHierarchyChange}
         />
-      </DocumentEditor>
+      </EditorLayout>
 
       {/* Interruption list */}
       {interruptions.length > 0 && (

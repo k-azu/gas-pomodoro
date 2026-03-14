@@ -11,7 +11,7 @@ export function useEditorConfig() {
   const mentions = useMentionConfig();
 
   return {
-    /** Props to spread onto <DocumentEditor> */
+    /** Props to spread onto <EditorLayout> or useMarkdownEditor/useDocumentEditor */
     editorProps: {
       onImageUpload: handleImageUpload,
       mentions,

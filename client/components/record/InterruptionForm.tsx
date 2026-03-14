@@ -8,8 +8,8 @@ import { TypeToggle } from "../shared/PanelToolbar";
 import { RecordField } from "../shared/RecordField";
 import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
-import { DocumentEditor } from "../shared/DocumentEditor";
-import type { MarkdownEditorRef } from "../shared/DocumentEditor";
+import { EditorLayout } from "../shared/EditorLayout";
+import { useMarkdownEditor } from "../../hooks/useMarkdownEditor";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { useFormDraft } from "../../hooks/useFormDraft";
 import { STORAGE_KEYS } from "../../lib/localStorage";
@@ -28,7 +28,7 @@ export function InterruptionForm() {
   const editorConfig = useEditorConfig();
   const { state } = timer;
 
-  const editorRef = useRef<MarkdownEditorRef | null>(null);
+  const [charCount, setCharCount] = useState(0);
 
   // Draft persistence
   const { initialDraft, saveDraft, clearDraft } = useFormDraft<InterruptionDraft>(
@@ -42,10 +42,20 @@ export function InterruptionForm() {
   const metaRef = useRef({ isWork, category: selectedCategory });
   metaRef.current = { isWork, category: selectedCategory };
 
+  const { editor, mode, setMode, rawMarkdown, setRawMarkdown, getMarkdown, resetContent } =
+    useMarkdownEditor({
+      initialContent: initialDraft?.content ?? "",
+      onChange: (md) => triggerSave(md),
+      onCharCount: setCharCount,
+      ...editorConfig.editorProps,
+    });
+
   // Save draft helper
+  const getMarkdownRef = useRef(getMarkdown);
+  getMarkdownRef.current = getMarkdown;
   const triggerSave = useCallback(
     (noteOverride?: string) => {
-      const content = noteOverride ?? editorRef.current?.getValue() ?? "";
+      const content = noteOverride ?? getMarkdownRef.current();
       saveDraft({
         content,
         isWork: metaRef.current.isWork,
@@ -63,32 +73,35 @@ export function InterruptionForm() {
   const handleResume = useCallback(() => {
     const type = isWork ? "work" : "nonWork";
     const category = selectedCategory[0] || "";
-    const content = blobUrlsToDrive(editorRef.current?.getValue() || "").trim();
+    const content = blobUrlsToDrive(getMarkdown() || "").trim();
     clearDraft();
     timer.endInterruption(type as "work" | "nonWork", category, content);
     // Reset form for next interruption
     setIsWork(true);
     setSelectedCategory([]);
-    editorRef.current?.clear();
-  }, [isWork, selectedCategory, timer, clearDraft]);
+    resetContent("");
+  }, [isWork, selectedCategory, timer, clearDraft, getMarkdown, resetContent]);
 
   const handleDiscard = useCallback(() => {
     clearDraft();
     timer.discardInterruption();
     setIsWork(true);
     setSelectedCategory([]);
-    editorRef.current?.clear();
-  }, [timer, clearDraft]);
+    resetContent("");
+  }, [timer, clearDraft, resetContent]);
 
   return (
     <div className={s["interruption-form"]}>
-      <DocumentEditor
-        {...editorConfig.editorProps}
-        initialValue={initialDraft?.content ?? ""}
-        onChange={(md) => triggerSave(md)}
-        placeholder="中断の内容を記録..."
-        editorRef={editorRef}
+      <EditorLayout
+        editor={editor}
+        mode={mode}
+        setMode={setMode}
+        rawMarkdown={rawMarkdown}
+        setRawMarkdown={setRawMarkdown}
+        charCount={charCount}
         maxCharCount={50000}
+        placeholder="中断の内容を記録..."
+        onImageUpload={editorConfig.editorProps.onImageUpload}
       >
         <RecordField label="作業に含める">
           <TypeToggle checked={isWork} onChange={setIsWork} label="" />
@@ -105,7 +118,7 @@ export function InterruptionForm() {
             placeholder="カテゴリを検索 / 作成..."
           />
         </RecordField>
-      </DocumentEditor>
+      </EditorLayout>
 
       {/* Action buttons — fixed at bottom */}
       <FormActions>

@@ -1,21 +1,15 @@
 /**
- * useDocumentEditor — shared hook for loading/switching/saving editor content
+ * useDocumentEditor — composed hook for document-switching editors
  *
- * On first mount: loads content via loadContent() and sets initialContent state.
- * On id change (while mounted): calls editorRef.switchDocument() so tiptap
- * preserves undo/redo and cursor per documentId.
+ * Combines: useMarkdownEditor + document cache + load/save/resolve + scroll management.
+ * Returns everything needed by EditorLayout — no refs, no indirection.
  *
- * Optional resolveContent: when provided, kicks off a background resolve that
- * continues even when the user switches to another document. Results are
- * delivered via EntityStore "contentResolved" events + IDB, so that stale
- * editor caches are invalidated and content is updated.
- *
- * Save suppression: wrapper deduplicates onChange (skips when content unchanged),
- * so switchDocument / setEditable / updateState won't trigger saves.
- * suppressSaveRef only covers resolve (setValue of server content shouldn't save back).
+ * Consumers get {editor, mode, setMode, rawMarkdown, setRawMarkdown, charCount,
+ * scrollRef, loading, readOnly, syncStatus, flushPendingSave} — no refs, no indirection.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { MarkdownEditorRef } from "../components/shared/DocumentEditor";
+import type { EditorState, MentionTrigger } from "tiptap-markdown-editor";
+import { useMarkdownEditor } from "./useMarkdownEditor";
 import type { SyncStatus } from "../components/shared/SyncIndicator";
 import * as EntityStore from "../lib/entityStore";
 
@@ -30,6 +24,10 @@ interface UseDocumentEditorOptions {
   transformOnLoad?: (content: string) => string | Promise<string>;
   /** Transform content before saving (e.g. convert blob URLs to Drive URLs) */
   transformOnSave?: (content: string) => string;
+  onImageUpload?: (file: File) => Promise<string>;
+  mentions?: MentionTrigger[];
+  /** Whether the consumer has afterMeta content — used for scroll key differentiation */
+  hasAfterMeta?: boolean;
 }
 
 // Track resolve status per document in this session
@@ -40,7 +38,7 @@ function ensureResolved(
   id: string,
   resolveContent: (id: string) => Promise<{ useServer: boolean; content?: string } | null>,
 ): void {
-  if (_resolveStatus.has(id)) return; // resolving or synced → skip
+  if (_resolveStatus.has(id)) return;
   _resolveStatus.set(id, "resolving");
   resolveContent(id)
     .then(() => {
@@ -48,7 +46,7 @@ function ensureResolved(
       EntityStore.emit("resolveComplete", { id });
     })
     .catch(() => {
-      _resolveStatus.delete(id); // 次回表示時にリトライ可能に
+      _resolveStatus.delete(id);
       EntityStore.emit("resolveError", { id });
     });
 }
@@ -61,32 +59,54 @@ export function useDocumentEditor({
   resolveContent,
   transformOnLoad,
   transformOnSave,
+  onImageUpload,
+  mentions,
+  hasAfterMeta = false,
 }: UseDocumentEditorOptions) {
-  const editorRef = useRef<MarkdownEditorRef | null>(null);
-  const [initialContent, setInitialContent] = useState<string | null>(null);
-  const prevIdRef = useRef<string | null>(null);
+  const [charCount, setCharCount] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
   const [readOnly, setReadOnly] = useState(false);
-  // Suppress saveContent during server resolve — setValue of server content shouldn't save back
   const suppressSaveRef = useRef(false);
-  // Track which document the editor is actually displaying
   const currentDocIdRef = useRef(id);
+  const prevIdRef = useRef<string | null>(null);
+
+  // Document state cache
+  const stateCacheRef = useRef(new Map<string, EditorState>());
+
+  // Scroll management
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollPositions = useRef(new Map<string, number>());
+  const scrollKeyOf = (docId: string | undefined, table: boolean) =>
+    table ? `${docId}:t` : (docId ?? "");
+
+  // Save scroll position before switching
+  const prevDocIdRef = useRef(id);
+  const prevHasAfterMetaRef = useRef(hasAfterMeta);
+  if (id !== prevDocIdRef.current || hasAfterMeta !== prevHasAfterMetaRef.current) {
+    const container = scrollRef.current;
+    const prevId = prevDocIdRef.current;
+    if (container && prevId) {
+      const key = scrollKeyOf(prevId, prevHasAfterMetaRef.current);
+      scrollPositions.current.set(key, container.scrollTop);
+    }
+    prevDocIdRef.current = id;
+    prevHasAfterMetaRef.current = hasAfterMeta;
+  }
+
   // Stable refs — updated in a separate useEffect so that the main effect's
   // cleanup (flushPendingSave) still reads the OLD refs when the document switches.
-  // React runs effects in declaration order: ref-update cleanup (noop) → main cleanup
-  // (flush with old ref) → ref-update setup (update refs) → main setup (new doc).
   const saveContentRef = useRef(saveContent);
   const flushSyncRef = useRef(flushSync);
-
   useEffect(() => {
     saveContentRef.current = saveContent;
     flushSyncRef.current = flushSync;
   }, [saveContent, flushSync]);
-  // 2-second debounce for IDB writes (matches old EditorManager saveDebounceMs: 2000)
+
+  // Save debounce
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingContentRef = useRef<{ id: string; content: string } | null>(null);
 
-  /** Execute IDB save (server sync is handled by entityStore's 30s debounce) */
   const doSave = useCallback(() => {
     const pending = pendingContentRef.current;
     if (!pending) return;
@@ -94,7 +114,6 @@ export function useDocumentEditor({
     saveContentRef.current(pending.id, pending.content);
   }, []);
 
-  /** Flush debounced save immediately + trigger server sync (for switch/unload) */
   const flushPendingSave = useCallback(() => {
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
@@ -105,12 +124,46 @@ export function useDocumentEditor({
       pendingContentRef.current = null;
       saveContentRef.current(pending.id, pending.content, { immediateSync: true });
     } else {
-      // 2s debounce 済みだが 30s debounce が残っている場合
       flushSyncRef.current?.(currentDocIdRef.current);
     }
   }, []);
 
-  // Flush on page reload / tab close, warn if editor has unsaved content
+  // onChange handler for useMarkdownEditor
+  const handleChange = useCallback(
+    (markdown: string) => {
+      if (suppressSaveRef.current) return;
+      const docId = currentDocIdRef.current;
+      const content = transformOnSave ? transformOnSave(markdown) : markdown;
+      pendingContentRef.current = { id: docId, content };
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        saveTimerRef.current = null;
+        doSave();
+      }, 2000);
+    },
+    [transformOnSave, doSave],
+  );
+
+  const {
+    editor,
+    mode,
+    setMode,
+    rawMarkdown,
+    setRawMarkdown,
+    captureState,
+    restoreState,
+    resetContent,
+    applyContent,
+  } = useMarkdownEditor({
+    initialContent: "",
+    onChange: handleChange,
+    onCharCount: setCharCount,
+    readOnly,
+    onImageUpload,
+    mentions,
+  });
+
+  // Flush on page reload / tab close
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       const hasPending = pendingContentRef.current !== null;
@@ -138,70 +191,65 @@ export function useDocumentEditor({
       setSyncStatus("idle");
       setReadOnly(false);
     } else {
-      // "resolving" or not started yet → show syncing
       setSyncStatus("syncing");
       setReadOnly(true);
     }
 
-    /** Load from IDB, apply transformOnLoad, return transformed content */
     const load = async (docId: string): Promise<string> => {
       const raw = (await loadContent(docId)) || "";
       return transformOnLoad ? await transformOnLoad(raw) : raw;
     };
 
-    if (isSwitch && editorRef.current) {
-      // flushPendingSave は cleanup（265行目）で実行済み。
-      // ここで再度呼ぶと currentDocIdRef が旧IDのまま同じ flushSync が2回走る。
-      const hasDoc = editorRef.current.hasDocument(id);
+    if (isSwitch) {
+      // Save outgoing document state
+      const fromId = currentDocIdRef.current;
+      if (fromId !== id) {
+        const captured = captureState();
+        if (captured) stateCacheRef.current.set(fromId, captured);
+      }
+
+      const hasDoc = stateCacheRef.current.has(id);
       const resolveStatus = _resolveStatus.get(id);
-      // resolve が一度も実行されていないドキュメントはキャッシュが空の可能性がある
-      // → キャッシュミスパスで IDB から再読み込みして resolve を実行
       const needsResolve = resolveContent && !resolveStatus;
+
       if (hasDoc && !needsResolve) {
-        // キャッシュあり＆resolve 済み → IDB スキップ、content なしで切り替え
+        // Cache hit & resolved → restore from cache
         currentDocIdRef.current = id;
-        // 前ドキュメントの resolve 途中で切り替えた場合、suppressSaveRef が
-        // true のまま残る可能性がある。synced 済みなら必ずリセットする。
         if (!resolveContent || _resolveStatus.get(id) === "synced") {
           suppressSaveRef.current = false;
         }
-        editorRef.current.switchDocument(id);
-        // Kick off background resolve after switch (idempotent)
+        const cached = stateCacheRef.current.get(id);
+        if (cached) restoreState(cached);
+        setLoading(false);
         if (resolveContent) ensureResolved(id, resolveContent);
       } else {
-        // needsResolve の場合、stale キャッシュを無効化
-        if (hasDoc) editorRef.current.invalidateDocument(id);
-        // キャッシュなし → 2段階で切替:
-        //   1. switchDocument(id, "") — 即座に空ドキュメントとして切替。
-        //      旧ドキュメントの内容がasync gap中に表示されるのを防止。
-        //      tiptap側では新規EditorState(空)が作られる。
-        //   2. switchDocument(id, content) — IDBロード後にコンテンツをセット。
-        //      同一IDなのでtiptapはドキュメント切替ではなく通常のvalue syncとして処理。
+        // Invalidate stale cache if exists
+        if (hasDoc) stateCacheRef.current.delete(id);
+
         setReadOnly(true);
         currentDocIdRef.current = id;
         suppressSaveRef.current = true;
-        editorRef.current.switchDocument(id, "");
+        // Immediately show empty doc to prevent flash of old content
+        resetContent("");
+        setLoading(false);
+
         load(id).then((content) => {
           if (cancelledRef.current) {
             suppressSaveRef.current = false;
             return;
           }
           if (content) {
-            editorRef.current?.switchDocument(id, content);
+            resetContent(content);
           }
-          // resolve 未完了なら suppress 維持 (onResolveComplete/Error で解除)
           if (!resolveContent || _resolveStatus.get(id) === "synced") {
             suppressSaveRef.current = false;
             setReadOnly(false);
           }
-          // Kick off background resolve after load (idempotent)
           if (resolveContent) ensureResolved(id, resolveContent);
         });
       }
     } else {
-      // 初回ロード
-      // resolve 未完了なら suppress 維持: 空エディタの onChange が IDB に空保存
-      // → _contentDirtyAt → resolve がサーバーコンテンツを無視する問題を防止
+      // Initial load
       if (resolveContent && status !== "synced") {
         suppressSaveRef.current = true;
       }
@@ -211,12 +259,11 @@ export function useDocumentEditor({
           return;
         }
         currentDocIdRef.current = id;
-        setInitialContent(content);
-        // resolve 不要 or 完了済みなら suppress 解除
+        resetContent(content);
+        setLoading(false);
         if (!resolveContent || _resolveStatus.get(id) === "synced") {
           suppressSaveRef.current = false;
         }
-        // Kick off background resolve after initial content set (idempotent)
         if (resolveContent) ensureResolved(id, resolveContent);
       });
     }
@@ -226,14 +273,8 @@ export function useDocumentEditor({
       if (event.id !== id || cancelledRef.current) return;
       const content = transformOnLoad ? await transformOnLoad(event.content) : event.content;
       if (cancelledRef.current) return;
-      // suppressSaveRef は resolve 完了まで維持 (onResolveComplete で解除)
-      // ここでは true を保証するだけで、false にしない
       suppressSaveRef.current = true;
-      if (editorRef.current) {
-        editorRef.current.setValue(content);
-      } else {
-        setInitialContent(content);
-      }
+      applyContent(content, { addToHistory: true });
     };
 
     const onResolveComplete = (event: { id: string }) => {
@@ -241,7 +282,6 @@ export function useDocumentEditor({
       suppressSaveRef.current = false;
       setReadOnly(false);
       setSyncStatus((prev) => (prev === "syncing" ? "synced" : prev));
-      // Brief "synced" flash, then idle
       setTimeout(() => {
         if (cancelledRef.current) return;
         setSyncStatus((prev) => (prev === "synced" ? "idle" : prev));
@@ -268,36 +308,75 @@ export function useDocumentEditor({
         EntityStore.off("resolveComplete", onResolveComplete);
         EntityStore.off("resolveError", onResolveError);
       }
-      // Flush debounced save on unmount/id-change (IDB + server sync)
       flushPendingSave();
     };
-  }, [id, loadContent, resolveContent, transformOnLoad, flushPendingSave]);
+  }, [
+    id,
+    loadContent,
+    resolveContent,
+    transformOnLoad,
+    flushPendingSave,
+    captureState,
+    restoreState,
+    resetContent,
+    applyContent,
+  ]);
 
-  // Invalidate editor cache for non-displayed documents when contentResolved fires
+  // Invalidate cache for non-displayed documents when contentResolved fires
   useEffect(() => {
     if (!resolveContent) return;
     const handler = (event: { id: string }) => {
-      if (event.id === prevIdRef.current) return; // 表示中はメインuseEffectが処理
-      editorRef.current?.invalidateDocument(event.id);
+      if (event.id === prevIdRef.current) return;
+      stateCacheRef.current.delete(event.id);
+      scrollPositions.current.delete(event.id);
+      scrollPositions.current.delete(`${event.id}:t`);
     };
     EntityStore.on("contentResolved", handler);
     return () => EntityStore.off("contentResolved", handler);
   }, [resolveContent]);
 
-  const onChange = useCallback(
-    (markdown: string) => {
-      if (suppressSaveRef.current) return;
-      const docId = currentDocIdRef.current;
-      const content = transformOnSave ? transformOnSave(markdown) : markdown;
-      pendingContentRef.current = { id: docId, content };
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(() => {
-        saveTimerRef.current = null;
-        doSave();
-      }, 2000);
-    },
-    [transformOnSave, doSave],
-  );
+  // Restore scroll position after document switch
+  const prevScrollKeyRef = useRef(scrollKeyOf(id, hasAfterMeta));
+  useEffect(() => {
+    const key = scrollKeyOf(id, hasAfterMeta);
+    if (key === prevScrollKeyRef.current) return;
+    prevScrollKeyRef.current = key;
 
-  return { editorRef, initialContent, onChange, syncStatus, readOnly, flushPendingSave };
+    const container = scrollRef.current;
+    if (!container || !id) return;
+
+    const saved = scrollPositions.current.get(key);
+    const target = saved ?? 0;
+    container.scrollTop = target;
+
+    if (target === 0 || container.scrollTop === target) return;
+
+    let cancelled = false;
+    const deadline = performance.now() + 500;
+    const poll = () => {
+      if (cancelled) return;
+      container.scrollTop = target;
+      if (container.scrollTop >= target - 1 || performance.now() > deadline) return;
+      requestAnimationFrame(poll);
+    };
+    requestAnimationFrame(poll);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, hasAfterMeta]);
+
+  return {
+    editor,
+    mode,
+    setMode,
+    rawMarkdown,
+    setRawMarkdown,
+    charCount,
+    scrollRef,
+    loading,
+    readOnly,
+    syncStatus,
+    flushPendingSave,
+  };
 }

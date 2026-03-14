@@ -11,8 +11,8 @@ import { RecordField } from "../shared/RecordField";
 import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
 import { HierarchicalTaskPicker } from "../shared/HierarchicalTaskPicker";
-import { DocumentEditor } from "../shared/DocumentEditor";
-import type { MarkdownEditorRef } from "../shared/DocumentEditor";
+import { EditorLayout } from "../shared/EditorLayout";
+import { useMarkdownEditor } from "../../hooks/useMarkdownEditor";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { blobUrlsToDrive, resolveDriveUrls } from "../../lib/imageCache";
 import { serverCall } from "../../lib/serverCall";
@@ -35,7 +35,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
   const { closeViewer, setViewerSaving } = useNavigation();
   const editorConfig = useEditorConfig();
 
-  const editorRef = useRef<MarkdownEditorRef | null>(null);
+  const [charCount, setCharCount] = useState(0);
   const [resolvedMarkdown, setResolvedMarkdown] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string[]>(
     vs.category ? [vs.category] : [],
@@ -77,7 +77,15 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
     [],
   );
 
-  // Resolve Drive URLs in initial markdown + set origMarkdown before editor mounts
+  const { editor, mode, setMode, rawMarkdown, setRawMarkdown, getMarkdown, applyContent } =
+    useMarkdownEditor({
+      initialContent: "",
+      onChange: (md) => setMarkdownDirty(md !== origMarkdown.current),
+      onCharCount: setCharCount,
+      ...editorConfig.editorProps,
+    });
+
+  // Resolve Drive URLs in initial markdown
   useEffect(() => {
     if (vs.markdown) {
       resolveDriveUrls(vs.markdown).then((md) => {
@@ -89,6 +97,12 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       setResolvedMarkdown(vs.markdown);
     }
   }, [vs.markdown]);
+
+  // Apply resolved content after EditorLayout mounts (view must be available)
+  useEffect(() => {
+    if (resolvedMarkdown === null) return;
+    applyContent(resolvedMarkdown, { addToHistory: false });
+  }, [resolvedMarkdown, applyContent]);
 
   // Track original values for change detection
   const origCategory = useRef(vs.category);
@@ -122,7 +136,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       : false);
 
   const handleSave = useCallback(async () => {
-    const markdown = blobUrlsToDrive(editorRef.current?.getValue() || "");
+    const markdown = blobUrlsToDrive(getMarkdown() || "");
     const newCategory = selectedCategory[0] || "";
     const newType = intType ? "work" : "nonWork";
     const newProjectId = selectedProjectId || "";
@@ -264,6 +278,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
     selectedTaskId,
     showTaskPicker,
     setViewerSaving,
+    getMarkdown,
   ]);
 
   // Clean up viewer-saving flag on unmount
@@ -274,13 +289,16 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
   return (
     <div className={s["viewer-panel"]}>
       <SaveOverlay visible={isSaving} />
-      <DocumentEditor
-        {...editorConfig.editorProps}
-        initialValue={resolvedMarkdown}
-        onChange={(md) => setMarkdownDirty(md !== origMarkdown.current)}
-        placeholder=""
-        editorRef={editorRef}
+      <EditorLayout
+        editor={editor}
+        mode={mode}
+        setMode={setMode}
+        rawMarkdown={rawMarkdown}
+        setRawMarkdown={setRawMarkdown}
+        charCount={charCount}
         maxCharCount={50000}
+        placeholder=""
+        onImageUpload={editorConfig.editorProps.onImageUpload}
       >
         {vs.startTime && vs.endTime && (
           <RecordField label="時間">
@@ -321,7 +339,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
             onChange={handleHierarchyChange}
           />
         )}
-      </DocumentEditor>
+      </EditorLayout>
 
       {canSave && (
         <FormActions>

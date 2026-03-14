@@ -15,7 +15,7 @@ import { ItemPicker } from "../shared/ItemPicker";
 import { ContentHeaderName } from "../shared/ContentHeader";
 import { RecordField } from "../shared/RecordField";
 import { MemoIcon } from "../shared/Icons";
-import { DocumentEditor, ToolbarSlot, MetaTitle } from "../shared/DocumentEditor";
+import { EditorLayout, ToolbarSlot, MetaTitle } from "../shared/EditorLayout";
 import { SyncIndicator } from "../shared/SyncIndicator";
 import * as MemoStore from "../../lib/memoStore";
 import s from "./MemoTab.module.css";
@@ -34,11 +34,15 @@ export function MemoTab() {
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
 
   const {
-    editorRef,
-    initialContent,
-    onChange: handleEditorChange,
-    syncStatus,
+    editor,
+    mode,
+    setMode,
+    rawMarkdown,
+    setRawMarkdown,
+    charCount,
+    scrollRef,
     readOnly,
+    syncStatus,
   } = useDocumentEditor({
     id: memo.activeId || "",
     loadContent: useCallback((id: string) => MemoStore.getContent(id), []),
@@ -49,6 +53,7 @@ export function MemoTab() {
     ),
     flushSync: useCallback((id: string) => MemoStore.flushContentSync(id), []),
     resolveContent: useCallback((id: string) => MemoStore.resolveWithServer(id), []),
+    ...editorConfig.editorProps,
     ...editorConfig.hookOptions,
   });
 
@@ -181,50 +186,49 @@ export function MemoTab() {
 
       <div className={s["memo-editor-panel"]}>
         {activeMemo ? (
-          initialContent !== null ? (
-            <DocumentEditor
-              {...editorConfig.editorProps}
-              initialValue={initialContent}
-              documentId={memo.activeId || undefined}
-              onChange={handleEditorChange}
-              placeholder="メモを入力..."
-              editorRef={editorRef}
-              readOnly={readOnly}
-              maxCharCount={50000}
-              toolbarLeft={
-                sidebarCollapsed ? (
-                  <ToolbarSlot>
-                    <SidebarExpandButton onClick={toggleSidebar} />
-                  </ToolbarSlot>
-                ) : undefined
-              }
-            >
-              <div className={s["meta-status-row"]}>
-                <SyncIndicator status={syncStatus} />
-              </div>
-              <MetaTitle>
-                <ContentHeaderName
-                  name={activeMemo.name}
-                  onRename={(name) => memo.renameMemo(activeMemo.id, name)}
-                  renaming={renamingId === activeMemo.id}
-                  onRenameEnd={() => setRenamingId(null)}
-                />
-              </MetaTitle>
-              <RecordField label="タグ">
-                <ItemPicker
-                  mode="multi"
-                  items={memo.tags}
-                  selected={activeMemo.tags}
-                  onSelect={(selected) => memo.updateTags(activeMemo.id, selected)}
-                  onCreateItem={(name, color) => memo.addTag(name, color)}
-                  onColorChange={memo.updateTagColor}
-                  placeholder="タグを検索 / 作成..."
-                />
-              </RecordField>
-            </DocumentEditor>
-          ) : (
-            <div className={s["memo-loading"]}>読み込み中...</div>
-          )
+          <EditorLayout
+            editor={editor}
+            mode={mode}
+            setMode={setMode}
+            rawMarkdown={rawMarkdown}
+            setRawMarkdown={setRawMarkdown}
+            charCount={charCount}
+            maxCharCount={50000}
+            placeholder="メモを入力..."
+            readOnly={readOnly}
+            onImageUpload={editorConfig.editorProps.onImageUpload}
+            scrollRef={scrollRef}
+            toolbarLeft={
+              sidebarCollapsed ? (
+                <ToolbarSlot>
+                  <SidebarExpandButton onClick={toggleSidebar} />
+                </ToolbarSlot>
+              ) : undefined
+            }
+          >
+            <div className={s["meta-status-row"]}>
+              <SyncIndicator status={syncStatus} />
+            </div>
+            <MetaTitle>
+              <ContentHeaderName
+                name={activeMemo.name}
+                onRename={(name) => memo.renameMemo(activeMemo.id, name)}
+                renaming={renamingId === activeMemo.id}
+                onRenameEnd={() => setRenamingId(null)}
+              />
+            </MetaTitle>
+            <RecordField label="タグ">
+              <ItemPicker
+                mode="multi"
+                items={memo.tags}
+                selected={activeMemo.tags}
+                onSelect={(selected) => memo.updateTags(activeMemo.id, selected)}
+                onCreateItem={(name, color) => memo.addTag(name, color)}
+                onColorChange={memo.updateTagColor}
+                placeholder="タグを検索 / 作成..."
+              />
+            </RecordField>
+          </EditorLayout>
         ) : (
           <>
             {sidebarCollapsed && (

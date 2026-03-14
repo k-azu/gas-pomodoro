@@ -1,7 +1,7 @@
 /**
  * TaskContent — Content area for project/case/task
  *
- * Single DocumentEditor instance shared across all node types.
+ * Single editor instance shared across all node types.
  * Meta section (name, status, dates, etc.) varies per type via keyed child components.
  * Tiptap undo history and cursor position are preserved across type switches.
  */
@@ -20,7 +20,7 @@ import { FolderIcon } from "../shared/Icons";
 import { SidebarExpandButton } from "../shared/Sidebar";
 import { RecordField } from "../shared/RecordField";
 import { RecordRow } from "../shared/RecordRow";
-import { DocumentEditor, ToolbarSlot, MetaTitle } from "../shared/DocumentEditor";
+import { EditorLayout, ToolbarSlot, MetaTitle } from "../shared/EditorLayout";
 import { SyncIndicator, type SyncStatus } from "../shared/SyncIndicator";
 import { TaskTableView } from "./TaskTableView";
 import s from "./TaskContent.module.css";
@@ -52,11 +52,15 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
 
   // --- Single useDocumentEditor instance ---
   const {
-    editorRef,
-    initialContent,
-    onChange: handleEditorChange,
-    syncStatus,
+    editor,
+    mode,
+    setMode,
+    rawMarkdown,
+    setRawMarkdown,
+    charCount,
+    scrollRef,
     readOnly,
+    syncStatus,
     flushPendingSave,
   } = useDocumentEditor({
     id,
@@ -71,7 +75,9 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
       (id: string) => TaskStore.resolveWithServer(id, storeName),
       [storeName],
     ),
+    ...editorConfig.editorProps,
     ...editorConfig.hookOptions,
+    hasAfterMeta: !showingDoc && isContainerType,
   });
 
   // --- Toggle view (project/case only) ---
@@ -79,10 +85,6 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
     flushPendingSave();
     tasks.setViewMode(id, showingDoc ? "table" : "doc");
   }, [id, showingDoc, tasks, flushPendingSave]);
-
-  // --- Loading guard ---
-  if (initialContent === null)
-    return <div className={s["task-content-placeholder"]}>読み込み中...</div>;
 
   // --- Toolbar slots ---
   const toolbarLeftSlot =
@@ -105,15 +107,18 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
 
   return (
     <div className={s["task-detail"]}>
-      <DocumentEditor
-        {...editorConfig.editorProps}
-        initialValue={initialContent}
-        documentId={id}
-        onChange={handleEditorChange}
-        placeholder="ドキュメントを入力..."
-        editorRef={editorRef}
-        readOnly={readOnly}
+      <EditorLayout
+        editor={editor}
+        mode={mode}
+        setMode={setMode}
+        rawMarkdown={rawMarkdown}
+        setRawMarkdown={setRawMarkdown}
+        charCount={charCount}
         maxCharCount={50000}
+        placeholder="ドキュメントを入力..."
+        readOnly={readOnly}
+        onImageUpload={editorConfig.editorProps.onImageUpload}
+        scrollRef={scrollRef}
         toolbarLeft={toolbarLeftSlot}
         toolbarRight={toolbarRightSlot}
         className={s["task-wiki-container"]}
@@ -129,7 +134,7 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
         {type === "task" && (
           <TaskMeta key={`t-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
         )}
-      </DocumentEditor>
+      </EditorLayout>
 
       {/* Work records — task only */}
       {type === "task" && <TaskWorkRecords key={id} id={id} />}
