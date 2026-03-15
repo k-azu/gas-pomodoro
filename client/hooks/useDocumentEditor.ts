@@ -25,6 +25,7 @@ interface UseDocumentEditorOptions {
   /** Transform content before saving (e.g. convert blob URLs to Drive URLs) */
   transformOnSave?: (content: string) => string;
   onImageUpload?: (file: File) => Promise<string>;
+  onResolveLink?: (url: string) => Promise<{ title?: string }>;
   mentions?: MentionTrigger[];
   /** Whether the consumer has afterMeta content — used for scroll key differentiation */
   hasAfterMeta?: boolean;
@@ -60,6 +61,7 @@ export function useDocumentEditor({
   transformOnLoad,
   transformOnSave,
   onImageUpload,
+  onResolveLink,
   mentions,
   hasAfterMeta = false,
 }: UseDocumentEditorOptions) {
@@ -159,6 +161,7 @@ export function useDocumentEditor({
     onCharCount: setCharCount,
     readOnly,
     onImageUpload,
+    onResolveLink,
     mentions,
   });
 

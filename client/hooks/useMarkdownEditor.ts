@@ -24,6 +24,7 @@ interface UseMarkdownEditorOptions {
   defaultMode?: EditorMode;
   readOnly?: boolean;
   onImageUpload?: (file: File) => Promise<string>;
+  onResolveLink?: (url: string) => Promise<{ title?: string }>;
   onFocus?: () => void;
   onBlur?: () => void;
   mentions?: MentionTrigger[];
@@ -36,6 +37,7 @@ export function useMarkdownEditor({
   defaultMode = "wysiwyg",
   readOnly = false,
   onImageUpload,
+  onResolveLink,
   onFocus,
   onBlur,
   mentions,
@@ -61,7 +63,10 @@ export function useMarkdownEditor({
   // on every render (which would recreate node views and reset DOM state like
   // details open/close). getDefaultExtensions creates new instances each call.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const extensions = useMemo(() => getDefaultExtensions({ onImageUpload, mentions }), []);
+  const extensions = useMemo(
+    () => getDefaultExtensions({ onImageUpload, onResolveLink, mentions }),
+    [],
+  );
 
   const editor = useEditor({
     extensions,

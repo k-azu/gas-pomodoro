@@ -748,6 +748,17 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
     case "updateMemoTagColor":
       return { success: true };
 
+    // ---- Link resolve ----
+    case "resolveLink": {
+      const url = args[0] as string;
+      try {
+        const hostname = new URL(url).hostname;
+        return { title: hostname };
+      } catch {
+        return {};
+      }
+    }
+
     // ---- Image ----
     case "getImageBase64":
       return null;
