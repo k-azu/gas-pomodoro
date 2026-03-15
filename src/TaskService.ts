@@ -512,29 +512,11 @@ function getTaskPomodoroRecords(taskId: string): PomodoroRecord[] {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
 
+  const tz = Session.getScriptTimeZone();
   const data = sheet.getRange(2, 1, lastRow - 1, 18).getValues();
   return data
     .filter((row) => String(row[15]) === taskId)
-    .map((row) => ({
-      id: String(row[0]),
-      date: String(row[1]),
-      startTime: String(row[2]),
-      endTime: String(row[3]),
-      durationSeconds: Number(row[4]),
-      actualDurationSeconds: Number(row[5]),
-      type: String(row[6]),
-      content: String(row[7]),
-      category: String(row[8]),
-      workInterruptions: Number(row[9]),
-      nonWorkInterruptions: Number(row[10]),
-      workInterruptionSeconds: Number(row[11]),
-      nonWorkInterruptionSeconds: Number(row[12]),
-      completionStatus: String(row[13]),
-      pomodoroSetIndex: Number(row[14]),
-      taskId: String(row[15]),
-      projectId: row[16] != null ? String(row[16]) : "",
-      caseId: row[17] != null ? String(row[17]) : "",
-    }))
+    .map((row) => readRecordFromRow(row, tz))
     .reverse();
 }
 

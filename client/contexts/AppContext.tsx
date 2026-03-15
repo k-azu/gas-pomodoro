@@ -100,17 +100,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         RecordCache.registerStores();
         await TaskStore.init({ projects: d.projects, cases: d.cases, tasks: d.tasks });
 
-        // Load MemoStore and TaskStore in parallel (independent IDB stores)
-        await Promise.all([MemoStore.loadData(), TaskStore.loadData()]);
+        // Load all stores in parallel (MemoStore, TaskStore, RecordCache are independent IDB stores)
+        await Promise.all([
+          MemoStore.loadData(),
+          TaskStore.loadData(),
+          RecordCache.populateFromBulk(d.recentRecordsBulk || [], d.recentInterruptionsBulk || []),
+        ]);
 
-        // Show UI immediately (RecordCache populates in background)
         setIsLoading(false);
-
-        // Populate IDB cache with bulk server data (non-blocking)
-        RecordCache.populateFromBulk(
-          d.recentRecordsBulk || [],
-          d.recentInterruptionsBulk || [],
-        ).catch((e) => console.error("RecordCache populate failed:", e));
       })
       .catch((e) => {
         console.error("Init failed:", e);
