@@ -40,8 +40,7 @@ export function useRecordCache(dateStr: string): UseRecordCacheReturn {
     const ints =
       pomodoroIds.length > 0 ? await RecordCache.getInterruptionsByPomodoroIds(pomodoroIds) : [];
     if (date !== currentDate.current) return; // stale
-    const st = await RecordCache.computeStatsForDate(date);
-    if (date !== currentDate.current) return; // stale
+    const st = RecordCache.computeStatsFromRecords(recs);
     // Sort records newest first
     recs.sort((a, b) => (b.startTime > a.startTime ? 1 : -1));
     setRecords(recs);

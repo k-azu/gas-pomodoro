@@ -222,16 +222,14 @@ export function RecordForm() {
           await ensureCategory(category, state.categories);
         }
 
-        await serverCall("saveRecord", record);
-        if (intRecords.length > 0) {
-          await serverCall("saveInterruptions", intRecords);
-        }
+        // Save to server in parallel
+        await Promise.all([
+          serverCall("saveRecord", record),
+          intRecords.length > 0 ? serverCall("saveInterruptions", intRecords) : undefined,
+        ]);
 
-        // Write-through to IDB cache
-        await RecordCache.upsertRecord(record);
-        if (intRecords.length > 0) {
-          await RecordCache.upsertInterruptions(intRecords);
-        }
+        // Write-through to IDB cache (single event emit)
+        await RecordCache.upsertRecordWithInterruptions(record, intRecords);
 
         // Update task stats (delta-based)
         if (record.type === "work" && record.taskId) {

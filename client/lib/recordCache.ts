@@ -110,12 +110,10 @@ export function getRecordsByTaskId(taskId: string): Promise<PomodoroRecord[]> {
 export async function getInterruptionsByPomodoroIds(
   pomodoroIds: string[],
 ): Promise<InterruptionRecord[]> {
-  const results: InterruptionRecord[] = [];
-  for (const pid of pomodoroIds) {
-    const ints = await EntityStore.getByIndex(STORE_INTERRUPTIONS, "pomodoroId", pid);
-    results.push(...ints);
-  }
-  return results;
+  const arrays = await Promise.all(
+    pomodoroIds.map((pid) => EntityStore.getByIndex(STORE_INTERRUPTIONS, "pomodoroId", pid)),
+  );
+  return arrays.flat();
 }
 
 export function hasRecordsForDate(dateStr: string): boolean {
@@ -143,12 +141,22 @@ export async function upsertInterruptions(interruptions: InterruptionRecord[]): 
   }
 }
 
+export async function upsertRecordWithInterruptions(
+  record: PomodoroRecord,
+  interruptions: InterruptionRecord[],
+): Promise<void> {
+  await Promise.all([
+    EntityStore.put(STORE_RECORDS, record),
+    interruptions.length > 0 ? EntityStore.putBatch(STORE_INTERRUPTIONS, interruptions) : undefined,
+  ]);
+  EntityStore.emit(EVENT_CHANGED, { op: "upsert", dateStr: record.date, id: record.id });
+}
+
 // =========================================================
 // Stats computation (client-side)
 // =========================================================
 
-export async function computeStatsForDate(dateStr: string): Promise<TodayStats> {
-  const records = await getRecordsByDate(dateStr);
+export function computeStatsFromRecords(records: PomodoroRecord[]): TodayStats {
   const stats: TodayStats = {
     completedPomodoros: 0,
     abandonedPomodoros: 0,
@@ -174,22 +182,22 @@ export async function computeStatsForDate(dateStr: string): Promise<TodayStats> 
   return stats;
 }
 
+export async function computeStatsForDate(dateStr: string): Promise<TodayStats> {
+  const records = await getRecordsByDate(dateStr);
+  return computeStatsFromRecords(records);
+}
+
 // =========================================================
 // Week counts (from IDB)
 // =========================================================
 
 export async function getWeekRecordCounts(weekStartDate: string): Promise<Record<string, number>> {
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStartDate, i));
+  const results = await Promise.all(days.map((d) => getRecordsByDate(d)));
   const counts: Record<string, number> = {};
   for (let i = 0; i < 7; i++) {
-    const d = addDays(weekStartDate, i);
-    counts[d] = 0;
+    counts[days[i]] = results[i].filter((r) => r.type === "work").length;
   }
-
-  for (const dateStr of Object.keys(counts)) {
-    const records = await getRecordsByDate(dateStr);
-    counts[dateStr] = records.filter((r) => r.type === "work").length;
-  }
-
   return counts;
 }
 
