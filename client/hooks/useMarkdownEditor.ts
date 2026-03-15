@@ -8,7 +8,7 @@
  * Document switching (cache management) is NOT this hook's responsibility —
  * that belongs to the consumer (e.g. useDocumentEditor).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorMode, EditorState, MentionTrigger } from "tiptap-markdown-editor";
 import {
   useEditor,
@@ -57,8 +57,14 @@ export function useMarkdownEditor({
   const onBlurRef = useRef(onBlur);
   onBlurRef.current = onBlur;
 
+  // Memoize extensions to prevent tiptap from calling setOptions → updateState
+  // on every render (which would recreate node views and reset DOM state like
+  // details open/close). getDefaultExtensions creates new instances each call.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const extensions = useMemo(() => getDefaultExtensions({ onImageUpload, mentions }), []);
+
   const editor = useEditor({
-    extensions: getDefaultExtensions({ onImageUpload, mentions }),
+    extensions,
     ...(initialContent ? { content: initialContent, contentType: "markdown" as const } : {}),
     editable: !readOnly,
     onUpdate({ editor, transaction }) {

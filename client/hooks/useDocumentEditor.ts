@@ -5,7 +5,7 @@
  * Returns everything needed by EditorLayout — no refs, no indirection.
  *
  * Consumers get {editor, mode, setMode, rawMarkdown, setRawMarkdown, charCount,
- * scrollRef, loading, readOnly, syncStatus, flushPendingSave} — no refs, no indirection.
+ * scrollRef, readOnly, syncStatus, flushPendingSave} — no refs, no indirection.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { EditorState, MentionTrigger } from "tiptap-markdown-editor";
@@ -64,7 +64,6 @@ export function useDocumentEditor({
   hasAfterMeta = false,
 }: UseDocumentEditorOptions) {
   const [charCount, setCharCount] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
   const [readOnly, setReadOnly] = useState(false);
   const suppressSaveRef = useRef(false);
@@ -220,7 +219,7 @@ export function useDocumentEditor({
         }
         const cached = stateCacheRef.current.get(id);
         if (cached) restoreState(cached);
-        setLoading(false);
+
         if (resolveContent) ensureResolved(id, resolveContent);
       } else {
         // Invalidate stale cache if exists
@@ -231,7 +230,6 @@ export function useDocumentEditor({
         suppressSaveRef.current = true;
         // Immediately show empty doc to prevent flash of old content
         resetContent("");
-        setLoading(false);
 
         load(id).then((content) => {
           if (cancelledRef.current) {
@@ -260,7 +258,7 @@ export function useDocumentEditor({
         }
         currentDocIdRef.current = id;
         resetContent(content);
-        setLoading(false);
+
         if (!resolveContent || _resolveStatus.get(id) === "synced") {
           suppressSaveRef.current = false;
         }
@@ -374,7 +372,6 @@ export function useDocumentEditor({
     setRawMarkdown,
     charCount,
     scrollRef,
-    loading,
     readOnly,
     syncStatus,
     flushPendingSave,
