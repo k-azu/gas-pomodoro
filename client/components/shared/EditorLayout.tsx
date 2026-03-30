@@ -7,7 +7,7 @@
  * No hooks except useMemo for toolbar item resolution.
  * All editor state (editor, mode, rawMarkdown, etc.) is passed in as props.
  */
-import { useRef, useMemo, type ReactNode } from "react";
+import { useRef, useMemo, useLayoutEffect, type ReactNode } from "react";
 import {
   Toolbar,
   EditorBody,
@@ -87,6 +87,59 @@ export function EditorLayout({
       return item;
     });
   }, [onImageUpload]);
+
+  // Fallback auto-resize for browsers where CSS field-sizing:content doesn't work (e.g. Firefox)
+  const resizeFnRef = useRef<(() => void) | null>(null);
+  const fromInputRef = useRef(false);
+
+  useLayoutEffect(() => {
+    if (mode !== "markdown") {
+      resizeFnRef.current = null;
+      return;
+    }
+    const ta = scrollRef.current?.querySelector<HTMLTextAreaElement>(".mdg-raw-editor");
+    if (!ta) {
+      resizeFnRef.current = null;
+      return;
+    }
+    // CSS field-sizing:content handles it natively (Chrome 123+)
+    if (getComputedStyle(ta).fieldSizing === "content") {
+      resizeFnRef.current = null;
+      return;
+    }
+    const root = scrollRef.current;
+    const resize = () => {
+      if (ta.scrollHeight > ta.clientHeight) {
+        ta.style.height = `${ta.scrollHeight}px`;
+      } else {
+        const st = root?.scrollTop ?? 0;
+        ta.style.height = "0";
+        ta.style.height = `${ta.scrollHeight}px`;
+        if (root) root.scrollTop = st;
+      }
+    };
+    resizeFnRef.current = resize;
+    resize();
+    const onInput = () => {
+      fromInputRef.current = true;
+      resize();
+    };
+    ta.addEventListener("input", onInput);
+    return () => {
+      ta.removeEventListener("input", onInput);
+      ta.style.height = "";
+    };
+  }, [mode, scrollRef]);
+
+  // Re-measure on programmatic content changes (e.g. applyContent / onResolveLink).
+  // User input already handled by the "input" event listener above, so guard with a flag.
+  useLayoutEffect(() => {
+    if (fromInputRef.current) {
+      fromInputRef.current = false;
+      return;
+    }
+    resizeFnRef.current?.();
+  }, [rawMarkdown]);
 
   const hasToolbarSlots = toolbarLeft || toolbarRight;
   const charCountEl =

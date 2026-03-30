@@ -54,6 +54,9 @@
   padding-left: 0;
   padding-right: 0;
   min-height: 50vh;
+  field-sizing: content; /* textarea をコンテンツ量で伸長 (WYSIWYG の div と同等にする) */
+  flex: 1 0 auto;        /* library の flex:1(=1 1 0) を上書き — basis:auto で内容ベースに */
+  resize: none;
 }
 
 /* Hide editor body when afterMeta content replaces it */
