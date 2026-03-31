@@ -7,7 +7,7 @@
  * No hooks except useMemo for toolbar item resolution.
  * All editor state (editor, mode, rawMarkdown, etc.) is passed in as props.
  */
-import { useRef, useMemo, useLayoutEffect, type ReactNode } from "react";
+import { useRef, useMemo, useCallback, useLayoutEffect, type ReactNode } from "react";
 import {
   Toolbar,
   EditorBody,
@@ -57,6 +57,17 @@ export function EditorLayout({
 }: EditorLayoutProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
+
+  // Scroll position preservation across mode switches
+  const scrollRatioRef = useRef<number | null>(null);
+  const handleModeSwitch = useCallback(() => {
+    const container = scrollRef.current;
+    if (container) {
+      const maxScroll = container.scrollHeight - container.clientHeight;
+      scrollRatioRef.current = maxScroll > 0 ? container.scrollTop / maxScroll : 0;
+    }
+    setMode(mode === "wysiwyg" ? "markdown" : "wysiwyg");
+  }, [mode, setMode, scrollRef]);
 
   // Resolve toolbar items with image upload action
   const toolbarItems = useMemo((): ToolbarItem[] | false => {
@@ -141,6 +152,21 @@ export function EditorLayout({
     resizeFnRef.current?.();
   }, [rawMarkdown]);
 
+  // Restore scroll position after mode switch (must run AFTER textarea resize above)
+  useLayoutEffect(() => {
+    const ratio = scrollRatioRef.current;
+    if (ratio === null) return;
+    scrollRatioRef.current = null;
+
+    const container = scrollRef.current;
+    if (!container) return;
+
+    const maxScroll = container.scrollHeight - container.clientHeight;
+    if (maxScroll > 0) {
+      container.scrollTop = ratio * maxScroll;
+    }
+  }, [mode, scrollRef]);
+
   const hasToolbarSlots = toolbarLeft || toolbarRight;
   const charCountEl =
     maxCharCount && charCount != null ? (
@@ -170,7 +196,7 @@ export function EditorLayout({
                   <button
                     type="button"
                     className={`${s["mode-switch-btn"]} mdg-mode-btn`}
-                    onClick={() => setMode(mode === "wysiwyg" ? "markdown" : "wysiwyg")}
+                    onClick={handleModeSwitch}
                   >
                     {mode === "wysiwyg" ? <MarkdownIcon /> : <RichTextIcon />}
                     {mode === "wysiwyg" ? "Markdown" : "Rich Text"}
@@ -189,7 +215,7 @@ export function EditorLayout({
                 <button
                   type="button"
                   className={`${s["mode-switch-btn"]} mdg-mode-btn`}
-                  onClick={() => setMode(mode === "wysiwyg" ? "markdown" : "wysiwyg")}
+                  onClick={handleModeSwitch}
                 >
                   {mode === "wysiwyg" ? <MarkdownIcon /> : <RichTextIcon />}
                   {mode === "wysiwyg" ? "Markdown" : "Rich Text"}
