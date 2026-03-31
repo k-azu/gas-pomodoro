@@ -183,11 +183,12 @@ export function useMarkdownEditor({
         const current = rawMarkdownRef.current;
         const json = parseMarkdown(editor, current);
         const doc = editor.schema.nodeFromJSON(json);
-        const tr = editor.state.tr.replaceWith(0, editor.state.doc.content.size, doc.content);
-        tr.setMeta("addToHistory", false);
-        tr.setMeta("skipOnChange", true);
-        editor.view.dispatch(tr);
-        onChangeRef.current(current);
+        if (!doc.content.eq(editor.state.doc.content)) {
+          const tr = editor.state.tr.replaceWith(0, editor.state.doc.content.size, doc.content);
+          tr.setMeta("skipOnChange", true);
+          editor.view.dispatch(tr);
+          onChangeRef.current(current);
+        }
       }
       setModeState(newMode);
     },

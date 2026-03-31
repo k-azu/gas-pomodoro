@@ -7,7 +7,7 @@
  * No hooks except useMemo for toolbar item resolution.
  * All editor state (editor, mode, rawMarkdown, etc.) is passed in as props.
  */
-import { useRef, useMemo, useCallback, useLayoutEffect, type ReactNode } from "react";
+import { useRef, useMemo, useCallback, useEffect, useLayoutEffect, type ReactNode } from "react";
 import {
   Toolbar,
   EditorBody,
@@ -153,7 +153,9 @@ export function EditorLayout({
   }, [rawMarkdown]);
 
   // Restore scroll position after mode switch (must run AFTER textarea resize above)
-  useLayoutEffect(() => {
+  // Uses useEffect + rAF polling (same pattern as document-switch scroll in useDocumentEditor)
+  // because ProseMirror's DOM may not have its final height at useLayoutEffect time.
+  useEffect(() => {
     const ratio = scrollRatioRef.current;
     if (ratio === null) return;
     scrollRatioRef.current = null;
@@ -161,10 +163,30 @@ export function EditorLayout({
     const container = scrollRef.current;
     if (!container) return;
 
-    const maxScroll = container.scrollHeight - container.clientHeight;
-    if (maxScroll > 0) {
-      container.scrollTop = ratio * maxScroll;
-    }
+    const applyScroll = () => {
+      const maxScroll = container.scrollHeight - container.clientHeight;
+      if (maxScroll <= 0) return 0;
+      const target = ratio * maxScroll;
+      container.scrollTop = target;
+      return target;
+    };
+
+    const target = applyScroll();
+    if (target === 0 || container.scrollTop === target) return;
+
+    let cancelled = false;
+    const deadline = performance.now() + 500;
+    const poll = () => {
+      if (cancelled) return;
+      const t = applyScroll();
+      if (container.scrollTop >= t - 1 || performance.now() > deadline) return;
+      requestAnimationFrame(poll);
+    };
+    requestAnimationFrame(poll);
+
+    return () => {
+      cancelled = true;
+    };
   }, [mode, scrollRef]);
 
   const hasToolbarSlots = toolbarLeft || toolbarRight;
