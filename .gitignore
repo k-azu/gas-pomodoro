@@ -149,8 +149,8 @@ src/ReactVendor.html
 src/ClientBundle.html
 
 # Tool configs
-.claude/
-.mcp.json
+.claude/settigs.local.json
+# .mcp.json
 .playwright-mcp/
 playwright.config.json
 
