@@ -16,6 +16,7 @@ import {
   parseMarkdown,
   createEditorState,
 } from "../editor/markweaveEditor";
+import { bindClipboardImageUpload } from "../lib/imageCache";
 
 interface UseMarkdownEditorOptions {
   initialContent?: string;
@@ -58,6 +59,8 @@ export function useMarkdownEditor({
   onFocusRef.current = onFocus;
   const onBlurRef = useRef(onBlur);
   onBlurRef.current = onBlur;
+  const onImageUploadRef = useRef(onImageUpload);
+  onImageUploadRef.current = onImageUpload;
 
   // Memoize extensions to prevent tiptap from calling setOptions → updateState
   // on every render (which would recreate node views and reset DOM state like
@@ -198,6 +201,16 @@ export function useMarkdownEditor({
     if (!editor) return;
     editor.setEditable(!readOnly, false);
   }, [editor, readOnly]);
+
+  useEffect(() => {
+    if (!editor || !onImageUpload) return;
+    return bindClipboardImageUpload(editor, (file) => {
+      if (!onImageUploadRef.current) {
+        return Promise.reject(new Error("画像アップロードが設定されていません"));
+      }
+      return onImageUploadRef.current(file);
+    });
+  }, [editor, onImageUpload]);
 
   const setMode = useCallback(
     (newMode: EditorMode) => {
