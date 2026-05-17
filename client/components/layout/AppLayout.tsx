@@ -17,14 +17,14 @@ export function AppLayout() {
 
   if (isLoading) {
     return (
-      <div className={`${s['loading-overlay']} ${s.visible}`}>
+      <div className={`${s["loading-overlay"]} ${s.visible}`}>
         <div className={s.spinner} />
       </div>
     );
   }
 
   return (
-    <div className={s['app-layout']}>
+    <div className={s["app-layout"]}>
       <LeftPanel />
       <RightPanel />
     </div>

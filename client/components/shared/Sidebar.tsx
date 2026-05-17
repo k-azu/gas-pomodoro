@@ -47,17 +47,20 @@ export function Sidebar<T extends { id: string; name: string }>({
   const [searchQuery, setSearchQuery] = useState("");
 
   const q = searchQuery.toLowerCase();
-  const hasFilter = !!q || (extraFilter != null);
+  const hasFilter = !!q || extraFilter != null;
   const canReorder = !!onReorder && !hasFilter && items.length > 1;
 
   const visibleItems = items.filter((item) => {
-    const matchSearch = !q || (searchFilter ? searchFilter(item, q) : item.name.toLowerCase().includes(q));
+    const matchSearch =
+      !q || (searchFilter ? searchFilter(item, q) : item.name.toLowerCase().includes(q));
     const matchExtra = !extraFilter || extraFilter(item);
     return matchSearch && matchExtra;
   });
 
   const drag = useLongPressDrag(
-    (_dragId, newOrder) => { onReorder?.(newOrder); },
+    (_dragId, newOrder) => {
+      onReorder?.(newOrder);
+    },
     { enabled: canReorder },
   );
 

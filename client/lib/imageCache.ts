@@ -6,8 +6,7 @@
 import { serverCall } from "./serverCall";
 
 const DRIVE_FILE_RE = /drive\.google\.com\/file\/d\/([^/]+)\/view/;
-const DRIVE_URL_GLOBAL_RE =
-  /https:\/\/drive\.google\.com\/file\/d\/([^/\s)"]+)\/view/g;
+const DRIVE_URL_GLOBAL_RE = /https:\/\/drive\.google\.com\/file\/d\/([^/\s)"]+)\/view/g;
 
 const blobToDriveUrl: Record<string, string> = {};
 const fileIdToBlobUrl: Record<string, string> = {};
@@ -146,9 +145,7 @@ const MAX_CLIENT_BYTES = 10 * 1024 * 1024;
 export function handleImageUpload(file: File): Promise<string> {
   if (file.size > MAX_CLIENT_BYTES) {
     const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-    return Promise.reject(
-      new Error(`画像サイズが上限(10MB)を超えています: ${sizeMB}MB`),
-    );
+    return Promise.reject(new Error(`画像サイズが上限(10MB)を超えています: ${sizeMB}MB`));
   }
   const mimeType = file.type || "image/jpeg";
   const extMap: Record<string, string> = {

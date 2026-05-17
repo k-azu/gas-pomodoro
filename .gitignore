@@ -146,6 +146,7 @@ package-lock.json
 
 # Generated bundles (rebuilt by npm run build:gas)
 src/ReactVendor.html
+src/EditorVendor.html
 src/ClientBundle.html
 
 # Tool configs
@@ -156,3 +157,7 @@ playwright.config.json
 
 # Docs (design specs, not tracked)
 docs/
+!docs/
+docs/*
+!docs/plans/
+!docs/plans/*.md

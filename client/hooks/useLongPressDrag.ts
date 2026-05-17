@@ -139,7 +139,10 @@ export function useLongPressDrag(
       let insertIdx = items.length;
       for (let i = 0; i < items.length; i++) {
         const r = items[i].getBoundingClientRect();
-        if (y < r.top + r.height / 2) { insertIdx = i; break; }
+        if (y < r.top + r.height / 2) {
+          insertIdx = i;
+          break;
+        }
       }
       placeholderIdxRef.current = insertIdx;
       setSnap({ draggingId: itemId, placeholderIdx: insertIdx, placeholderHeight: rect.height });
@@ -172,7 +175,10 @@ export function useLongPressDrag(
         let insertIdx = items.length;
         for (let i = 0; i < items.length; i++) {
           const r = items[i].getBoundingClientRect();
-          if (pointerY < r.top + r.height / 2) { insertIdx = i; break; }
+          if (pointerY < r.top + r.height / 2) {
+            insertIdx = i;
+            break;
+          }
         }
 
         if (insertIdx !== placeholderIdxRef.current) {
@@ -194,7 +200,10 @@ export function useLongPressDrag(
         let insertIdx = items.length;
         for (let i = 0; i < items.length; i++) {
           const r = items[i].getBoundingClientRect();
-          if (e.clientY < r.top + r.height / 2) { insertIdx = i; break; }
+          if (e.clientY < r.top + r.height / 2) {
+            insertIdx = i;
+            break;
+          }
         }
         const otherIds = items.map((el) => (el as HTMLElement).dataset.id!);
         const newOrder = [...otherIds];

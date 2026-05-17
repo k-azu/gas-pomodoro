@@ -9,13 +9,13 @@
  * that belongs to the consumer (e.g. useDocumentEditor).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { EditorMode, EditorState, MentionTrigger } from "tiptap-markdown-editor";
+import type { EditorMode, EditorState, MentionTrigger } from "../editor/markweaveEditor";
 import {
   useEditor,
   getDefaultExtensions,
   parseMarkdown,
   createEditorState,
-} from "tiptap-markdown-editor";
+} from "../editor/markweaveEditor";
 
 interface UseMarkdownEditorOptions {
   initialContent?: string;
@@ -86,6 +86,32 @@ export function useMarkdownEditor({
     },
   });
 
+  const syncDetailsOpenState = useCallback(() => {
+    if (!editor) return;
+
+    let tr = editor.state.tr;
+    editor.view.dom
+      .querySelectorAll<HTMLElement>('.mdg-details[data-type="details"]')
+      .forEach((el) => {
+        const basePos = editor.view.posAtDOM(el, 0);
+        const pos = [basePos, basePos - 1, basePos + 1].find(
+          (candidate) => editor.state.doc.nodeAt(candidate)?.type.name === "details",
+        );
+        if (pos === undefined) return;
+        const node = editor.state.doc.nodeAt(pos);
+        if (node?.type.name !== "details" || node.attrs.open === undefined) return;
+
+        const isOpen = el.classList.contains("is-open");
+        if (node.attrs.open === isOpen) return;
+        tr = tr.setNodeMarkup(pos, undefined, { ...node.attrs, open: isOpen });
+      });
+
+    if (!tr.docChanged) return;
+    tr.setMeta("skipOnChange", true);
+    tr.setMeta("addToHistory", false);
+    editor.view.dispatch(tr);
+  }, [editor]);
+
   /**
    * Capture the current EditorState, syncing markdown mode back to ProseMirror first.
    * Returns null if editor is not ready.
@@ -102,8 +128,9 @@ export function useMarkdownEditor({
       editor.view.dispatch(tr);
       setModeState("wysiwyg");
     }
+    syncDetailsOpenState();
     return editor.state;
-  }, [editor]);
+  }, [editor, syncDetailsOpenState]);
 
   /**
    * Restore a previously captured EditorState.

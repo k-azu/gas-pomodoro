@@ -17,10 +17,7 @@ export function playSound(): void {
       osc.frequency.value = delay < 0.2 ? 880 : 1046.5;
       osc.type = "sine";
       gain.gain.setValueAtTime(0.3, ctx.currentTime + delay);
-      gain.gain.exponentialRampToValueAtTime(
-        0.01,
-        ctx.currentTime + delay + 0.15,
-      );
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + delay + 0.15);
       osc.start(ctx.currentTime + delay);
       osc.stop(ctx.currentTime + delay + 0.15);
     });

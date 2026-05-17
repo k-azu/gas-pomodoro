@@ -71,10 +71,7 @@ function getInterruptionCategories(): CategoryItem[] {
   return result;
 }
 
-function addCategory(
-  name: string,
-  color?: string,
-): { success: boolean; message?: string } {
+function addCategory(name: string, color?: string): { success: boolean; message?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Categories")!;
   const lastRow = sheet.getLastRow();
@@ -124,9 +121,7 @@ function addInterruptionCategory(
 function getAllCategoriesForSettings(sheetType: string): CategoryItem[] {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheetName =
-    sheetType === "InterruptionCategories"
-      ? "InterruptionCategories"
-      : "Categories";
+    sheetType === "InterruptionCategories" ? "InterruptionCategories" : "Categories";
   const sheet = ss.getSheetByName(sheetName)!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
@@ -142,15 +137,10 @@ function getAllCategoriesForSettings(sheetType: string): CategoryItem[] {
     .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-function reorderCategories(
-  orderedNames: string[],
-  sheetType: string,
-): { success: boolean } {
+function reorderCategories(orderedNames: string[], sheetType: string): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheetName =
-    sheetType === "InterruptionCategories"
-      ? "InterruptionCategories"
-      : "Categories";
+    sheetType === "InterruptionCategories" ? "InterruptionCategories" : "Categories";
   const sheet = ss.getSheetByName(sheetName)!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return { success: true };
@@ -170,22 +160,15 @@ function reorderCategories(
   sheet.getRange(2, 3, lastRow - 1, 1).setValues(sortOrders);
 
   const cacheKey =
-    sheetType === "InterruptionCategories"
-      ? INT_CATEGORIES_CACHE_KEY
-      : CATEGORIES_CACHE_KEY;
+    sheetType === "InterruptionCategories" ? INT_CATEGORIES_CACHE_KEY : CATEGORIES_CACHE_KEY;
   CacheService.getScriptCache().remove(cacheKey);
   return { success: true };
 }
 
-function toggleCategoryActive(
-  name: string,
-  sheetType: string,
-): { success: boolean } {
+function toggleCategoryActive(name: string, sheetType: string): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheetName =
-    sheetType === "InterruptionCategories"
-      ? "InterruptionCategories"
-      : "Categories";
+    sheetType === "InterruptionCategories" ? "InterruptionCategories" : "Categories";
   const sheet = ss.getSheetByName(sheetName)!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return { success: false };
@@ -197,9 +180,7 @@ function toggleCategoryActive(
       sheet.getRange(i + 2, 4).setValue(!currentActive);
 
       const cacheKey =
-        sheetType === "InterruptionCategories"
-          ? INT_CATEGORIES_CACHE_KEY
-          : CATEGORIES_CACHE_KEY;
+        sheetType === "InterruptionCategories" ? INT_CATEGORIES_CACHE_KEY : CATEGORIES_CACHE_KEY;
       CacheService.getScriptCache().remove(cacheKey);
       return { success: true };
     }
@@ -221,13 +202,10 @@ function renameCategory(
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheetName =
-    sheetType === "InterruptionCategories"
-      ? "InterruptionCategories"
-      : "Categories";
+    sheetType === "InterruptionCategories" ? "InterruptionCategories" : "Categories";
   const sheet = ss.getSheetByName(sheetName)!;
   const lastRow = sheet.getLastRow();
-  if (lastRow <= 1)
-    return { success: false, message: "カテゴリが見つかりません" };
+  if (lastRow <= 1) return { success: false, message: "カテゴリが見つかりません" };
 
   const data = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
 
@@ -250,9 +228,7 @@ function renameCategory(
     const logSheet = ss.getSheetByName("PomodoroLog")!;
     const logLastRow = logSheet.getLastRow();
     if (logLastRow > 1) {
-      const catCol = logSheet
-        .getRange(2, 9, logLastRow - 1, 1)
-        .getValues();
+      const catCol = logSheet.getRange(2, 9, logLastRow - 1, 1).getValues();
       let changed = false;
       for (let i = 0; i < catCol.length; i++) {
         if (String(catCol[i][0]) === oldName) {
@@ -268,9 +244,7 @@ function renameCategory(
     const intSheet = ss.getSheetByName("Interruptions")!;
     const intLastRow = intSheet.getLastRow();
     if (intLastRow > 1) {
-      const catCol = intSheet
-        .getRange(2, 7, intLastRow - 1, 1)
-        .getValues();
+      const catCol = intSheet.getRange(2, 7, intLastRow - 1, 1).getValues();
       let changed = false;
       for (let i = 0; i < catCol.length; i++) {
         if (String(catCol[i][0]) === oldName) {
@@ -285,9 +259,7 @@ function renameCategory(
   }
 
   const cacheKey =
-    sheetType === "InterruptionCategories"
-      ? INT_CATEGORIES_CACHE_KEY
-      : CATEGORIES_CACHE_KEY;
+    sheetType === "InterruptionCategories" ? INT_CATEGORIES_CACHE_KEY : CATEGORIES_CACHE_KEY;
   CacheService.getScriptCache().remove(cacheKey);
   return { success: true };
 }
@@ -299,13 +271,10 @@ function updateCategoryColor(
 ): { success: boolean; message?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheetName =
-    sheetType === "InterruptionCategories"
-      ? "InterruptionCategories"
-      : "Categories";
+    sheetType === "InterruptionCategories" ? "InterruptionCategories" : "Categories";
   const sheet = ss.getSheetByName(sheetName)!;
   const lastRow = sheet.getLastRow();
-  if (lastRow <= 1)
-    return { success: false, message: "カテゴリが見つかりません" };
+  if (lastRow <= 1) return { success: false, message: "カテゴリが見つかりません" };
 
   const data = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
   for (let i = 0; i < data.length; i++) {
@@ -313,9 +282,7 @@ function updateCategoryColor(
       sheet.getRange(i + 2, 2).setValue(color);
       // Invalidate cache
       const cacheKey =
-        sheetType === "InterruptionCategories"
-          ? INT_CATEGORIES_CACHE_KEY
-          : CATEGORIES_CACHE_KEY;
+        sheetType === "InterruptionCategories" ? INT_CATEGORIES_CACHE_KEY : CATEGORIES_CACHE_KEY;
       CacheService.getScriptCache().remove(cacheKey);
       return { success: true };
     }

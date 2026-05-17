@@ -1,9 +1,4 @@
-const ALLOWED_IMAGE_MIMES: string[] = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-];
+const ALLOWED_IMAGE_MIMES: string[] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 const IMAGE_FOLDER_NAME = "PomodoroImages";
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 
@@ -15,11 +10,7 @@ function getOrCreateImageFolder(): GoogleAppsScript.Drive.Folder {
   return DriveApp.createFolder(IMAGE_FOLDER_NAME);
 }
 
-function uploadImage(
-  base64Data: string,
-  fileName: string,
-  mimeType: string,
-): { fileId: string } {
+function uploadImage(base64Data: string, fileName: string, mimeType: string): { fileId: string } {
   if (!ALLOWED_IMAGE_MIMES.includes(mimeType)) {
     throw new Error("許可されていない画像形式です: " + mimeType);
   }
@@ -27,9 +18,7 @@ function uploadImage(
   const decoded = Utilities.base64Decode(base64Data);
   if (decoded.length > MAX_IMAGE_BYTES) {
     throw new Error(
-      "画像サイズが上限(10MB)を超えています: " +
-        Math.round(decoded.length / 1024 / 1024) +
-        "MB",
+      "画像サイズが上限(10MB)を超えています: " + Math.round(decoded.length / 1024 / 1024) + "MB",
     );
   }
 

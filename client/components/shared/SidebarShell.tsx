@@ -43,11 +43,7 @@ export function SidebarShell({
       </div>
       {filterSlot}
       <div className={s["sidebar-list"]}>
-        {isEmpty ? (
-          <div className={s["sidebar-empty"]}>{emptyMessage}</div>
-        ) : (
-          children
-        )}
+        {isEmpty ? <div className={s["sidebar-empty"]}>{emptyMessage}</div> : children}
       </div>
     </div>
   );

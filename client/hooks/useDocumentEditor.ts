@@ -8,7 +8,7 @@
  * scrollRef, readOnly, syncStatus, flushPendingSave} — no refs, no indirection.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { EditorState, MentionTrigger } from "tiptap-markdown-editor";
+import type { EditorState, MentionTrigger } from "../editor/markweaveEditor";
 import { useMarkdownEditor } from "./useMarkdownEditor";
 import type { SyncStatus } from "../components/shared/SyncIndicator";
 import * as EntityStore from "../lib/entityStore";

@@ -8,13 +8,9 @@
  * All editor state (editor, mode, rawMarkdown, etc.) is passed in as props.
  */
 import { useRef, useMemo, useCallback, useEffect, useLayoutEffect, type ReactNode } from "react";
-import {
-  Toolbar,
-  EditorBody,
-  DEFAULT_TOOLBAR_ITEMS,
-  insertImageWithUpload,
-} from "tiptap-markdown-editor";
-import type { Editor, EditorMode, ToolbarItem } from "tiptap-markdown-editor";
+import { RichEditorBody, insertImageWithUpload } from "../../editor/markweaveEditor";
+import type { Editor, EditorMode } from "../../editor/markweaveEditor";
+import { Toolbar, DEFAULT_TOOLBAR_ITEMS, type ToolbarItem } from "./editorToolbar";
 import { RichTextIcon, MarkdownIcon } from "./Icons";
 import s from "./DocumentEditor.module.css";
 
@@ -114,7 +110,10 @@ export function EditorLayout({
       return;
     }
     // CSS field-sizing:content handles it natively (Chrome 123+)
-    if (getComputedStyle(ta).fieldSizing === "content") {
+    if (
+      (getComputedStyle(ta) as CSSStyleDeclaration & { fieldSizing?: string }).fieldSizing ===
+      "content"
+    ) {
       resizeFnRef.current = null;
       return;
     }
@@ -248,14 +247,17 @@ export function EditorLayout({
           <div className="mdg-content-area">
             <div className={s["meta-section"]}>{children}</div>
             {afterMeta}
-            <EditorBody
-              editor={editor}
-              mode={mode}
-              rawMarkdown={rawMarkdown}
-              setRawMarkdown={setRawMarkdown}
-              placeholder={placeholder}
-              readOnly={readOnly}
-            />
+            {mode === "wysiwyg" ? (
+              <RichEditorBody editor={editor} placeholder={placeholder} />
+            ) : (
+              <textarea
+                className="mdg-raw-editor"
+                value={rawMarkdown}
+                onChange={(event) => setRawMarkdown(event.currentTarget.value)}
+                placeholder={placeholder}
+                readOnly={readOnly}
+              />
+            )}
           </div>
         </div>
       </div>

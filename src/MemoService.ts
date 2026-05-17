@@ -53,9 +53,7 @@ function getMemos(): MemoMetadata[] {
   return result;
 }
 
-function getMemoContent(
-  memoId: string,
-): { id: string; content: string; updatedAt: string } | null {
+function getMemoContent(memoId: string): { id: string; content: string; updatedAt: string } | null {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Memos")!;
   const lastRow = sheet.getLastRow();
@@ -72,12 +70,10 @@ function getMemoContent(
   return null;
 }
 
-function saveMemo(memo: {
-  id?: string;
-  name: string;
-  content: string;
-  tags?: string[];
-}): { success: boolean; id: string } {
+function saveMemo(memo: { id?: string; name: string; content: string; tags?: string[] }): {
+  success: boolean;
+  id: string;
+} {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Memos")!;
   const now = new Date().toISOString();
@@ -128,10 +124,7 @@ function deleteMemo(memoId: string): { success: boolean } {
   return { success: false };
 }
 
-function renameMemo(
-  memoId: string,
-  newName: string,
-): { success: boolean } {
+function renameMemo(memoId: string, newName: string): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Memos")!;
   const lastRow = sheet.getLastRow();
@@ -148,10 +141,7 @@ function renameMemo(
   return { success: false };
 }
 
-function updateMemoTags(
-  memoId: string,
-  tags: string[],
-): { success: boolean } {
+function updateMemoTags(memoId: string, tags: string[]): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Memos")!;
   const lastRow = sheet.getLastRow();
@@ -199,10 +189,7 @@ function getMemoTags(): MemoTag[] {
   return result;
 }
 
-function addMemoTag(
-  name: string,
-  color?: string,
-): { success: boolean; message?: string } {
+function addMemoTag(name: string, color?: string): { success: boolean; message?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("MemoTags")!;
   const lastRow = sheet.getLastRow();
@@ -220,10 +207,7 @@ function addMemoTag(
   return { success: true };
 }
 
-function updateMemoTagColor(
-  name: string,
-  color: string,
-): { success: boolean; message?: string } {
+function updateMemoTagColor(name: string, color: string): { success: boolean; message?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("MemoTags")!;
   const lastRow = sheet.getLastRow();
@@ -240,11 +224,7 @@ function updateMemoTagColor(
   return { success: false, message: "タグが見つかりません" };
 }
 
-function saveMemoContent(
-  memoId: string,
-  content: string,
-  updatedAt: string,
-): { success: boolean } {
+function saveMemoContent(memoId: string, content: string, updatedAt: string): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Memos")!;
   const lastRow = sheet.getLastRow();

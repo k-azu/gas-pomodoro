@@ -49,20 +49,14 @@ export function ContextMenu({
   }, []);
 
   return (
-    <div
-      ref={ref}
-      className={s['memo-context-menu']}
-      style={{ left: position.x, top: position.y }}
-    >
+    <div ref={ref} className={s["memo-context-menu"]} style={{ left: position.x, top: position.y }}>
       {sections.map((section, si) => (
         <div key={si}>
-          {section.title && (
-            <div className={s['memo-context-separator']}>{section.title}</div>
-          )}
+          {section.title && <div className={s["memo-context-separator"]}>{section.title}</div>}
           {section.items.map((item, ii) => (
             <div
               key={ii}
-              className={`${s['memo-context-item']}${item.danger ? ` ${s['memo-context-danger']}` : ""}`}
+              className={`${s["memo-context-item"]}${item.danger ? ` ${s["memo-context-danger"]}` : ""}`}
               onClick={() => {
                 onClose();
                 item.onClick();
@@ -73,7 +67,7 @@ export function ContextMenu({
               )}
               {item.label}
               {item.checked && (
-                <span className={s['memo-context-check']}>
+                <span className={s["memo-context-check"]}>
                   <CheckIcon size={12} />
                 </span>
               )}

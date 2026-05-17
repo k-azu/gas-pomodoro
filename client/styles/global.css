@@ -34,20 +34,56 @@ body {
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s,
+    transform 0.1s;
 }
 
-.btn:active { transform: scale(0.97); }
-.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn:active {
+  transform: scale(0.97);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
-.btn-primary { background: var(--work-color); color: white; border-color: var(--work-color); }
-.btn-primary:hover { background: #c62828; border-color: #c62828; }
-.btn-secondary { background: transparent; color: var(--text-secondary); border-color: var(--border); }
-.btn-secondary:hover { background: var(--bg); color: var(--text); border-color: var(--text-secondary); }
-.btn-danger { background: transparent; color: var(--work-color); border-color: var(--work-color); }
-.btn-danger:hover { background: #ffebee; }
-.btn-warning { background: transparent; color: #e65100; border-color: #e65100; }
-.btn-warning:hover { background: #fff3e0; }
+.btn-primary {
+  background: var(--work-color);
+  color: white;
+  border-color: var(--work-color);
+}
+.btn-primary:hover {
+  background: #c62828;
+  border-color: #c62828;
+}
+.btn-secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+.btn-secondary:hover {
+  background: var(--bg);
+  color: var(--text);
+  border-color: var(--text-secondary);
+}
+.btn-danger {
+  background: transparent;
+  color: var(--work-color);
+  border-color: var(--work-color);
+}
+.btn-danger:hover {
+  background: #ffebee;
+}
+.btn-warning {
+  background: transparent;
+  color: #e65100;
+  border-color: #e65100;
+}
+.btn-warning:hover {
+  background: #fff3e0;
+}
 
 /* ===== Shared: Pomodoro Dot (used by TimerCard & CollapsedStrip) ===== */
 .pomodoro-dot {
@@ -68,7 +104,6 @@ body {
   box-shadow: 0 0 0 3px rgba(229, 57, 53, 0.2);
 }
 
-
 /* ===== Editor integration overrides (3rd-party) ===== */
 .editor-full-container {
   flex: 1;
@@ -87,9 +122,21 @@ body {
   flex: 1;
 }
 
-.editor-full-container .mdg-editor { border: none; border-radius: 0; min-height: 0; }
-.editor-full-container .mdg-editor-header { background: transparent; border-radius: 0; border-bottom: 1px solid var(--border-subtle); min-height: 39px; }
-.editor-full-container .mdg-toolbar-btn:hover { background: #ffebee; border-color: #ffcdd2; }
+.editor-full-container .mdg-editor {
+  border: none;
+  border-radius: 0;
+  min-height: 0;
+}
+.editor-full-container .mdg-editor-header {
+  background: transparent;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  min-height: 39px;
+}
+.editor-full-container .mdg-toolbar-btn:hover {
+  background: #ffebee;
+  border-color: #ffcdd2;
+}
 
 /* Toolbar row: [left slot] [editor toolbar] [right slot] */
 .mdg-editor-toolbar-row {
@@ -104,6 +151,115 @@ body {
   border-bottom: none;
 }
 
+.mdg-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.mdg-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 0.1s,
+    border-color 0.1s;
+}
+
+.mdg-toolbar-btn--active {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.mdg-toolbar-divider {
+  display: inline-block;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: #d1d5db;
+}
+
+.mdg-toolbar-dropdown {
+  position: relative;
+}
+
+.mdg-toolbar-dropdown-trigger {
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.mdg-toolbar-dropdown-caret {
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.mdg-toolbar-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1000;
+  min-width: 160px;
+  margin-top: 4px;
+  padding: 4px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.mdg-toolbar-dropdown-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #374151;
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mdg-toolbar-dropdown-item:hover {
+  background: #f3f4f6;
+}
+
+.mdg-toolbar-dropdown-item--active {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.mdg-toolbar-dropdown-item--active:hover {
+  background: #bfdbfe;
+}
+
+.mdg-toolbar-dropdown-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
 /* ===== Shared: memo-tag-dot (used by MemoTab & ContextMenu) ===== */
 .memo-tag-dot {
   width: 8px;
@@ -112,4 +268,8 @@ body {
   flex-shrink: 0;
 }
 
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

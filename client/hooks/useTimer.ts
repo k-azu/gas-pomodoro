@@ -68,8 +68,8 @@ export interface UseTimerReturn {
   onRecordSaved: () => void;
   startNextWork: () => void;
   endWorkSession: () => void;
-  continueWork: () => Promise<void>;
-  endSession: () => Promise<void>;
+  continueWork: () => void;
+  endSession: () => void;
   onPatternChange: (patternName: string) => void;
   setCustomConfig: (
     partial: Partial<

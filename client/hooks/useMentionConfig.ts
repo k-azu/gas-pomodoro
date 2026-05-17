@@ -7,7 +7,7 @@
  */
 import { useMemo, useEffect, useRef } from "react";
 import { useNavigation } from "../contexts/NavigationContext";
-import type { MentionTrigger } from "tiptap-markdown-editor";
+import type { MentionTrigger } from "../editor/markweaveEditor";
 import * as MemoStore from "../lib/memoStore";
 import * as TaskStore from "../lib/taskStore";
 import * as EntityStore from "../lib/entityStore";

@@ -48,11 +48,7 @@ function getAllTimerConfigs(): TimerConfig[] {
     isActive: row[5] === true,
   }));
 
-  cache.put(
-    TIMER_CONFIGS_CACHE_KEY,
-    JSON.stringify(result),
-    TIMER_CONFIG_CACHE_TTL,
-  );
+  cache.put(TIMER_CONFIGS_CACHE_KEY, JSON.stringify(result), TIMER_CONFIG_CACHE_TTL);
   return result;
 }
 
@@ -119,8 +115,7 @@ function updateTimerConfig(
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("TimerConfig")!;
   const lastRow = sheet.getLastRow();
-  if (lastRow <= 1)
-    return { success: false, message: "パターンが見つかりません" };
+  if (lastRow <= 1) return { success: false, message: "パターンが見つかりません" };
 
   const data = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
 
@@ -144,14 +139,11 @@ function updateTimerConfig(
   return { success: false, message: "パターンが見つかりません" };
 }
 
-function deleteTimerConfig(
-  patternName: string,
-): { success: boolean; message?: string } {
+function deleteTimerConfig(patternName: string): { success: boolean; message?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("TimerConfig")!;
   const lastRow = sheet.getLastRow();
-  if (lastRow <= 2)
-    return { success: false, message: "最後のパターンは削除できません" };
+  if (lastRow <= 2) return { success: false, message: "最後のパターンは削除できません" };
 
   const data = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
   for (let i = 0; i < data.length; i++) {
@@ -171,14 +163,11 @@ function deleteTimerConfig(
   return { success: false, message: "パターンが見つかりません" };
 }
 
-function setActiveTimerConfig(
-  patternName: string,
-): { success: boolean; message?: string } {
+function setActiveTimerConfig(patternName: string): { success: boolean; message?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("TimerConfig")!;
   const lastRow = sheet.getLastRow();
-  if (lastRow <= 1)
-    return { success: false, message: "パターンが見つかりません" };
+  if (lastRow <= 1) return { success: false, message: "パターンが見つかりません" };
 
   const data = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
   const newValues: boolean[][] = [];
@@ -193,8 +182,7 @@ function setActiveTimerConfig(
     }
   }
 
-  if (!found)
-    return { success: false, message: "パターンが見つかりません" };
+  if (!found) return { success: false, message: "パターンが見つかりません" };
 
   sheet.getRange(2, 6, lastRow - 1, 1).setValues(newValues);
   CacheService.getScriptCache().remove(TIMER_CONFIGS_CACHE_KEY);

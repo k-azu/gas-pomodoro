@@ -30,14 +30,14 @@ export function WeekStrip({
   const inCurrentWeek = selectedDate >= weekStartDate && selectedDate <= weekEnd;
 
   return (
-    <div className={s['week-strip']}>
+    <div className={s["week-strip"]}>
       {Array.from({ length: 7 }, (_, i) => {
         const dateStr = addDays(weekStartDate, i);
         const d = new Date(dateStr + "T00:00:00");
         const isFuture = dateStr > today;
         const count = weekRecordCounts[dateStr] || 0;
 
-        let cls = s['week-day-btn'];
+        let cls = s["week-day-btn"];
         if (inCurrentWeek && dateStr === selectedDate) cls += ` ${s.selected}`;
         if (dateStr === today) cls += ` ${s.today}`;
         if (isFuture) cls += ` ${s.future}`;
@@ -49,11 +49,11 @@ export function WeekStrip({
             disabled={isFuture}
             onClick={() => onSelect(dateStr)}
           >
-            <span className={s['week-day-label']}>{WEEK_DAYS[i]}</span>
-            <span className={s['week-day-num']}>{d.getDate()}</span>
+            <span className={s["week-day-label"]}>{WEEK_DAYS[i]}</span>
+            <span className={s["week-day-num"]}>{d.getDate()}</span>
             <span
               className={
-                count > 0 && !isFuture ? s['week-day-indicator'] : s['week-day-indicator-spacer']
+                count > 0 && !isFuture ? s["week-day-indicator"] : s["week-day-indicator-spacer"]
               }
             />
           </button>

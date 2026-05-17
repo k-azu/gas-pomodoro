@@ -51,16 +51,31 @@
   padding-right: 0;
 }
 .page-root :global(.mdg-raw-editor) {
+  width: 100%;
+  height: auto;
   padding-left: 0;
   padding-right: 0;
+  padding-bottom: 50vh;
+  border: none;
+  outline: none;
   min-height: 50vh;
   field-sizing: content; /* textarea をコンテンツ量で伸長 (WYSIWYG の div と同等にする) */
-  flex: 1 0 auto;        /* library の flex:1(=1 1 0) を上書き — basis:auto で内容ベースに */
+  flex: 1 0 auto; /* library の flex:1(=1 1 0) を上書き — basis:auto で内容ベースに */
+  overflow: hidden;
   resize: none;
+  background: transparent;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #1e293b;
+  box-sizing: border-box;
 }
 
 /* Hide editor body when afterMeta content replaces it */
-.hide-editor-body :global(.mdg-editor-body) { display: none; }
+.hide-editor-body :global(.mdg-editor-body) {
+  display: none;
+}
 
 /* Meta section — rendered between toolbar and editor body */
 .meta-section {
@@ -70,7 +85,9 @@
 }
 
 /* Spacer: fills space when editor header is hidden (afterMeta / table view) */
-.toolbar-spacer { flex: 1; }
+.toolbar-spacer {
+  flex: 1;
+}
 
 /* Shared: toolbar slot (used by multiple tabs) */
 .toolbar-slot {
@@ -79,7 +96,9 @@
   padding: 0 2px;
   flex-shrink: 0;
 }
-.toolbar-slot:last-child { padding-right: 6px; }
+.toolbar-slot:last-child {
+  padding-right: 6px;
+}
 
 /* Editor mode switch button (chip style) */
 .mode-switch-btn {
@@ -94,7 +113,10 @@
   font-size: 11px;
   font-family: inherit;
   color: #6b7280;
-  transition: background-color 0.1s, color 0.1s, border-color 0.1s;
+  transition:
+    background-color 0.1s,
+    color 0.1s,
+    border-color 0.1s;
   line-height: 1.5;
   flex-shrink: 0;
   margin-left: auto; /* fallback when char-count is absent */
@@ -105,7 +127,11 @@
   margin-left: 0;
 }
 
-.mode-switch-btn:hover { background: #e5e7eb; color: #374151; border-color: #9ca3af; }
+.mode-switch-btn:hover {
+  background: #e5e7eb;
+  color: #374151;
+  border-color: #9ca3af;
+}
 
 /* Character count (shown before mode switch button) */
 .char-count {
