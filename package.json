@@ -22,7 +22,7 @@
     "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
-    "@markweave/editor-core": "^0.1.1",
+    "@markweave/editor-core": "^0.1.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
