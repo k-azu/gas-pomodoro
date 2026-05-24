@@ -19,6 +19,10 @@ const IMG_DB_VERSION = 1;
 const IMG_STORE_NAME = "images";
 let _imgDbInstance: IDBDatabase | null = null;
 
+function isDev(): boolean {
+  return Boolean((import.meta as any).env?.DEV);
+}
+
 function driveFileUrl(fileId: string): string {
   return `https://drive.google.com/file/d/${fileId}/view`;
 }
@@ -178,6 +182,10 @@ function resolveFileId(fileId: string): Promise<string> {
 }
 
 export function resolveDriveUrls(md: string): Promise<string> {
+  if (isDev() && (window as any).__mockTransformOnLoadShouldFailOnce) {
+    (window as any).__mockTransformOnLoadShouldFailOnce = false;
+    return Promise.reject(new Error("Mock: forced transformOnLoad error"));
+  }
   if (!md) return Promise.resolve(md);
   const ids: Record<string, string> = {};
   let match: RegExpExecArray | null;

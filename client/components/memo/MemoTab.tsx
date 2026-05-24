@@ -44,6 +44,7 @@ export function MemoTab() {
     readOnly,
     syncStatus,
   } = useDocumentEditor({
+    scope: "memos",
     id: memo.activeId || "",
     loadContent: useCallback((id: string) => MemoStore.getContent(id), []),
     saveContent: useCallback(

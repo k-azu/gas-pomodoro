@@ -12,6 +12,9 @@ import {
   getEditorText,
   setMockContentOverride,
   setMockContentShouldFail,
+  setMockLocalSaveShouldFailOnce,
+  setMockLocalLoadShouldFailOnce,
+  setMockTransformOnLoadShouldFailOnce,
 } from "./helpers/app";
 
 const MEMO_STORE = "memos";
@@ -214,6 +217,87 @@ test.describe("C. サーバー同期と競合解決", () => {
 
     await expect(editor).toContainText("反映後に編集可", { timeout: 5_000 });
     await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 3_000 });
+  });
+
+  test("C9: ローカル保存失敗後も次回保存で内容が失われない", async ({ page }) => {
+    await setMockLocalSaveShouldFailOnce(page);
+    await gotoApp(page);
+    await waitForSyncComplete(page);
+    await selectMemo(page, "開発メモ");
+
+    await typeInEditor(page, "保存失敗後も残る");
+    await page.waitForTimeout(2500);
+
+    let record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    expect(record.content).not.toContain("保存失敗後も残る");
+
+    await typeInEditor(page, " 再保存");
+    await page.waitForTimeout(2500);
+
+    record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    expect(record.content).toContain("保存失敗後も残る 再保存");
+  });
+
+  test("C9b: 非表示メモの保存失敗も次回 flush で再保存される", async ({ page }) => {
+    await setMockLocalSaveShouldFailOnce(page);
+    await gotoApp(page);
+    await waitForSyncComplete(page);
+    await selectMemo(page, "開発メモ");
+
+    await typeInEditor(page, "非表示でも再送される");
+    await selectMemo(page, "議事録");
+    await page.waitForTimeout(200);
+
+    let record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    expect(record.content).not.toContain("非表示でも再送される");
+
+    await selectMemo(page, "設計ドキュメント");
+    await page.waitForTimeout(500);
+
+    record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    expect(record.content).toContain("非表示でも再送される");
+  });
+
+  test("C10: load 変換失敗時は raw 内容を表示し IDB 内容も消えない", async ({ page }) => {
+    await gotoApp(page);
+    await waitForSyncComplete(page);
+    await selectMemo(page, "開発メモ");
+    await typeInEditor(page, "ロード失敗前の内容");
+    await page.waitForTimeout(2500);
+
+    await setMockTransformOnLoadShouldFailOnce(page);
+    await page.reload();
+    await page.waitForSelector("[class*='sidebar']", { timeout: 10_000 });
+    await selectMemo(page, "開発メモ");
+
+    const editor = page.locator(".ProseMirror");
+    await expect(page.locator('[data-status="error"]')).toBeVisible({ timeout: 5_000 });
+    await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 3_000 });
+    await expect(editor).toContainText("ロード失敗前の内容", { timeout: 3_000 });
+    await page.waitForTimeout(1000);
+    await expect(page.locator('[data-status="error"]')).toBeVisible();
+
+    const record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    expect(record.content).toContain("ロード失敗前の内容");
+  });
+
+  test("C11: IDB load 失敗時は編集不可のまま IDB 内容を上書きしない", async ({ page }) => {
+    await gotoApp(page);
+    await waitForSyncComplete(page);
+    await selectMemo(page, "開発メモ");
+    await typeInEditor(page, "IDBロード失敗前の内容");
+    await page.waitForTimeout(2500);
+
+    await setMockLocalLoadShouldFailOnce(page);
+    await page.reload();
+    await page.waitForSelector(".ProseMirror", { timeout: 10_000 });
+
+    const editor = page.locator(".ProseMirror");
+    await expect(page.locator('[data-status="error"]')).toBeVisible({ timeout: 5_000 });
+    await expect(editor).toHaveAttribute("contenteditable", "false", { timeout: 3_000 });
+
+    const record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    expect(record.content).toContain("IDBロード失敗前の内容");
   });
 
   test("E1: サーバーエラー → error indicator + 内容保持", async ({ page }) => {

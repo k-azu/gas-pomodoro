@@ -42,6 +42,24 @@ export async function setMockContentShouldFail(page: Page, shouldFail: boolean):
   }, shouldFail);
 }
 
+export async function setMockLocalSaveShouldFailOnce(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    (window as any).__mockLocalSaveShouldFailOnce = true;
+  });
+}
+
+export async function setMockTransformOnLoadShouldFailOnce(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    (window as any).__mockTransformOnLoadShouldFailOnce = true;
+  });
+}
+
+export async function setMockLocalLoadShouldFailOnce(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    (window as any).__mockLocalLoadShouldFailOnce = true;
+  });
+}
+
 /**
  * Select a memo by name from the sidebar.
  */

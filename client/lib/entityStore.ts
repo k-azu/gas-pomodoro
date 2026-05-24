@@ -69,7 +69,7 @@ let _onUpgrade: ((db: IDBDatabase, oldVersion: number, newVersion: number | null
   null;
 
 const _listeners: Record<string, EventCallback[]> = {};
-const _entityStoreMap: Record<string, string> = {}; // id -> storeName
+const _entityStoreMap: Record<string, { storeName: string; id: string }> = {};
 const _registrations: Record<string, StoreRegistration> = {};
 const _metaDebounces: Record<string, ReturnType<typeof setTimeout>> = {};
 const _contentSyncDebounces: Record<string, ReturnType<typeof setTimeout>> = {};
@@ -78,17 +78,33 @@ const _reorderDebounces: Record<string, ReturnType<typeof setTimeout>> = {};
 const _pendingServerContent: Record<string, { content: string; serverTs: string }> = {};
 const _pendingOps: Record<string, Promise<any>> = {};
 
+function scopedKey(storeName: string, id: string): string {
+  return `${storeName}:${id}`;
+}
+
+function isDev(): boolean {
+  return Boolean((import.meta as any).env?.DEV);
+}
+
+function rememberEntityStore(storeName: string, id: string): string {
+  const key = scopedKey(storeName, id);
+  _entityStoreMap[key] = { storeName, id };
+  return key;
+}
+
 // =========================================================
 // Per-ID operation lock (serializes read-modify-write)
 // =========================================================
 
-function withLock(id: string, fn: () => Promise<any>): Promise<any> {
-  const prev = _pendingOps[id] || Promise.resolve();
+function withLock(storeName: string, id: string, fn: () => Promise<any>): Promise<any> {
+  const key = scopedKey(storeName, id);
+  const prev = _pendingOps[key] || Promise.resolve();
   const next = prev.then(fn, fn);
-  _pendingOps[id] = next;
-  next.then(() => {
-    if (_pendingOps[id] === next) delete _pendingOps[id];
-  });
+  _pendingOps[key] = next;
+  const cleanup = () => {
+    if (_pendingOps[key] === next) delete _pendingOps[key];
+  };
+  next.then(cleanup, cleanup);
   return next;
 }
 
@@ -321,7 +337,7 @@ export function addEntity(storeName: string, entityData: Record<string, any>): P
     _pendingCreate: true,
     ...entityData,
   };
-  _entityStoreMap[item.id] = storeName;
+  rememberEntityStore(storeName, item.id);
   return put(storeName, item).then(() => {
     const cfg = _registrations[storeName];
     emit("dataChanged", { entityType: cfg?.entityType || storeName, op: "add", id: item.id });
@@ -335,8 +351,8 @@ export function updateEntityFields(
   id: string,
   fields: Record<string, any>,
 ): Promise<void> {
-  _entityStoreMap[id] = storeName;
-  return withLock(id, () =>
+  rememberEntityStore(storeName, id);
+  return withLock(storeName, id, () =>
     get(storeName, id).then((item) => {
       if (!item) return;
       const cfg = _registrations[storeName];
@@ -359,7 +375,8 @@ export function updateEntityRaw(
   id: string,
   mergeFn: (item: any) => void,
 ): Promise<void> {
-  return withLock(id, () =>
+  rememberEntityStore(storeName, id);
+  return withLock(storeName, id, () =>
     get(storeName, id).then((item) => {
       if (!item) return;
       mergeFn(item);
@@ -374,8 +391,8 @@ export function updateSortOrders(
 ): Promise<void> {
   return Promise.all(
     entries.map((e) => {
-      _entityStoreMap[e.id] = storeName;
-      return withLock(e.id, () =>
+      rememberEntityStore(storeName, e.id);
+      return withLock(storeName, e.id, () =>
         get(storeName, e.id).then((item) => {
           if (!item) return;
           item.sortOrder = e.sortOrder;
@@ -390,8 +407,8 @@ export function updateSortOrders(
 }
 
 export function setInactive(storeName: string, id: string): Promise<void> {
-  _entityStoreMap[id] = storeName;
-  return withLock(id, () =>
+  rememberEntityStore(storeName, id);
+  return withLock(storeName, id, () =>
     get(storeName, id).then((item) => {
       if (!item) return;
       item.isActive = false;
@@ -402,7 +419,7 @@ export function setInactive(storeName: string, id: string): Promise<void> {
 }
 
 export function archiveEntity(storeName: string, id: string): Promise<void> {
-  _entityStoreMap[id] = storeName;
+  rememberEntityStore(storeName, id);
   return setInactive(storeName, id).then(() => {
     const cfg = _registrations[storeName];
     emit("dataChanged", { entityType: cfg?.entityType || storeName, op: "archive", id });
@@ -420,8 +437,12 @@ export function saveContent(
   content: string,
   opts?: { immediateSync?: boolean },
 ): Promise<void> {
-  _entityStoreMap[id] = storeName;
-  return withLock(id, () =>
+  const key = rememberEntityStore(storeName, id);
+  if (isDev() && (window as any).__mockLocalSaveShouldFailOnce) {
+    (window as any).__mockLocalSaveShouldFailOnce = false;
+    return Promise.reject(new Error("Mock: forced local save error"));
+  }
+  return withLock(storeName, id, () =>
     get(storeName, id).then((existing) => {
       if (!existing) return;
       logSync("saveContent → IDB", storeName, id, `${content.length} chars`);
@@ -434,9 +455,9 @@ export function saveContent(
       existing._contentDirtyAt = now;
       return put(storeName, existing).then(() => {
         if (opts?.immediateSync) {
-          if (_contentSyncDebounces[id]) {
-            clearTimeout(_contentSyncDebounces[id]);
-            delete _contentSyncDebounces[id];
+          if (_contentSyncDebounces[key]) {
+            clearTimeout(_contentSyncDebounces[key]);
+            delete _contentSyncDebounces[key];
           }
           syncContentToServer(storeName, id);
         } else {
@@ -448,6 +469,10 @@ export function saveContent(
 }
 
 export function getContent(storeName: string, id: string): Promise<string | null> {
+  if (isDev() && (window as any).__mockLocalLoadShouldFailOnce) {
+    (window as any).__mockLocalLoadShouldFailOnce = false;
+    return Promise.reject(new Error("Mock: forced local load error"));
+  }
   return get(storeName, id).then((record) => {
     if (!record) return null;
     return record.content != null ? record.content : "";
@@ -510,7 +535,7 @@ function syncCreateToServer(storeName: string, id: string): void {
       logSync("create → server", storeName, id);
       const args = cfg.addServerArgs!(entity);
       return retryWithBackoff(() => serverCall(cfg.serverFns!.add!, ...args)).then((result: any) =>
-        withLock(id, () =>
+        withLock(storeName, id, () =>
           get(storeName, id).then((latest) => {
             if (!latest) return;
             latest._pendingCreate = false;
@@ -529,9 +554,10 @@ function syncCreateToServer(storeName: string, id: string): void {
 }
 
 function scheduleMetadataSync(storeName: string, id: string): void {
-  if (_metaDebounces[id]) clearTimeout(_metaDebounces[id]);
-  _metaDebounces[id] = setTimeout(() => {
-    delete _metaDebounces[id];
+  const key = rememberEntityStore(storeName, id);
+  if (_metaDebounces[key]) clearTimeout(_metaDebounces[key]);
+  _metaDebounces[key] = setTimeout(() => {
+    delete _metaDebounces[key];
     syncMetadataToServer(storeName, id);
   }, 1000);
 }
@@ -552,7 +578,7 @@ function syncMetadataToServer(storeName: string, id: string): void {
       return retryWithBackoff(() => serverCall(cfg.serverFns!.update!, id, clean)).then(
         (result: any) => {
           if (!result?.updatedAt) return;
-          return withLock(id, () =>
+          return withLock(storeName, id, () =>
             get(storeName, id).then((latest) => {
               if (!latest) return;
               latest._serverUpdatedAt = result.updatedAt;
@@ -579,7 +605,7 @@ export function syncArchiveToServer(storeName: string, id: string): void {
       if (!cfg?.serverFns?.archive) return;
       logSync("archive → server", storeName, id);
       return retryWithBackoff(() => serverCall(cfg.serverFns!.archive!, id)).then(() =>
-        withLock(id, () =>
+        withLock(storeName, id, () =>
           get(storeName, id).then((latest) => {
             if (!latest) return;
             latest._dirty = false;
@@ -594,17 +620,19 @@ export function syncArchiveToServer(storeName: string, id: string): void {
 }
 
 function scheduleContentSync(storeName: string, id: string): void {
-  if (_contentSyncDebounces[id]) clearTimeout(_contentSyncDebounces[id]);
-  _contentSyncDebounces[id] = setTimeout(() => {
-    delete _contentSyncDebounces[id];
+  const key = rememberEntityStore(storeName, id);
+  if (_contentSyncDebounces[key]) clearTimeout(_contentSyncDebounces[key]);
+  _contentSyncDebounces[key] = setTimeout(() => {
+    delete _contentSyncDebounces[key];
     syncContentToServer(storeName, id);
   }, 30000);
 }
 
 export function flushContentSync(storeName: string, id: string): void {
-  if (_contentSyncDebounces[id]) {
-    clearTimeout(_contentSyncDebounces[id]);
-    delete _contentSyncDebounces[id];
+  const key = rememberEntityStore(storeName, id);
+  if (_contentSyncDebounces[key]) {
+    clearTimeout(_contentSyncDebounces[key]);
+    delete _contentSyncDebounces[key];
   }
   syncContentToServer(storeName, id);
 }
@@ -632,7 +660,7 @@ function syncContentToServer(storeName: string, id: string): void {
 
       return retryWithBackoff(syncFn).then((result: any) => {
         const serverUpdatedAt = result?.updatedAt;
-        return withLock(id, () =>
+        return withLock(storeName, id, () =>
           get(storeName, id).then((latest) => {
             if (!latest) return;
             if (latest._contentDirtyAt === capturedDirtyAt) {
@@ -694,17 +722,17 @@ export function hasPendingChanges(): boolean {
 
 export function flushAllSyncs(): void {
   logSync("flushAll");
-  Object.keys(_metaDebounces).forEach((id) => {
-    clearTimeout(_metaDebounces[id]);
-    delete _metaDebounces[id];
-    const storeName = _entityStoreMap[id];
-    if (storeName) syncMetadataToServer(storeName, id);
+  Object.keys(_metaDebounces).forEach((key) => {
+    clearTimeout(_metaDebounces[key]);
+    delete _metaDebounces[key];
+    const entry = _entityStoreMap[key];
+    if (entry) syncMetadataToServer(entry.storeName, entry.id);
   });
-  Object.keys(_contentSyncDebounces).forEach((id) => {
-    clearTimeout(_contentSyncDebounces[id]);
-    delete _contentSyncDebounces[id];
-    const storeName = _entityStoreMap[id];
-    if (storeName) syncContentToServer(storeName, id);
+  Object.keys(_contentSyncDebounces).forEach((key) => {
+    clearTimeout(_contentSyncDebounces[key]);
+    delete _contentSyncDebounces[key];
+    const entry = _entityStoreMap[key];
+    if (entry) syncContentToServer(entry.storeName, entry.id);
   });
   Object.keys(_reorderState).forEach((sn) => {
     if (_reorderDebounces[sn]) {
@@ -737,10 +765,11 @@ export function mergeServerData(storeName: string, serverEntities: any[]): Promi
       if (!localMap[se.id]) {
         se._serverUpdatedAt = se.updatedAt;
         se._contentDirtyAt = null;
-        const pending = _pendingServerContent[se.id];
+        const pendingKey = scopedKey(storeName, se.id);
+        const pending = _pendingServerContent[pendingKey];
         if (pending) {
           se.content = pending.content;
-          delete _pendingServerContent[se.id];
+          delete _pendingServerContent[pendingKey];
         } else {
           se.content = "";
         }
@@ -753,7 +782,7 @@ export function mergeServerData(storeName: string, serverEntities: any[]): Promi
       if (!serverMap[le.id]) {
         if (!le._serverUpdatedAt) {
           ops.push(
-            withLock(le.id, () =>
+            withLock(storeName, le.id, () =>
               get(storeName, le.id).then((latest) => {
                 if (!latest) return;
                 latest._pendingCreate = true;
@@ -775,7 +804,7 @@ export function mergeServerData(storeName: string, serverEntities: any[]): Promi
     serverEntities.forEach((se) => {
       const le = localMap[se.id];
       if (!le) return;
-      _entityStoreMap[se.id] = storeName;
+      rememberEntityStore(storeName, se.id);
       if (!le._dirty) {
         const merged: any = { ...se };
         Object.keys(le).forEach((k) => {
@@ -789,7 +818,7 @@ export function mergeServerData(storeName: string, serverEntities: any[]): Promi
         ops.push(put(storeName, merged));
       } else {
         ops.push(
-          withLock(se.id, () =>
+          withLock(storeName, se.id, () =>
             get(storeName, se.id).then((latest) => {
               if (!latest) return;
               latest._serverUpdatedAt = se.updatedAt;
@@ -809,7 +838,7 @@ export function requeueDirtyRecords(storeName: string): void {
   getAll(storeName)
     .then((entities) => {
       entities.forEach((entity) => {
-        _entityStoreMap[entity.id] = storeName;
+        rememberEntityStore(storeName, entity.id);
         if (entity._pendingCreate) {
           syncCreateToServer(storeName, entity.id);
         } else if (entity._dirty) {
@@ -835,7 +864,7 @@ function applyServerContent(
   content: string,
   serverTs: string,
 ): Promise<void> {
-  return withLock(id, () =>
+  return withLock(storeName, id, () =>
     get(storeName, id).then((entity) => {
       if (!entity) return;
       entity.content = content;
@@ -866,10 +895,11 @@ function resolveContentConflict(
   return get(storeName, id).then((entity) => {
     if (!entity) {
       if (!serverContent) return { useServer: false };
-      _pendingServerContent[id] = { content: serverContent, serverTs };
+      _pendingServerContent[scopedKey(storeName, id)] = { content: serverContent, serverTs };
       // エンティティ未存在時も contentResolved を発火
       const cfg = _registrations[storeName];
       emit("contentResolved", {
+        storeName,
         entityType: cfg?.entityType || storeName,
         id,
         content: serverContent,
@@ -895,6 +925,7 @@ function resolveContentConflict(
     return applyServerContent(storeName, id, serverContent, serverTs).then(() => {
       const cfg = _registrations[storeName];
       emit("contentResolved", {
+        storeName,
         entityType: cfg?.entityType || storeName,
         id,
         content: serverContent,

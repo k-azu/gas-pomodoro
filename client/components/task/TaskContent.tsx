@@ -63,6 +63,7 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
     syncStatus,
     flushPendingSave,
   } = useDocumentEditor({
+    scope: storeName,
     id,
     loadContent: useCallback((id: string) => TaskStore.getContent(id, storeName), [storeName]),
     saveContent: useCallback(
