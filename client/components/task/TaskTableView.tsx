@@ -47,8 +47,11 @@ function AllProjectsTable({ tasks }: { tasks: UseTasksReturn }) {
   const [dueFilter, setDueFilter] = useState<DueFilter>("all");
   const projectNameById = new Map(tasks.projects.map((p) => [p.id, p.name]));
   const caseNameById = new Map(tasks.allCases.map((c) => [c.id, c.name]));
+  const activeProjectIds = new Set(tasks.projects.map((p) => p.id));
+  const activeCaseIds = new Set(tasks.allCases.map((c) => c.id));
   const taskItems = tasks.allTasks
     .filter((t) => (t as any).isActive !== false)
+    .filter((t) => matchActiveHierarchy(t, activeProjectIds, activeCaseIds))
     .filter((t) => matchStatusFilter(t, statusFilter))
     .filter((t) => matchDueFilter(t, dueFilter))
     .slice()
@@ -206,6 +209,16 @@ function matchStatusFilter(task: TaskItem, filter: StatusFilter): boolean {
   if (filter === "all") return true;
   if (filter === "not_done") return task.status !== "done";
   return task.status === filter;
+}
+
+function matchActiveHierarchy(
+  task: TaskItem,
+  activeProjectIds: Set<string>,
+  activeCaseIds: Set<string>,
+): boolean {
+  if (!activeProjectIds.has(task.projectId)) return false;
+  if (task.caseId && !activeCaseIds.has(task.caseId)) return false;
+  return true;
 }
 
 function matchDueFilter(task: TaskItem, filter: DueFilter): boolean {
