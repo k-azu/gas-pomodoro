@@ -202,6 +202,27 @@ export function useDocumentEditor({
       return transformOnLoad ? await transformOnLoad(raw) : raw;
     };
 
+    let applyingResolvedContent = false;
+    let resolveCompleteReceived = false;
+
+    const markResolveComplete = () => {
+      if (cancelledRef.current) return;
+      suppressSaveRef.current = false;
+      setReadOnly(false);
+      setSyncStatus((prev) => (prev === "syncing" ? "synced" : prev));
+      setTimeout(() => {
+        if (cancelledRef.current) return;
+        setSyncStatus((prev) => (prev === "synced" ? "idle" : prev));
+      }, 400);
+    };
+
+    const markResolveError = () => {
+      if (cancelledRef.current) return;
+      suppressSaveRef.current = false;
+      setSyncStatus("error");
+      setReadOnly(false);
+    };
+
     if (isSwitch) {
       // Save outgoing document state
       const fromId = currentDocIdRef.current;
@@ -272,28 +293,34 @@ export function useDocumentEditor({
     // Event listeners for resolve results on the DISPLAYED document
     const onContentResolved = async (event: { id: string; content: string }) => {
       if (event.id !== id || cancelledRef.current) return;
-      const content = transformOnLoad ? await transformOnLoad(event.content) : event.content;
-      if (cancelledRef.current) return;
-      suppressSaveRef.current = true;
-      applyContent(content, { addToHistory: true });
+      applyingResolvedContent = true;
+      try {
+        const content = transformOnLoad ? await transformOnLoad(event.content) : event.content;
+        if (cancelledRef.current) return;
+        suppressSaveRef.current = true;
+        applyContent(content, { addToHistory: true });
+        applyingResolvedContent = false;
+        if (resolveCompleteReceived) markResolveComplete();
+      } catch (err) {
+        console.error("[useDocumentEditor] Failed to apply resolved content:", err);
+        applyingResolvedContent = false;
+        _resolveStatus.delete(id);
+        markResolveError();
+      }
     };
 
     const onResolveComplete = (event: { id: string }) => {
       if (event.id !== id || cancelledRef.current) return;
-      suppressSaveRef.current = false;
-      setReadOnly(false);
-      setSyncStatus((prev) => (prev === "syncing" ? "synced" : prev));
-      setTimeout(() => {
-        if (cancelledRef.current) return;
-        setSyncStatus((prev) => (prev === "synced" ? "idle" : prev));
-      }, 400);
+      if (applyingResolvedContent) {
+        resolveCompleteReceived = true;
+        return;
+      }
+      markResolveComplete();
     };
 
     const onResolveError = (event: { id: string }) => {
       if (event.id !== id || cancelledRef.current) return;
-      suppressSaveRef.current = false;
-      setSyncStatus("error");
-      setReadOnly(false);
+      markResolveError();
     };
 
     if (resolveContent) {

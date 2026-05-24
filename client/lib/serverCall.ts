@@ -27,14 +27,20 @@ const isDev = !window.google?.script?.run;
 
 type MockScenario = "default" | "serverNewer" | "localNewer";
 
-function readMockParams(): { scenario: MockScenario; delay: number; largeContent: boolean } {
-  if (!isDev) return { scenario: "default", delay: 0, largeContent: false };
+function readMockParams(): {
+  scenario: MockScenario;
+  delay: number;
+  imageDelay: number;
+  largeContent: boolean;
+} {
+  if (!isDev) return { scenario: "default", delay: 0, imageDelay: 0, largeContent: false };
   const params = new URLSearchParams(window.location.search);
   const raw = params.get("mockScenario") || "default";
   const scenario: MockScenario = raw === "serverNewer" || raw === "localNewer" ? raw : "default";
   const delay = Math.max(0, Number(params.get("mockDelay")) || 0);
+  const imageDelay = Math.max(0, Number(params.get("mockImageDelay")) || 0);
   const largeContent = params.get("mockLargeContent") === "1";
-  return { scenario, delay, largeContent };
+  return { scenario, delay, imageDelay, largeContent };
 }
 
 const mockParams = readMockParams();
@@ -761,7 +767,11 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
 
     // ---- Image ----
     case "getImageBase64":
-      return null;
+      return {
+        base64:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+        mimeType: "image/png",
+      };
 
     case "uploadImage":
       return { url: "https://example.com/mock-image.png" };
@@ -780,7 +790,11 @@ export function serverCall(functionName: string, ...args: unknown[]): Promise<un
   if (isDev) {
     console.log(`[mock] serverCall: ${functionName}`, args);
     const baseDelay = 100;
-    const extraDelay = CONTENT_FUNCTIONS.has(functionName) ? mockParams.delay : 0;
+    const extraDelay = CONTENT_FUNCTIONS.has(functionName)
+      ? mockParams.delay
+      : functionName === "getImageBase64"
+        ? mockParams.imageDelay
+        : 0;
 
     if (CONTENT_FUNCTIONS.has(functionName) && (window as any).__mockContentShouldFail) {
       return new Promise((_, reject) => {

@@ -186,6 +186,36 @@ test.describe("C. サーバー同期と競合解決", () => {
     expect(text).not.toContain("サーバーで上書きされた内容");
   });
 
+  test("C8: サーバー内容の変換反映が終わってから editable になる", async ({ page }) => {
+    await setMockContentOverride(page, {
+      content: [
+        "# サーバー画像遅延",
+        "",
+        "![slow](https://drive.google.com/file/d/mock-image-delay/view)",
+        "",
+        "反映後に編集可",
+      ].join("\n"),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await gotoApp(page, { params: { mockImageDelay: "1200" } });
+
+    // サイドバー表示後にエンティティを削除し、IDB に内容がない状態からサーバー内容を反映させる
+    await idbDelete(page, MEMO_STORE, MEMO_1_ID);
+    await selectMemo(page, "開発メモ");
+
+    const editor = page.locator(".ProseMirror");
+    await expect(page.locator('[data-status="syncing"]')).toBeVisible({ timeout: 3_000 });
+    await expect(editor).toHaveAttribute("contenteditable", "false", { timeout: 3_000 });
+
+    // getImageBase64 が遅延中。resolveComplete だけで editable に戻ってはいけない。
+    await page.waitForTimeout(500);
+    await expect(editor).toHaveAttribute("contenteditable", "false");
+
+    await expect(editor).toContainText("反映後に編集可", { timeout: 5_000 });
+    await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 3_000 });
+  });
+
   test("E1: サーバーエラー → error indicator + 内容保持", async ({ page }) => {
     // Seed content
     await gotoApp(page);
