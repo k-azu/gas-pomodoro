@@ -3,6 +3,34 @@
   overflow: auto;
   padding: 8px 0;
 }
+.task-table-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 8px 16px 12px;
+}
+.task-table-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.task-table-filter select {
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  padding: 0 8px;
+}
+.task-table-filter-count {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
 .task-table-group {
   margin-bottom: 28px;
   min-width: 700px;
@@ -122,6 +150,38 @@
 }
 .task-table-with-case th:nth-child(7),
 .task-table-with-case td:nth-child(7) {
+  width: 70px;
+}
+
+.task-table-with-project.task-table-with-case {
+  min-width: 980px;
+}
+.task-table-with-project.task-table-with-case th:nth-child(2),
+.task-table-with-project.task-table-with-case td:nth-child(2) {
+  width: 150px;
+}
+.task-table-with-project.task-table-with-case th:nth-child(3),
+.task-table-with-project.task-table-with-case td:nth-child(3) {
+  width: 150px;
+}
+.task-table-with-project.task-table-with-case th:nth-child(4),
+.task-table-with-project.task-table-with-case td:nth-child(4) {
+  width: 100px;
+}
+.task-table-with-project.task-table-with-case th:nth-child(5),
+.task-table-with-project.task-table-with-case td:nth-child(5) {
+  width: 150px;
+}
+.task-table-with-project.task-table-with-case th:nth-child(6),
+.task-table-with-project.task-table-with-case td:nth-child(6) {
+  width: 150px;
+}
+.task-table-with-project.task-table-with-case th:nth-child(7),
+.task-table-with-project.task-table-with-case td:nth-child(7) {
+  width: 100px;
+}
+.task-table-with-project.task-table-with-case th:nth-child(8),
+.task-table-with-project.task-table-with-case td:nth-child(8) {
   width: 70px;
 }
 

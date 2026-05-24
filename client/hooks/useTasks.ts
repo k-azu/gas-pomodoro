@@ -12,7 +12,8 @@ import type { TaskStatus } from "../types/entities";
 // Types
 // =========================================================
 
-export type NodeType = "project" | "case" | "task";
+export type NodeType = "all" | "project" | "case" | "task";
+export type EditableNodeType = Exclude<NodeType, "all">;
 export type TaskViewMode = "doc" | "table";
 export type TaskTableLayoutMode = "grouped" | "flat";
 
@@ -111,11 +112,11 @@ export interface UseTasksReturn {
   addProject: (name: string, color?: string) => Promise<void>;
   addCase: (projectId: string, name: string) => Promise<void>;
   addTask: (projectId: string, caseId: string, name: string) => Promise<void>;
-  rename: (type: NodeType, id: string, name: string) => void;
+  rename: (type: EditableNodeType, id: string, name: string) => void;
   updateProjectFields: (id: string, fields: Record<string, any>) => void;
   updateCaseFields: (id: string, fields: Record<string, any>) => void;
   updateTaskFields: (id: string, fields: Record<string, any>) => void;
-  archiveNode: (type: NodeType, id: string) => Promise<void>;
+  archiveNode: (type: EditableNodeType, id: string) => Promise<void>;
 
   reorderProjects: (ids: string[]) => void;
   reorderCases: (projectId: string, ids: string[]) => void;
@@ -200,11 +201,13 @@ export function useTasks(): UseTasksReturn {
       const saved = lsGetJSON<SelectedNode>(STORAGE_KEYS.TASK_SELECTED);
       if (saved) {
         const exists =
-          saved.type === "project"
-            ? projs.some((p) => p.id === saved.id)
-            : saved.type === "case"
-              ? cases.some((c) => c.id === saved.id)
-              : tasks.some((t) => t.id === saved.id);
+          saved.type === "all"
+            ? saved.id === "all"
+            : saved.type === "project"
+              ? projs.some((p) => p.id === saved.id)
+              : saved.type === "case"
+                ? cases.some((c) => c.id === saved.id)
+                : tasks.some((t) => t.id === saved.id);
         if (exists) {
           setSelectedNode(saved);
           nav.notifyTaskNodeChange(saved, { replace: true });
@@ -375,7 +378,7 @@ export function useTasks(): UseTasksReturn {
     [refreshFromStore, selectNode],
   );
 
-  const rename = useCallback((type: NodeType, id: string, name: string) => {
+  const rename = useCallback((type: EditableNodeType, id: string, name: string) => {
     if (type === "project") {
       TaskStore.updateProject(id, { name });
       setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, name } : p)));
@@ -401,7 +404,7 @@ export function useTasks(): UseTasksReturn {
   }, []);
 
   const archiveNode = useCallback(
-    async (type: NodeType, id: string) => {
+    async (type: EditableNodeType, id: string) => {
       setIsLoading(true);
       try {
         if (type === "project") await TaskStore.archiveProject(id);

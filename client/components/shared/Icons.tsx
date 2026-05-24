@@ -85,6 +85,33 @@ export function MemoIcon({ size = 16, color = "#757575" }: { size?: number; colo
   );
 }
 
+/** Checklist / all tasks */
+export function TaskListIcon({
+  size = 16,
+  color = "currentColor",
+}: {
+  size?: number;
+  color?: string;
+}) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+      <path
+        d="M2.5 4.25l1.25 1.25 2-2.25M2.5 8l1.25 1.25 2-2.25M2.5 11.75L3.75 13l2-2.25"
+        stroke={color}
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7.5 4.5h6M7.5 8.25h6M7.5 12h6"
+        stroke={color}
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /** Six-dot grip handle for drag */
 export function GripIcon({ size = 10 }: { size?: number }) {
   const h = Math.round(size * 1.4);

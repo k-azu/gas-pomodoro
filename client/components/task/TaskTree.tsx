@@ -6,13 +6,14 @@
 import type {
   UseTasksReturn,
   NodeType,
+  EditableNodeType,
   ProjectItem,
   CaseItem,
   TaskItem,
 } from "../../hooks/useTasks";
 import { STATUS_CONFIG } from "../../hooks/useTasks";
 import { InlineRename } from "../shared/SidebarShell";
-import { FolderIcon, FileIcon, MemoIcon } from "../shared/Icons";
+import { FolderIcon, FileIcon, MemoIcon, TaskListIcon } from "../shared/Icons";
 import { useLongPressDrag } from "../../hooks/useLongPressDrag";
 import s from "./TaskTree.module.css";
 
@@ -23,7 +24,7 @@ interface TaskTreeProps {
   onRenameCancel: () => void;
   onContextMenu: (
     e: React.MouseEvent,
-    type: NodeType,
+    type: EditableNodeType,
     data: ProjectItem | CaseItem | TaskItem,
   ) => void;
 }
@@ -88,9 +89,19 @@ export function TaskTree({
   if (isProjectDrag && projVisIdx === drag.placeholderIdx) {
     projectDisplay.push({ type: "placeholder" });
   }
+  const allActive = tasks.selectedNode?.type === "all";
 
   return (
     <>
+      <div
+        className={`${s["task-tree-item"]} ${s["task-tree-all"]}${allActive ? ` ${s.active}` : ""}`}
+        onClick={() => tasks.selectNode("all", "all")}
+      >
+        <span className={s["task-tree-icon"]}>
+          <TaskListIcon size={16} color="#1976d2" />
+        </span>
+        <span className={s["task-tree-name"]}>全タスク</span>
+      </div>
       {projectDisplay.map((entry) => {
         if (entry.type === "placeholder") {
           return (
@@ -138,7 +149,7 @@ function ProjectNode({
   renamingNode: { type: NodeType; id: string } | null;
   onRenameCommit: (name: string) => void;
   onRenameCancel: () => void;
-  onContextMenu: (e: React.MouseEvent, type: NodeType, data: any) => void;
+  onContextMenu: (e: React.MouseEvent, type: EditableNodeType, data: any) => void;
   drag: DragResult;
   isCaseDrag: boolean;
   dragCaseProjectId: string | null | undefined;
@@ -290,7 +301,7 @@ function CaseNode({
   renamingNode: { type: NodeType; id: string } | null;
   onRenameCommit: (name: string) => void;
   onRenameCancel: () => void;
-  onContextMenu: (e: React.MouseEvent, type: NodeType, data: any) => void;
+  onContextMenu: (e: React.MouseEvent, type: EditableNodeType, data: any) => void;
   drag: DragResult;
 }) {
   const expanded = !!tasks.expandedNodes[caseItem.id];
@@ -389,7 +400,7 @@ function TaskNode({
   renamingNode: { type: NodeType; id: string } | null;
   onRenameCommit: (name: string) => void;
   onRenameCancel: () => void;
-  onContextMenu: (e: React.MouseEvent, type: NodeType, data: any) => void;
+  onContextMenu: (e: React.MouseEvent, type: EditableNodeType, data: any) => void;
 }) {
   const isActive = tasks.selectedNode?.type === "task" && tasks.selectedNode?.id === task.id;
   const isRenaming = renamingNode?.type === "task" && renamingNode?.id === task.id;

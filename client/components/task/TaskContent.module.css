@@ -98,6 +98,48 @@
   min-height: 200px;
 }
 
+.all-tasks-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 12px 60px;
+  border-bottom: 1px solid var(--border);
+}
+
+.all-tasks-header-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+}
+
+.all-tasks-header h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 700;
+}
+
+.all-tasks-header p {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.all-tasks-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  padding: 0 60px;
+}
+
 /* ===== Records section (fixed at bottom) ===== */
 .task-records-section {
   flex-shrink: 0;

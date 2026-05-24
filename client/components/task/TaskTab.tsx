@@ -3,7 +3,7 @@
  */
 import { useState, useCallback } from "react";
 import { useTasks, STATUS_CONFIG, STATUS_ITEMS, statusLabelToKey } from "../../hooks/useTasks";
-import type { NodeType, ProjectItem, CaseItem, TaskItem } from "../../hooks/useTasks";
+import type { EditableNodeType, ProjectItem, CaseItem, TaskItem } from "../../hooks/useTasks";
 import { ContextMenu } from "../shared/ContextMenu";
 import type { ContextMenuSection } from "../shared/ContextMenu";
 import { SidebarShell, SidebarAddButton } from "../shared/SidebarShell";
@@ -18,10 +18,12 @@ const SIDEBAR_KEY = "gas_pomodoro_task_sidebar_collapsed";
 export function TaskTab() {
   const tasks = useTasks();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => lsGet(SIDEBAR_KEY) === "1");
-  const [renamingNode, setRenamingNode] = useState<{ type: NodeType; id: string } | null>(null);
+  const [renamingNode, setRenamingNode] = useState<{ type: EditableNodeType; id: string } | null>(
+    null,
+  );
   const [contextMenu, setContextMenu] = useState<{
     pos: { x: number; y: number };
-    type: NodeType;
+    type: EditableNodeType;
     data: ProjectItem | CaseItem | TaskItem;
   } | null>(null);
 
@@ -35,7 +37,7 @@ export function TaskTab() {
 
   // Context menu handler
   const handleContextMenu = useCallback(
-    (e: React.MouseEvent, type: NodeType, data: ProjectItem | CaseItem | TaskItem) => {
+    (e: React.MouseEvent, type: EditableNodeType, data: ProjectItem | CaseItem | TaskItem) => {
       e.preventDefault();
       e.stopPropagation();
       setContextMenu({ pos: { x: e.clientX, y: e.clientY }, type, data });

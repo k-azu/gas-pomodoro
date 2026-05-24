@@ -25,15 +25,79 @@ const STATUS_ORDER: Record<string, number> = {
 
 interface TaskTableViewProps {
   tasks: UseTasksReturn;
-  parentType: "project" | "case";
+  parentType: "all" | "project" | "case";
   parentId: string;
 }
 
 export function TaskTableView({ tasks, parentType, parentId }: TaskTableViewProps) {
+  if (parentType === "all") {
+    return <AllProjectsTable tasks={tasks} />;
+  }
   if (parentType === "project") {
     return <ProjectTable key={parentId} tasks={tasks} projectId={parentId} />;
   }
   return <CaseTable key={parentId} tasks={tasks} caseId={parentId} />;
+}
+
+type StatusFilter = "not_done" | "all" | keyof typeof STATUS_CONFIG;
+type DueFilter = "all" | "overdue" | "today" | "next7" | "none";
+
+function AllProjectsTable({ tasks }: { tasks: UseTasksReturn }) {
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("not_done");
+  const [dueFilter, setDueFilter] = useState<DueFilter>("all");
+  const projectNameById = new Map(tasks.projects.map((p) => [p.id, p.name]));
+  const caseNameById = new Map(tasks.allCases.map((c) => [c.id, c.name]));
+  const taskItems = tasks.allTasks
+    .filter((t) => (t as any).isActive !== false)
+    .filter((t) => matchStatusFilter(t, statusFilter))
+    .filter((t) => matchDueFilter(t, dueFilter))
+    .slice()
+    .sort(compareFlatTasks);
+
+  return (
+    <div className={s["task-table-content"]}>
+      <div className={s["task-table-filter-bar"]}>
+        <label className={s["task-table-filter"]}>
+          <span>Status</span>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+          >
+            <option value="not_done">未完了</option>
+            <option value="all">すべて</option>
+            {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
+              <option key={key} value={key}>
+                {cfg.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className={s["task-table-filter"]}>
+          <span>期限</span>
+          <select value={dueFilter} onChange={(e) => setDueFilter(e.target.value as DueFilter)}>
+            <option value="all">すべて</option>
+            <option value="overdue">期限切れ</option>
+            <option value="today">今日</option>
+            <option value="next7">今後7日</option>
+            <option value="none">期限なし</option>
+          </select>
+        </label>
+        <span className={s["task-table-filter-count"]}>{taskItems.length}件</span>
+      </div>
+      <TaskTableGroup
+        title=""
+        taskItems={taskItems}
+        tasks={tasks}
+        projectId=""
+        caseId=""
+        showProjectColumn
+        showCaseColumn
+        allowAddTask={false}
+        getProjectName={(projectId) => projectNameById.get(projectId) || "-"}
+        getCaseName={(caseId) => (caseId ? caseNameById.get(caseId) || "" : "-")}
+      />
+    </div>
+  );
 }
 
 function ProjectTable({ tasks, projectId }: { tasks: UseTasksReturn; projectId: string }) {
@@ -136,6 +200,36 @@ function compareFlatTasks(a: TaskItem, b: TaskItem): number {
   if (dueDiff !== 0) return dueDiff;
 
   return ((a as any).createdAt || "").localeCompare((b as any).createdAt || "");
+}
+
+function matchStatusFilter(task: TaskItem, filter: StatusFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "not_done") return task.status !== "done";
+  return task.status === filter;
+}
+
+function matchDueFilter(task: TaskItem, filter: DueFilter): boolean {
+  if (filter === "all") return true;
+  const dueDate = task.dueDate ? task.dueDate.slice(0, 10) : "";
+  if (filter === "none") return !dueDate;
+  if (!dueDate) return false;
+
+  const today = formatLocalDate(new Date());
+  if (filter === "overdue") return dueDate < today;
+  if (filter === "today") return dueDate === today;
+  if (filter === "next7") {
+    const end = new Date();
+    end.setDate(end.getDate() + 6);
+    return dueDate >= today && dueDate <= formatLocalDate(end);
+  }
+  return true;
+}
+
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function CaseTable({ tasks, caseId }: { tasks: UseTasksReturn; caseId: string }) {
@@ -241,7 +335,10 @@ function TaskTableGroup({
   projectId,
   caseId,
   loadArchivedTasks,
+  allowAddTask = true,
+  showProjectColumn = false,
   showCaseColumn = false,
+  getProjectName,
   getCaseName,
 }: {
   title?: string;
@@ -251,7 +348,10 @@ function TaskTableGroup({
   projectId: string;
   caseId: string;
   loadArchivedTasks?: () => Promise<TaskItem[]>;
+  allowAddTask?: boolean;
+  showProjectColumn?: boolean;
   showCaseColumn?: boolean;
+  getProjectName?: (projectId: string) => string;
   getCaseName?: (caseId: string) => string;
 }) {
   const [archivedTasks, setArchivedTasks] = useState<TaskItem[] | null>(null);
@@ -271,10 +371,13 @@ function TaskTableGroup({
   return (
     <div className={s["task-table-group"]}>
       {titleSlot || (title && <div className={s["task-table-group-header"]}>{title}</div>)}
-      <table className={`${s["task-table"]} ${showCaseColumn ? s["task-table-with-case"] : ""}`}>
+      <table
+        className={`${s["task-table"]} ${showCaseColumn ? s["task-table-with-case"] : ""} ${showProjectColumn ? s["task-table-with-project"] : ""}`}
+      >
         <thead>
           <tr>
             <th>名前</th>
+            {showProjectColumn && <th>プロジェクト</th>}
             {showCaseColumn && <th>案件</th>}
             <th>Status</th>
             <th>開始</th>
@@ -289,7 +392,9 @@ function TaskTableGroup({
               key={t.id}
               task={t}
               tasks={tasks}
+              showProjectColumn={showProjectColumn}
               showCaseColumn={showCaseColumn}
+              projectName={getProjectName?.(t.projectId || "") || ""}
               caseName={getCaseName?.(t.caseId || "") || ""}
             />
           ))}
@@ -299,7 +404,9 @@ function TaskTableGroup({
                 key={t.id}
                 task={t}
                 tasks={tasks}
+                showProjectColumn={showProjectColumn}
                 showCaseColumn={showCaseColumn}
+                projectName={getProjectName?.(t.projectId || "") || ""}
                 caseName={getCaseName?.(t.caseId || "") || ""}
               />
             ))}
@@ -310,15 +417,17 @@ function TaskTableGroup({
           アーカイブ済みを読み込む
         </div>
       )}
-      <div
-        className={s["task-table-add"]}
-        onClick={() => {
-          const name = prompt("タスク名:");
-          if (name?.trim()) tasks.addTask(projectId, caseId, name.trim());
-        }}
-      >
-        + タスク追加
-      </div>
+      {allowAddTask && (
+        <div
+          className={s["task-table-add"]}
+          onClick={() => {
+            const name = prompt("タスク名:");
+            if (name?.trim()) tasks.addTask(projectId, caseId, name.trim());
+          }}
+        >
+          + タスク追加
+        </div>
+      )}
     </div>
   );
 }
@@ -326,12 +435,16 @@ function TaskTableGroup({
 function TaskTableRow({
   task,
   tasks,
+  showProjectColumn = false,
   showCaseColumn = false,
+  projectName = "",
   caseName = "",
 }: {
   task: TaskItem;
   tasks: UseTasksReturn;
+  showProjectColumn?: boolean;
   showCaseColumn?: boolean;
+  projectName?: string;
   caseName?: string;
 }) {
   const [renaming, setRenaming] = useState(false);
@@ -379,6 +492,21 @@ function TaskTableRow({
           </>
         )}
       </td>
+
+      {showProjectColumn && (
+        <td className={s["task-table-case"]}>
+          <button
+            type="button"
+            className={s["task-table-case-link"]}
+            onClick={(e) => {
+              e.stopPropagation();
+              tasks.selectNode("project", task.projectId);
+            }}
+          >
+            {projectName || "-"}
+          </button>
+        </td>
+      )}
 
       {showCaseColumn && (
         <td className={s["task-table-case"]}>
@@ -514,12 +642,16 @@ function ArchivedCaseGroup({ caseItem, tasks }: { caseItem: CaseItem; tasks: Use
 function ArchivedTaskRow({
   task,
   tasks,
+  showProjectColumn = false,
   showCaseColumn = false,
+  projectName = "",
   caseName = "",
 }: {
   task: TaskItem;
   tasks: UseTasksReturn;
+  showProjectColumn?: boolean;
   showCaseColumn?: boolean;
+  projectName?: string;
   caseName?: string;
 }) {
   const isArchived = (task as any).isActive === false;
@@ -535,6 +667,21 @@ function ArchivedTaskRow({
       <td className={s["task-table-name-cell"]}>
         <span className={s["task-table-name"]}>{task.name}</span>
       </td>
+
+      {showProjectColumn && (
+        <td className={s["task-table-case"]}>
+          <button
+            type="button"
+            className={s["task-table-case-link"]}
+            onClick={(e) => {
+              e.stopPropagation();
+              tasks.selectNode("project", task.projectId);
+            }}
+          >
+            {projectName || "-"}
+          </button>
+        </td>
+      )}
 
       {showCaseColumn && (
         <td className={s["task-table-case"]}>

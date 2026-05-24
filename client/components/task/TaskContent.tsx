@@ -16,7 +16,7 @@ import { useNavigation } from "../../contexts/NavigationContext";
 import type { ViewerState } from "../../contexts/NavigationContext";
 import { ItemPicker } from "../shared/ItemPicker";
 import { ContentHeaderName } from "../shared/ContentHeader";
-import { FolderIcon } from "../shared/Icons";
+import { FolderIcon, TaskListIcon } from "../shared/Icons";
 import { SidebarExpandButton } from "../shared/Sidebar";
 import { RecordField } from "../shared/RecordField";
 import { RecordRow } from "../shared/RecordRow";
@@ -41,8 +41,50 @@ function storeNameFor(type: string): string {
 
 export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskContentProps) {
   const { selectedNode } = tasks;
-  const editorConfig = useEditorConfig();
   if (!selectedNode) return null;
+  if (selectedNode.type === "all") {
+    return (
+      <AllTasksContent
+        tasks={tasks}
+        sidebarCollapsed={sidebarCollapsed}
+        onExpandSidebar={onExpandSidebar}
+      />
+    );
+  }
+
+  return (
+    <TaskDocumentContent
+      tasks={tasks}
+      sidebarCollapsed={sidebarCollapsed}
+      onExpandSidebar={onExpandSidebar}
+    />
+  );
+}
+
+function AllTasksContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskContentProps) {
+  return (
+    <div className={s["task-detail"]}>
+      <div className={s["all-tasks-header"]}>
+        {sidebarCollapsed && onExpandSidebar && <SidebarExpandButton onClick={onExpandSidebar} />}
+        <span className={s["all-tasks-header-icon"]}>
+          <TaskListIcon size={20} color="#1976d2" />
+        </span>
+        <div>
+          <h2>全タスク</h2>
+          <p>全プロジェクトの未完了タスクを優先度順に表示します</p>
+        </div>
+      </div>
+      <div className={s["all-tasks-body"]}>
+        <TaskTableView tasks={tasks} parentType="all" parentId="all" />
+      </div>
+    </div>
+  );
+}
+
+function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskContentProps) {
+  const { selectedNode } = tasks;
+  const editorConfig = useEditorConfig();
+  if (!selectedNode || selectedNode.type === "all") return null;
 
   const id = selectedNode.id;
   const type = selectedNode.type;

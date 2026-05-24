@@ -1,6 +1,7 @@
 .task-tree-item { display: flex; align-items: center; padding: 5px 8px 5px 8px; cursor: pointer; font-size: 0.82rem; gap: 4px; border-radius: 4px; margin: 1px 4px; min-height: 28px; }
 .task-tree-item:hover { background: var(--bg); }
 .task-tree-item.active { background: #e3f2fd; }
+.task-tree-all { font-weight: 600; margin-bottom: 6px; }
 .task-tree-project { font-weight: 600; }
 .task-tree-case { padding-left: 28px; }
 .task-tree-task { padding-left: 28px; }
