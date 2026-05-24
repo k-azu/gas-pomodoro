@@ -42,8 +42,8 @@
   font-size: 15px;
   font-weight: 700;
   line-height: 20px;
-  min-height: 36px;
-  padding: 18px 16px 6px;
+  min-height: 28px;
+  padding: 4px 16px 4px;
   color: var(--text);
   background: transparent;
   border-top: none;
