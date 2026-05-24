@@ -48,7 +48,7 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
   const type = selectedNode.type;
   const storeName = storeNameFor(type);
   const isContainerType = type === "project" || type === "case";
-  const showingDoc = isContainerType ? (tasks.viewModes[id] || "doc") !== "table" : true;
+  const showingDoc = isContainerType ? tasks.taskViewMode !== "table" : true;
 
   // --- Single useDocumentEditor instance ---
   const {
@@ -84,8 +84,12 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
   // --- Toggle view (project/case only) ---
   const toggleView = useCallback(() => {
     flushPendingSave();
-    tasks.setViewMode(id, showingDoc ? "table" : "doc");
-  }, [id, showingDoc, tasks, flushPendingSave]);
+    tasks.setTaskViewMode(showingDoc ? "table" : "doc");
+  }, [showingDoc, tasks, flushPendingSave]);
+
+  const toggleTableLayout = useCallback(() => {
+    tasks.setTableLayoutMode(tasks.tableLayoutMode === "grouped" ? "flat" : "grouped");
+  }, [tasks]);
 
   // --- Toolbar slots ---
   const toolbarLeftSlot =
@@ -97,7 +101,12 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
 
   const toolbarRightSlot = isContainerType ? (
     <ToolbarSlot>
-      <ViewModeToggle showingDoc={showingDoc} toggleView={toggleView} />
+      <ViewModeToggle
+        showingDoc={showingDoc}
+        tableLayoutMode={tasks.tableLayoutMode}
+        toggleView={toggleView}
+        toggleTableLayout={toggleTableLayout}
+      />
     </ToolbarSlot>
   ) : undefined;
 
@@ -171,15 +180,26 @@ function useEntity(storeName: string, entityType: string, id: string) {
 
 function ViewModeToggle({
   showingDoc,
+  tableLayoutMode,
   toggleView,
+  toggleTableLayout,
 }: {
   showingDoc: boolean;
+  tableLayoutMode: "grouped" | "flat";
   toggleView: () => void;
+  toggleTableLayout: () => void;
 }) {
   return (
-    <button type="button" className={s["view-mode-btn"]} onClick={toggleView}>
-      {showingDoc ? "タスク一覧" : "ドキュメント"}
-    </button>
+    <div className={s["view-mode-controls"]}>
+      {!showingDoc && (
+        <button type="button" className={s["view-mode-btn"]} onClick={toggleTableLayout}>
+          {tableLayoutMode === "grouped" ? "グループ解除" : "グループ表示"}
+        </button>
+      )}
+      <button type="button" className={s["view-mode-btn"]} onClick={toggleView}>
+        {showingDoc ? "タスク一覧" : "ドキュメント"}
+      </button>
+    </div>
   );
 }
 

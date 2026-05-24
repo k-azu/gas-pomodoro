@@ -106,7 +106,7 @@ function saveInterruptions(interruptions: InterruptionRecord[]): {
 // Row → Record helpers
 // =========================================================
 
-function readRecordFromRow(row: any[], tz: string): PomodoroRecord {
+function readRecordFromRow(row: unknown[], tz: string): PomodoroRecord {
   const dateVal = row[1];
   const dateStr =
     dateVal instanceof Date ? Utilities.formatDate(dateVal, tz, "yyyy-MM-dd") : String(dateVal);
@@ -132,7 +132,7 @@ function readRecordFromRow(row: any[], tz: string): PomodoroRecord {
   };
 }
 
-function readInterruptionFromRow(row: any[]): InterruptionRecord {
+function readInterruptionFromRow(row: unknown[]): InterruptionRecord {
   return {
     id: String(row[0]),
     pomodoroId: String(row[1]),

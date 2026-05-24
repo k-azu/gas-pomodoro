@@ -1,4 +1,11 @@
-.task-content-placeholder { display: flex; align-items: center; justify-content: center; color: var(--text-secondary); font-size: 0.9rem; height: 100%; }
+.task-content-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  height: 100%;
+}
 
 .task-detail {
   display: flex;
@@ -6,7 +13,6 @@
   height: 100%;
   overflow: hidden;
 }
-
 
 .meta-status-row {
   height: 26px;
@@ -40,7 +46,9 @@
   font-size: 0.82rem;
   font-family: inherit;
   background: transparent;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 
 .task-date-input:hover {
@@ -51,6 +59,12 @@
   border-color: var(--border);
   background: var(--surface);
   outline: none;
+}
+
+.view-mode-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* View mode switch button (chip style) */
@@ -66,14 +80,23 @@
   font-size: 11px;
   font-family: inherit;
   color: #6b7280;
-  transition: background-color 0.1s, color 0.1s, border-color 0.1s;
+  transition:
+    background-color 0.1s,
+    color 0.1s,
+    border-color 0.1s;
   line-height: 1.5;
   flex-shrink: 0;
 }
 
-.view-mode-btn:hover { background: #e5e7eb; color: #374151; border-color: #9ca3af; }
+.view-mode-btn:hover {
+  background: #e5e7eb;
+  color: #374151;
+  border-color: #9ca3af;
+}
 
-.task-wiki-container { min-height: 200px; }
+.task-wiki-container {
+  min-height: 200px;
+}
 
 /* ===== Records section (fixed at bottom) ===== */
 .task-records-section {
@@ -89,9 +112,15 @@
   color: var(--text-secondary);
 }
 
-.task-records-section summary:hover { color: var(--text); }
+.task-records-section summary:hover {
+  color: var(--text);
+}
 
-.task-records-list { padding: 0 16px 8px; max-height: 200px; overflow-y: auto; }
+.task-records-list {
+  padding: 0 16px 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
 
 .task-records-loading,
 .task-records-empty {
@@ -101,4 +130,6 @@
   text-align: center;
 }
 
-.task-records-ul { list-style: none; }
+.task-records-ul {
+  list-style: none;
+}

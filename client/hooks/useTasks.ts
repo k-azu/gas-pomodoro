@@ -13,6 +13,8 @@ import type { TaskStatus } from "../types/entities";
 // =========================================================
 
 export type NodeType = "project" | "case" | "task";
+export type TaskViewMode = "doc" | "table";
+export type TaskTableLayoutMode = "grouped" | "flat";
 
 export interface SelectedNode {
   type: NodeType;
@@ -80,6 +82,7 @@ export function statusLabelToKey(label: string): TaskStatus {
 
 const EXPANDED_KEY = "gas_pomodoro_task_tree_expanded";
 const VIEW_MODE_KEY = "gas_pomodoro_task_view_mode";
+const TABLE_LAYOUT_MODE_KEY = "gas_pomodoro_task_table_layout_mode";
 
 // =========================================================
 // Hook
@@ -100,8 +103,10 @@ export interface UseTasksReturn {
   expandedNodes: Record<string, boolean>;
   toggleExpand: (id: string) => void;
 
-  viewModes: Record<string, string>;
-  setViewMode: (id: string, mode: "doc" | "table") => void;
+  taskViewMode: TaskViewMode;
+  setTaskViewMode: (mode: TaskViewMode) => void;
+  tableLayoutMode: TaskTableLayoutMode;
+  setTableLayoutMode: (mode: TaskTableLayoutMode) => void;
 
   addProject: (name: string, color?: string) => Promise<void>;
   addCase: (projectId: string, name: string) => Promise<void>;
@@ -130,7 +135,8 @@ export function useTasks(): UseTasksReturn {
   const [allTasks, setAllTasks] = useState<TaskItem[]>([]);
   const [selectedNode, setSelectedNode] = useState<SelectedNode | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
-  const [viewModes, setViewModes] = useState<Record<string, string>>({});
+  const [taskViewMode, setTaskViewModeState] = useState<TaskViewMode>("doc");
+  const [tableLayoutMode, setTableLayoutModeState] = useState<TaskTableLayoutMode>("grouped");
   const [isLoading, setIsLoading] = useState(false);
   const selectedRef = useRef(selectedNode);
   selectedRef.current = selectedNode;
@@ -141,8 +147,17 @@ export function useTasks(): UseTasksReturn {
     const expanded = lsGetJSON<Record<string, boolean>>(EXPANDED_KEY);
     if (expanded) setExpandedNodes(expanded);
 
-    const modes = lsGetJSON<Record<string, string>>(VIEW_MODE_KEY);
-    if (modes) setViewModes(modes);
+    const savedMode = lsGetJSON<TaskViewMode | Record<string, string>>(VIEW_MODE_KEY);
+    if (savedMode === "doc" || savedMode === "table") {
+      setTaskViewModeState(savedMode);
+    } else if (savedMode && Object.values(savedMode).includes("table")) {
+      setTaskViewModeState("table");
+    }
+
+    const savedLayout = lsGetJSON<TaskTableLayoutMode>(TABLE_LAYOUT_MODE_KEY);
+    if (savedLayout === "grouped" || savedLayout === "flat") {
+      setTableLayoutModeState(savedLayout);
+    }
   }, []);
 
   // Refresh from store
@@ -240,16 +255,24 @@ export function useTasks(): UseTasksReturn {
     done: 5,
   };
 
+  const compareTasks = (a: TaskItem, b: TaskItem) => {
+    const sa = STATUS_ORDER[a.status] ?? 99;
+    const sb = STATUS_ORDER[b.status] ?? 99;
+    if (sa !== sb) return sa - sb;
+
+    const dueA = a.dueDate || "9999-12-31";
+    const dueB = b.dueDate || "9999-12-31";
+    const dueDiff = dueA.localeCompare(dueB);
+    if (dueDiff !== 0) return dueDiff;
+
+    return ((a as any).createdAt || "").localeCompare((b as any).createdAt || "");
+  };
+
   const getDirectTasks = useCallback(
     (projectId: string) =>
       allTasks
         .filter((t) => t.projectId === projectId && !t.caseId && (t as any).isActive !== false)
-        .sort((a, b) => {
-          const sa = STATUS_ORDER[a.status] ?? 99;
-          const sb = STATUS_ORDER[b.status] ?? 99;
-          if (sa !== sb) return sa - sb;
-          return ((a as any).createdAt || "").localeCompare((b as any).createdAt || "");
-        }),
+        .sort(compareTasks),
     [allTasks],
   );
 
@@ -257,12 +280,7 @@ export function useTasks(): UseTasksReturn {
     (caseId: string) =>
       allTasks
         .filter((t) => t.caseId === caseId && (t as any).isActive !== false)
-        .sort((a, b) => {
-          const sa = STATUS_ORDER[a.status] ?? 99;
-          const sb = STATUS_ORDER[b.status] ?? 99;
-          if (sa !== sb) return sa - sb;
-          return ((a as any).createdAt || "").localeCompare((b as any).createdAt || "");
-        }),
+        .sort(compareTasks),
     [allTasks],
   );
 
@@ -294,12 +312,14 @@ export function useTasks(): UseTasksReturn {
   }, []);
 
   // View mode
-  const setViewMode = useCallback((id: string, mode: "doc" | "table") => {
-    setViewModes((prev) => {
-      const next = { ...prev, [id]: mode };
-      lsSetJSON(VIEW_MODE_KEY, next);
-      return next;
-    });
+  const setTaskViewMode = useCallback((mode: TaskViewMode) => {
+    setTaskViewModeState(mode);
+    lsSetJSON(VIEW_MODE_KEY, mode);
+  }, []);
+
+  const setTableLayoutMode = useCallback((mode: TaskTableLayoutMode) => {
+    setTableLayoutModeState(mode);
+    lsSetJSON(TABLE_LAYOUT_MODE_KEY, mode);
   }, []);
 
   // CRUD
@@ -500,8 +520,10 @@ export function useTasks(): UseTasksReturn {
     clearSelection,
     expandedNodes,
     toggleExpand,
-    viewModes,
-    setViewMode,
+    taskViewMode,
+    setTaskViewMode,
+    tableLayoutMode,
+    setTableLayoutMode,
     addProject,
     addCase,
     addTask,

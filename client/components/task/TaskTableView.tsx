@@ -14,6 +14,15 @@ import { EditIcon, FileIcon } from "../shared/Icons";
 import { ItemPicker } from "../shared/ItemPicker";
 import s from "./TaskTableView.module.css";
 
+const STATUS_ORDER: Record<string, number> = {
+  docs: 0,
+  doing: 1,
+  review: 2,
+  todo: 3,
+  pending: 4,
+  done: 5,
+};
+
 interface TaskTableViewProps {
   tasks: UseTasksReturn;
   parentType: "project" | "case";
@@ -44,10 +53,14 @@ function ProjectTable({ tasks, projectId }: { tasks: UseTasksReturn; projectId: 
     [projectId],
   );
 
+  if (tasks.tableLayoutMode === "flat") {
+    return <ProjectFlatTable tasks={tasks} projectId={projectId} cases={cases} />;
+  }
+
   return (
     <div className={s["task-table-content"]}>
       <TaskTableGroup
-        title={cases.length > 0 || archivedCases.length > 0 ? "直属タスク" : ""}
+        title=""
         taskItems={directTasks}
         tasks={tasks}
         projectId={projectId}
@@ -71,6 +84,58 @@ function ProjectTable({ tasks, projectId }: { tasks: UseTasksReturn; projectId: 
       )}
     </div>
   );
+}
+
+function ProjectFlatTable({
+  tasks,
+  projectId,
+  cases,
+}: {
+  tasks: UseTasksReturn;
+  projectId: string;
+  cases: CaseItem[];
+}) {
+  const archivedCases = tasks.getArchivedCasesFor(projectId);
+  const flatCaseItems = [...cases, ...archivedCases];
+  const flatCaseIds = flatCaseItems.map((c) => c.id);
+  const flatCaseIdKey = flatCaseIds.join(",");
+  const caseNameById = new Map(flatCaseItems.map((c) => [c.id, c.name]));
+  const caseTasks = cases.flatMap((c) => tasks.getTasksForCase(c.id));
+  const taskItems = [...tasks.getDirectTasks(projectId), ...caseTasks].sort(compareFlatTasks);
+  const loadArchivedFlatTasks = useCallback(async () => {
+    const archivedTaskGroups = await Promise.all([
+      TaskStore.getArchivedDirectTasks(projectId),
+      ...flatCaseIds.map((caseId) => TaskStore.getArchivedTasksForCase(caseId)),
+    ]);
+    return archivedTaskGroups.flat().sort(compareFlatTasks) as TaskItem[];
+  }, [flatCaseIdKey, projectId]);
+
+  return (
+    <div className={s["task-table-content"]}>
+      <TaskTableGroup
+        title=""
+        taskItems={taskItems}
+        tasks={tasks}
+        projectId={projectId}
+        caseId=""
+        loadArchivedTasks={loadArchivedFlatTasks}
+        showCaseColumn
+        getCaseName={(caseId) => (caseId ? caseNameById.get(caseId) || "" : "-")}
+      />
+    </div>
+  );
+}
+
+function compareFlatTasks(a: TaskItem, b: TaskItem): number {
+  const statusDiff = (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99);
+  if (statusDiff !== 0) return statusDiff;
+
+  const dueA = a.dueDate || "9999-12-31";
+  const dueB = b.dueDate || "9999-12-31";
+  const dueDiff = dueA.localeCompare(dueB);
+  if (dueDiff !== 0) return dueDiff;
+
+  return ((a as any).createdAt || "").localeCompare((b as any).createdAt || "");
 }
 
 function CaseTable({ tasks, caseId }: { tasks: UseTasksReturn; caseId: string }) {
@@ -140,6 +205,7 @@ function CaseTableGroup({ tasks, caseItem }: { tasks: UseTasksReturn; caseItem: 
             <FileIcon size={14} color="#757575" />
             {caseItem.name}
           </span>
+          <span className={s["task-table-group-count"]}>{caseTasks.length}件</span>
           <button
             className={s["task-table-edit-btn"]}
             title="名前を変更"
@@ -175,6 +241,8 @@ function TaskTableGroup({
   projectId,
   caseId,
   loadArchivedTasks,
+  showCaseColumn = false,
+  getCaseName,
 }: {
   title?: string;
   titleSlot?: React.ReactNode;
@@ -183,6 +251,8 @@ function TaskTableGroup({
   projectId: string;
   caseId: string;
   loadArchivedTasks?: () => Promise<TaskItem[]>;
+  showCaseColumn?: boolean;
+  getCaseName?: (caseId: string) => string;
 }) {
   const [archivedTasks, setArchivedTasks] = useState<TaskItem[] | null>(null);
   const [userExpanded, setUserExpanded] = useState(false);
@@ -201,10 +271,11 @@ function TaskTableGroup({
   return (
     <div className={s["task-table-group"]}>
       {titleSlot || (title && <div className={s["task-table-group-header"]}>{title}</div>)}
-      <table className={s["task-table"]}>
+      <table className={`${s["task-table"]} ${showCaseColumn ? s["task-table-with-case"] : ""}`}>
         <thead>
           <tr>
             <th>名前</th>
+            {showCaseColumn && <th>案件</th>}
             <th>Status</th>
             <th>開始</th>
             <th>期限</th>
@@ -214,10 +285,24 @@ function TaskTableGroup({
         </thead>
         <tbody>
           {taskItems.map((t) => (
-            <TaskTableRow key={t.id} task={t} tasks={tasks} />
+            <TaskTableRow
+              key={t.id}
+              task={t}
+              tasks={tasks}
+              showCaseColumn={showCaseColumn}
+              caseName={getCaseName?.(t.caseId || "") || ""}
+            />
           ))}
           {showArchived &&
-            archivedTasks?.map((t) => <ArchivedTaskRow key={t.id} task={t} tasks={tasks} />)}
+            archivedTasks?.map((t) => (
+              <ArchivedTaskRow
+                key={t.id}
+                task={t}
+                tasks={tasks}
+                showCaseColumn={showCaseColumn}
+                caseName={getCaseName?.(t.caseId || "") || ""}
+              />
+            ))}
         </tbody>
       </table>
       {!showArchived && hasArchived && (
@@ -238,7 +323,17 @@ function TaskTableGroup({
   );
 }
 
-function TaskTableRow({ task, tasks }: { task: TaskItem; tasks: UseTasksReturn }) {
+function TaskTableRow({
+  task,
+  tasks,
+  showCaseColumn = false,
+  caseName = "",
+}: {
+  task: TaskItem;
+  tasks: UseTasksReturn;
+  showCaseColumn?: boolean;
+  caseName?: string;
+}) {
   const [renaming, setRenaming] = useState(false);
   const sc = STATUS_CONFIG[task.status] || STATUS_CONFIG.todo;
 
@@ -284,6 +379,25 @@ function TaskTableRow({ task, tasks }: { task: TaskItem; tasks: UseTasksReturn }
           </>
         )}
       </td>
+
+      {showCaseColumn && (
+        <td className={s["task-table-case"]}>
+          {task.caseId ? (
+            <button
+              type="button"
+              className={s["task-table-case-link"]}
+              onClick={(e) => {
+                e.stopPropagation();
+                tasks.selectNode("case", task.caseId);
+              }}
+            >
+              {caseName || "-"}
+            </button>
+          ) : (
+            <span>{caseName || "-"}</span>
+          )}
+        </td>
+      )}
 
       {/* Status */}
       <td onClick={(e) => e.stopPropagation()}>
@@ -397,7 +511,17 @@ function ArchivedCaseGroup({ caseItem, tasks }: { caseItem: CaseItem; tasks: Use
   );
 }
 
-function ArchivedTaskRow({ task, tasks }: { task: TaskItem; tasks: UseTasksReturn }) {
+function ArchivedTaskRow({
+  task,
+  tasks,
+  showCaseColumn = false,
+  caseName = "",
+}: {
+  task: TaskItem;
+  tasks: UseTasksReturn;
+  showCaseColumn?: boolean;
+  caseName?: string;
+}) {
   const isArchived = (task as any).isActive === false;
   const displayLabel = isArchived
     ? ALL_STATUS_CONFIG.archived.label
@@ -411,6 +535,25 @@ function ArchivedTaskRow({ task, tasks }: { task: TaskItem; tasks: UseTasksRetur
       <td className={s["task-table-name-cell"]}>
         <span className={s["task-table-name"]}>{task.name}</span>
       </td>
+
+      {showCaseColumn && (
+        <td className={s["task-table-case"]}>
+          {task.caseId ? (
+            <button
+              type="button"
+              className={s["task-table-case-link"]}
+              onClick={(e) => {
+                e.stopPropagation();
+                tasks.selectNode("case", task.caseId);
+              }}
+            >
+              {caseName || "-"}
+            </button>
+          ) : (
+            <span>{caseName || "-"}</span>
+          )}
+        </td>
+      )}
 
       {/* Status */}
       <td onClick={(e) => e.stopPropagation()}>
