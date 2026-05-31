@@ -123,6 +123,13 @@ export function RecordForm() {
     [],
   );
 
+  const openSelectedTask = useCallback(
+    (taskId: string) => {
+      nav.navigateToDocument("task", { taskNode: { type: "task", id: taskId } });
+    },
+    [nav],
+  );
+
   // Interruption list rendering
   const interruptions = state.interruptions;
   const totalIntSecs = interruptions.reduce((s, i) => s + i.durationSeconds, 0);
@@ -308,6 +315,7 @@ export function RecordForm() {
           caseId={selectedCaseId}
           taskId={selectedTaskId}
           onChange={handleHierarchyChange}
+          onOpenTask={openSelectedTask}
         />
       </EditorLayout>
 

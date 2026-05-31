@@ -5,9 +5,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { RecordField } from "./RecordField";
 import { ItemPicker } from "./ItemPicker";
+import { ExternalLinkIcon } from "./Icons";
 import s from "./HierarchicalTaskPicker.module.css";
 import * as TaskStore from "../../lib/taskStore";
-import { STATUS_ORDER } from "../../lib/taskStore";
 import { on as esOn, off as esOff } from "../../lib/entityStore";
 import { STATUS_CONFIG } from "../../hooks/useTasks";
 
@@ -16,6 +16,7 @@ export interface HierarchicalTaskPickerProps {
   caseId: string | null;
   taskId: string | null;
   onChange: (projectId: string | null, caseId: string | null, taskId: string | null) => void;
+  onOpenTask?: (taskId: string) => void;
 }
 
 interface ProjectItem {
@@ -42,6 +43,7 @@ export function HierarchicalTaskPicker({
   caseId,
   taskId,
   onChange,
+  onOpenTask,
 }: HierarchicalTaskPickerProps) {
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [allCases, setAllCases] = useState<CaseItem[]>([]);
@@ -131,12 +133,7 @@ export function HierarchicalTaskPicker({
       if (projectId) return t.projectId === projectId;
       return true;
     })
-    .sort((a, b) => {
-      const sa = STATUS_ORDER[a.status] ?? 99;
-      const sb = STATUS_ORDER[b.status] ?? 99;
-      if (sa !== sb) return sa - sb;
-      return (a.createdAt || "").localeCompare(b.createdAt || "");
-    });
+    .sort(comparePickerTasks);
   const taskPickerItems = filteredTasks.map((t) => {
     const statusColor = (STATUS_CONFIG[t.status] || { color: "#9e9e9e" }).color;
     let label = t.name;
@@ -221,6 +218,11 @@ export function HierarchicalTaskPicker({
     [taskIdMap, allTasks, projectId, caseId],
   );
 
+  const handleOpenTask = useCallback(() => {
+    if (!taskId) return;
+    onOpenTask?.(taskId);
+  }, [onOpenTask, taskId]);
+
   if (projects.length === 0) return null;
 
   return (
@@ -255,7 +257,35 @@ export function HierarchicalTaskPicker({
           emptyLabel="タスク"
           compact
         />
+        {taskId && onOpenTask && (
+          <button
+            type="button"
+            className={s["open-task-btn"]}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleOpenTask();
+            }}
+            aria-label="タスクを開く"
+            title="タスクを開く"
+          >
+            <ExternalLinkIcon size={14} />
+          </button>
+        )}
       </div>
     </RecordField>
   );
+}
+
+const PICKER_STATUS_ORDER: Record<string, number> = {
+  doing: 1,
+  review: 2,
+  todo: 3,
+  pending: 4,
+  docs: 99,
+};
+
+function comparePickerTasks(a: TaskItem, b: TaskItem): number {
+  const statusDiff = (PICKER_STATUS_ORDER[a.status] ?? 50) - (PICKER_STATUS_ORDER[b.status] ?? 50);
+  if (statusDiff !== 0) return statusDiff;
+  return (a.createdAt || "").localeCompare(b.createdAt || "");
 }

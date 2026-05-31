@@ -174,6 +174,33 @@ export function ChevronDownIcon({
   );
 }
 
+/** External link / open */
+export function ExternalLinkIcon({
+  size = 14,
+  color = "currentColor",
+}: {
+  size?: number;
+  color?: string;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke={color}
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6.5 3.5H3.75A1.25 1.25 0 002.5 4.75v7.5a1.25 1.25 0 001.25 1.25h7.5a1.25 1.25 0 001.25-1.25V9.5" />
+      <path d="M9 2.5h4.5V7" />
+      <path d="M8 8l5.25-5.25" />
+    </svg>
+  );
+}
+
 /** Rich Text (formatted lines) */
 export function RichTextIcon({
   size = 14,

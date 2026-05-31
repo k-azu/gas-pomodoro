@@ -39,11 +39,12 @@ export function TaskTableView({ tasks, parentType, parentId }: TaskTableViewProp
   return <CaseTable key={parentId} tasks={tasks} caseId={parentId} />;
 }
 
-type StatusFilter = "not_done" | "all" | keyof typeof STATUS_CONFIG;
 type DueFilter = "all" | "overdue" | "today" | "next7" | "none";
+const DEFAULT_ALL_TASK_STATUS_FILTERS = ["doing", "review", "todo", "pending"];
+const ALL_TASK_STATUS_FILTER_ORDER = ["doing", "review", "todo", "pending", "done", "docs"];
 
 function AllProjectsTable({ tasks }: { tasks: UseTasksReturn }) {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("not_done");
+  const [statusFilters, setStatusFilters] = useState<string[]>(DEFAULT_ALL_TASK_STATUS_FILTERS);
   const [dueFilter, setDueFilter] = useState<DueFilter>("all");
   const projectNameById = new Map(tasks.projects.map((p) => [p.id, p.name]));
   const caseNameById = new Map(tasks.allCases.map((c) => [c.id, c.name]));
@@ -52,29 +53,20 @@ function AllProjectsTable({ tasks }: { tasks: UseTasksReturn }) {
   const taskItems = tasks.allTasks
     .filter((t) => (t as any).isActive !== false)
     .filter((t) => matchActiveHierarchy(t, activeProjectIds, activeCaseIds))
-    .filter((t) => matchStatusFilter(t, statusFilter))
+    .filter((t) => statusFilters.includes(t.status))
     .filter((t) => matchDueFilter(t, dueFilter))
     .slice()
     .sort(compareFlatTasks);
 
+  const toggleStatusFilter = useCallback((status: string) => {
+    setStatusFilters((current) =>
+      current.includes(status) ? current.filter((item) => item !== status) : [...current, status],
+    );
+  }, []);
+
   return (
     <div className={s["task-table-content"]}>
       <div className={s["task-table-filter-bar"]}>
-        <label className={s["task-table-filter"]}>
-          <span>Status</span>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-          >
-            <option value="not_done">未完了</option>
-            <option value="all">すべて</option>
-            {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
-              <option key={key} value={key}>
-                {cfg.label}
-              </option>
-            ))}
-          </select>
-        </label>
         <label className={s["task-table-filter"]}>
           <span>期限</span>
           <select value={dueFilter} onChange={(e) => setDueFilter(e.target.value as DueFilter)}>
@@ -85,6 +77,42 @@ function AllProjectsTable({ tasks }: { tasks: UseTasksReturn }) {
             <option value="none">期限なし</option>
           </select>
         </label>
+        <div className={s["task-table-filter"]}>
+          <span>Status</span>
+          <div className={s["status-filter-list"]}>
+            {ALL_TASK_STATUS_FILTER_ORDER.map((status) => {
+              const config = STATUS_CONFIG[status];
+              const selected = statusFilters.includes(status);
+              return (
+                <button
+                  key={status}
+                  type="button"
+                  className={`${s["status-filter-chip"]}${selected ? ` ${s.selected}` : ""}`}
+                  style={
+                    selected
+                      ? {
+                          backgroundColor: config.color + "18",
+                          borderColor: config.color + "66",
+                          color: config.color,
+                        }
+                      : undefined
+                  }
+                  onClick={() => toggleStatusFilter(status)}
+                  aria-pressed={selected}
+                >
+                  <span
+                    className={s["status-filter-dot"]}
+                    style={{
+                      borderColor: config.color,
+                      backgroundColor: selected ? config.color : "transparent",
+                    }}
+                  />
+                  {config.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <span className={s["task-table-filter-count"]}>{taskItems.length}件</span>
       </div>
       <TaskTableGroup
@@ -203,12 +231,6 @@ function compareFlatTasks(a: TaskItem, b: TaskItem): number {
   if (dueDiff !== 0) return dueDiff;
 
   return ((a as any).createdAt || "").localeCompare((b as any).createdAt || "");
-}
-
-function matchStatusFilter(task: TaskItem, filter: StatusFilter): boolean {
-  if (filter === "all") return true;
-  if (filter === "not_done") return task.status !== "done";
-  return task.status === filter;
 }
 
 function matchActiveHierarchy(

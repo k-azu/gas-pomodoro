@@ -26,6 +26,45 @@
   font: inherit;
   padding: 0 8px;
 }
+.status-filter-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.status-filter-chip {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    color 0.12s;
+}
+.status-filter-chip:hover {
+  background: rgba(55, 53, 47, 0.04);
+  color: var(--text);
+}
+.status-filter-dot {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-filter-chip:focus-visible {
+  outline: 2px solid var(--work-color);
+  outline-offset: 2px;
+}
 .task-table-filter-count {
   margin-left: auto;
   color: var(--text-secondary);

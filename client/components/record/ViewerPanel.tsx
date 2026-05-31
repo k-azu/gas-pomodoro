@@ -32,7 +32,7 @@ export function ViewerPanel() {
 
 function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
   const { timer } = useApp();
-  const { closeViewer, setViewerSaving } = useNavigation();
+  const { closeViewer, navigateToDocument, setViewerSaving } = useNavigation();
   const editorConfig = useEditorConfig();
 
   const [charCount, setCharCount] = useState(0);
@@ -75,6 +75,13 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       setSelectedTaskId(tId);
     },
     [],
+  );
+
+  const openSelectedTask = useCallback(
+    (taskId: string) => {
+      navigateToDocument("task", { taskNode: { type: "task", id: taskId } });
+    },
+    [navigateToDocument],
   );
 
   const { editor, mode, setMode, rawMarkdown, setRawMarkdown, getMarkdown, applyContent } =
@@ -337,6 +344,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
             caseId={selectedCaseId}
             taskId={selectedTaskId}
             onChange={handleHierarchyChange}
+            onOpenTask={openSelectedTask}
           />
         )}
       </EditorLayout>
