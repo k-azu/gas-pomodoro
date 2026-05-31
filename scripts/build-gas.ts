@@ -2,7 +2,7 @@
  * build-gas.ts — Post-build script that produces GAS-compatible HTML files.
  *
  * 1. Bundles react + react-dom into src/ReactVendor.html (IIFE, globals React/ReactDOM)
- * 2. Bundles @markweave/editor-core into src/EditorVendor.html (IIFE, global MarkweaveEditorCore)
+ * 2. Bundles @hitomd/editor-core into src/EditorVendor.html (IIFE, global HitomdEditorCore)
  * 3. Wraps the Vite output (JS + CSS) into src/ClientBundle.html
  *
  * Usage: npx tsx scripts/build-gas.ts  (called by `npm run build:gas`)
@@ -190,8 +190,8 @@ async function buildEditorVendor() {
   const result = await esbuild.build({
     stdin: {
       contents: `
-        import * as MarkweaveEditorCore from "@markweave/editor-core";
-        window.MarkweaveEditorCore = MarkweaveEditorCore;
+        import * as HitomdEditorCore from "@hitomd/editor-core";
+        window.HitomdEditorCore = HitomdEditorCore;
       `,
       resolveDir: root,
       loader: "js",

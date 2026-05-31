@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Editor } from "../../../editor/markweaveEditor";
+import type { Editor } from "../../../editor/hitomdEditor";
 
 export function useEditorSignal(editor: Editor) {
   const [, setVersion] = useState(0);

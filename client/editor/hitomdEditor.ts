@@ -5,7 +5,7 @@ import {
   insertImageWithUpload,
   parseMarkdown,
   useEditor,
-} from "@markweave/editor-core";
+} from "@hitomd/editor-core";
 export {
   RichEditorBody,
   createEditorState,
@@ -14,7 +14,7 @@ export {
   parseMarkdown,
   useEditor,
 };
-export type { Editor, EditorState, MentionTrigger } from "@markweave/editor-core";
+export type { Editor, EditorState, MentionTrigger } from "@hitomd/editor-core";
 
 export type EditorMode = "wysiwyg" | "markdown";
 

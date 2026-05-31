@@ -12,7 +12,7 @@ scripts/         ビルドスクリプト
 
 - **クライアント**: `client/` 配下の React アプリを Vite で IIFE バンドルにビルドし、`src/ClientBundle.html` として GAS に配信
 - **React**: esbuild で別途バンドルし `src/ReactVendor.html` として分離配信
-- **エディタ**: `@markweave/editor-core` を npm package として利用し、GAS 用には `src/EditorVendor.html` として分離配信
+- **エディタ**: `@hitomd/editor-core` を npm package として利用し、GAS 用には `src/EditorVendor.html` として分離配信
 - **Mermaid**: Mermaid 本体は EditorVendor に含めず、GAS では CDN から `window.mermaid` として先読み
 - **サーバー**: `src/*.ts` を clasp が GAS にトランスパイル
 
@@ -40,7 +40,7 @@ pnpm run dev
 
 Vite dev server は `0.0.0.0:5174` で起動する。WSL2 などホスト OS 側のブラウザから確認する場合もこの設定を使う。
 
-`@markweave/editor-core` は通常 npm package を使う。開発時のみ `../markweave/packages/editor-core/src/index.ts` が存在する場合、Vite が自動でローカル source に alias する。これにより editor-core を隣接リポジトリで開発している場合は HMR で確認でき、存在しない環境では npm package がそのまま使われる。
+`@hitomd/editor-core` は通常 npm package を使う。開発時のみ `../hitomd/packages/editor-core/src/index.ts` が存在する場合、Vite が自動でローカル source に alias する。これにより editor-core を隣接リポジトリで開発している場合は HMR で確認でき、存在しない環境では npm package がそのまま使われる。
 
 ### 3. clasp にログイン
 
@@ -94,23 +94,23 @@ pnpm run deploy
 
 デプロイ後に表示される URL でタイマーにアクセスできる。
 
-## エディタ (`@markweave/editor-core`)
+## エディタ (`@hitomd/editor-core`)
 
-リッチテキストエディタとして `@markweave/editor-core` を使用する。
+リッチテキストエディタとして `@hitomd/editor-core` を使用する。
 
 | 状況                                                           | 解決方法                                                                                 |
 | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| 通常の install / build / deploy                                | npm package `@markweave/editor-core` を使用                                              |
-| `pnpm run dev` かつ `../markweave/packages/editor-core` が存在 | Vite alias でローカル source を使用                                                      |
-| GAS build                                                      | npm package を `EditorVendor.html` に IIFE 化し、`window.MarkweaveEditorCore` として使用 |
+| 通常の install / build / deploy                              | npm package `@hitomd/editor-core` を使用                                               |
+| `pnpm run dev` かつ `../hitomd/packages/editor-core` が存在 | Vite alias でローカル source を使用                                                    |
+| GAS build                                                      | npm package を `EditorVendor.html` に IIFE 化し、`window.HitomdEditorCore` として使用 |
 
-gas-pomodoro 側では [client/editor/markweaveEditor.ts](client/editor/markweaveEditor.ts) を adapter として使う。アプリ内の editor import はここに集約し、`onResolveLink` から editor-core の `onResolveLinkTitle` への変換もここで吸収する。
+gas-pomodoro 側では [client/editor/hitomdEditor.ts](client/editor/hitomdEditor.ts) を adapter として使う。アプリ内の editor import はここに集約し、`onResolveLink` から editor-core の `onResolveLinkTitle` への変換もここで吸収する。
 
 Toolbar や Markdown textarea の表示切替は gas-pomodoro 側の UI 責務として実装している。WYSIWYG 本体は editor-core の `EditorBody` を利用し、Markdown 表示は gas-pomodoro 側の `textarea.mdg-raw-editor` を使う。
 
 ### Mermaid
 
-Mermaid は `@markweave/editor-core` では optional peer として扱われる。GAS では Mermaid 本体を `EditorVendor.html` に含めず、`src/index.html` で Mermaid 11 系 CDN を先読みして `window.mermaid` として使う。
+Mermaid は `@hitomd/editor-core` では optional peer として扱われる。GAS では Mermaid 本体を `EditorVendor.html` に含めず、`src/index.html` で Mermaid 11 系 CDN を先読みして `window.mermaid` として使う。
 
 通常の editor 初期化は Mermaid に依存しない。Mermaid CDN が読み込めない場合は Mermaid preview のみ失敗し、通常 editor は動作する。
 
@@ -133,7 +133,7 @@ pnpm run deploy
   ├─ vite build          → dist/assets/index.js, dist/assets/gas-pomodoro.css
   ├─ tsx build-gas.ts
   │   ├─ esbuild         → src/ReactVendor.html  (React + jsx-runtime IIFE)
-  │   ├─ esbuild         → src/EditorVendor.html (@markweave/editor-core IIFE)
+  │   ├─ esbuild         → src/EditorVendor.html (@hitomd/editor-core IIFE)
   │   └─ wrap + transform → src/ClientBundle.html (CSS + JS, テンプレートリテラル変換)
   └─ clasp push          → GAS にアップロード
 ```

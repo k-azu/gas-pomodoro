@@ -1,4 +1,4 @@
-import type { Editor } from "../../../editor/markweaveEditor";
+import type { Editor } from "../../../editor/hitomdEditor";
 import type { ToolbarItem } from "./toolbarTypes";
 import { useEditorSignal } from "./useEditorSignal";
 

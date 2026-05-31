@@ -8,8 +8,8 @@
  * All editor state (editor, mode, rawMarkdown, etc.) is passed in as props.
  */
 import { useRef, useMemo, useCallback, useEffect, useLayoutEffect, type ReactNode } from "react";
-import { RichEditorBody, insertImageWithUpload } from "../../editor/markweaveEditor";
-import type { Editor, EditorMode } from "../../editor/markweaveEditor";
+import { RichEditorBody, insertImageWithUpload } from "../../editor/hitomdEditor";
+import type { Editor, EditorMode } from "../../editor/hitomdEditor";
 import { Toolbar, DEFAULT_TOOLBAR_ITEMS, type ToolbarItem } from "./editorToolbar";
 import { RichTextIcon, MarkdownIcon } from "./Icons";
 import s from "./DocumentEditor.module.css";

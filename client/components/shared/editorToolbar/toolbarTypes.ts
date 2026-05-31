@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Editor } from "../../../editor/markweaveEditor";
+import type { Editor } from "../../../editor/hitomdEditor";
 
 export interface ToolbarDropdownOption {
   name: string;

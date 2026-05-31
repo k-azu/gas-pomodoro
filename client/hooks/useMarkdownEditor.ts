@@ -9,13 +9,13 @@
  * that belongs to the consumer (e.g. useDocumentEditor).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { EditorMode, EditorState, MentionTrigger } from "../editor/markweaveEditor";
+import type { EditorMode, EditorState, MentionTrigger } from "../editor/hitomdEditor";
 import {
   useEditor,
   getDefaultExtensions,
   parseMarkdown,
   createEditorState,
-} from "../editor/markweaveEditor";
+} from "../editor/hitomdEditor";
 import { bindClipboardImageUpload } from "../lib/imageCache";
 
 interface UseMarkdownEditorOptions {

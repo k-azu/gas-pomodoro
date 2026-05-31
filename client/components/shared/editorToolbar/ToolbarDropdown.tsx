@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { Editor } from "../../../editor/markweaveEditor";
+import type { Editor } from "../../../editor/hitomdEditor";
 import type { ToolbarDropdownItem } from "./toolbarTypes";
 import { useEditorSignal } from "./useEditorSignal";
 
