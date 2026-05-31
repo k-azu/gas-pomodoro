@@ -11,6 +11,7 @@ export const STORAGE_KEYS = {
   RECORD_DRAFT: "gas_pomodoro_record_draft",
   INT_DRAFT: "gas_pomodoro_int_draft",
   TASK_SELECTED: "gas_pomodoro_task_selected",
+  RECENT_TASK_SELECTIONS: "gas_pomodoro_recent_task_selections",
 } as const;
 
 export function lsGet(key: string): string {

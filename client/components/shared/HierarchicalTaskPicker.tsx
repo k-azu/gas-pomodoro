@@ -10,6 +10,7 @@ import s from "./HierarchicalTaskPicker.module.css";
 import * as TaskStore from "../../lib/taskStore";
 import { on as esOn, off as esOff } from "../../lib/entityStore";
 import { STATUS_CONFIG } from "../../hooks/useTasks";
+import { STORAGE_KEYS, lsGetJSON, lsSetJSON } from "../../lib/localStorage";
 
 export interface HierarchicalTaskPickerProps {
   projectId: string | null;
@@ -38,6 +39,8 @@ interface TaskItem {
   createdAt: string;
 }
 
+const RECENT_TASK_LIMIT = 10;
+
 export function HierarchicalTaskPicker({
   projectId,
   caseId,
@@ -48,6 +51,10 @@ export function HierarchicalTaskPicker({
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [allCases, setAllCases] = useState<CaseItem[]>([]);
   const [allTasks, setAllTasks] = useState<TaskItem[]>([]);
+  const [recentTaskIds, setRecentTaskIds] = useState<string[]>(() => {
+    const saved = lsGetJSON<string[]>(STORAGE_KEYS.RECENT_TASK_SELECTIONS);
+    return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : [];
+  });
 
   // Load data from EntityStore
   const loadData = useCallback(async () => {
@@ -126,6 +133,7 @@ export function HierarchicalTaskPicker({
   });
 
   // Task picker: filter by selected project/case, sort by status → createdAt
+  const recentRank = new Map(recentTaskIds.map((id, index) => [id, index]));
   const filteredTasks = allTasks
     .filter((t) => {
       if (t.status === "done") return false;
@@ -133,7 +141,7 @@ export function HierarchicalTaskPicker({
       if (projectId) return t.projectId === projectId;
       return true;
     })
-    .sort(comparePickerTasks);
+    .sort((a, b) => comparePickerTasks(a, b, recentRank));
   const taskPickerItems = filteredTasks.map((t) => {
     const statusColor = (STATUS_CONFIG[t.status] || { color: "#9e9e9e" }).color;
     let label = t.name;
@@ -204,6 +212,14 @@ export function HierarchicalTaskPicker({
     (selected: string[]) => {
       const newTaskId = selected.length > 0 ? taskIdMap[selected[0]] || null : null;
       if (newTaskId) {
+        setRecentTaskIds((current) => {
+          const next = [newTaskId, ...current.filter((id) => id !== newTaskId)].slice(
+            0,
+            RECENT_TASK_LIMIT,
+          );
+          lsSetJSON(STORAGE_KEYS.RECENT_TASK_SELECTIONS, next);
+          return next;
+        });
         // Auto-fill project and case from task
         const t = allTasks.find((t) => t.id === newTaskId);
         if (t) {
@@ -281,10 +297,22 @@ const PICKER_STATUS_ORDER: Record<string, number> = {
   review: 2,
   todo: 3,
   pending: 4,
-  docs: 99,
+  docs: 5,
 };
 
-function comparePickerTasks(a: TaskItem, b: TaskItem): number {
+function comparePickerTasks(
+  a: TaskItem,
+  b: TaskItem,
+  recentRank: Map<string, number>,
+): number {
+  const recentA = recentRank.get(a.id);
+  const recentB = recentRank.get(b.id);
+  if (recentA !== undefined || recentB !== undefined) {
+    if (recentA === undefined) return 1;
+    if (recentB === undefined) return -1;
+    return recentA - recentB;
+  }
+
   const statusDiff = (PICKER_STATUS_ORDER[a.status] ?? 50) - (PICKER_STATUS_ORDER[b.status] ?? 50);
   if (statusDiff !== 0) return statusDiff;
   return (a.createdAt || "").localeCompare(b.createdAt || "");
