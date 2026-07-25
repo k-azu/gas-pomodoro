@@ -17,7 +17,7 @@ test.describe("保存済み文書の検索", () => {
     const dialog = page.getByRole("dialog", { name: "文書を検索" });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText("キーワードを入力してください")).toBeVisible();
-    await expect(dialog.getByText("保存済みデータ")).toBeVisible();
+    await expect(dialog.getByText("保存済みデータ")).toHaveCount(0);
     await expect(dialog.getByText("UIモック")).toHaveCount(0);
 
     await page.getByRole("textbox", { name: "検索キーワード" }).fill("IndexedDB");

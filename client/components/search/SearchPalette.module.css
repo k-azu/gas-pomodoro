@@ -372,15 +372,6 @@
   padding: 2px 5px;
 }
 
-.source-label {
-  margin-left: auto;
-  padding: 3px 7px;
-  border-radius: 999px;
-  background: #eef2f6;
-  color: #64748b;
-  font-weight: 600;
-}
-
 @media (max-width: 600px) {
   .backdrop {
     padding: 8px;

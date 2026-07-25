@@ -281,7 +281,6 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
           <span>
             <kbd>Enter</kbd> 開く
           </span>
-          <span className={s["source-label"]}>保存済みデータ</span>
         </div>
       </section>
     </div>

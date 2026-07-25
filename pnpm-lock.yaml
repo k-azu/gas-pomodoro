@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@hitomd/editor-core':
-        specifier: ^0.1.6
-        version: 0.1.6(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.23.1(@tiptap/core@3.23.1(@tiptap/pm@3.23.1))(@tiptap/pm@3.23.1))(@tiptap/extension-text-style@3.23.1(@tiptap/core@3.23.1(@tiptap/pm@3.23.1)))(@tiptap/extensions@3.23.1(@tiptap/core@3.23.1(@tiptap/pm@3.23.1))(@tiptap/pm@3.23.1))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(highlight.js@11.11.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        specifier: ^0.1.7
+        version: 0.1.7(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.23.1(@tiptap/core@3.23.1(@tiptap/pm@3.23.1))(@tiptap/pm@3.23.1))(@tiptap/extension-text-style@3.23.1(@tiptap/core@3.23.1(@tiptap/pm@3.23.1)))(@tiptap/extensions@3.23.1(@tiptap/core@3.23.1(@tiptap/pm@3.23.1))(@tiptap/pm@3.23.1))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(highlight.js@11.11.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       react:
         specifier: ^19.1.0
         version: 19.2.4
@@ -516,8 +516,8 @@ packages:
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
     hasBin: true
 
-  '@hitomd/editor-core@0.1.6':
-    resolution: {integrity: sha512-W84CKbmTirluzUWLe56INt0KQMLZtjHmoFNxDYtGXoe7OeakblIx0NHo5OKZM7HFsDyQqw7R5wO/xr/VLqj43w==}
+  '@hitomd/editor-core@0.1.7':
+    resolution: {integrity: sha512-fci/VM26/ZeGsifLtpnFhcuDfQMRFq5o8WUZk7xF0KSGTyqXV0EkJrGVMqxdwTBpdgfUfC5r3ztbbxSAIBzV0w==}
     peerDependencies:
       mermaid: '>=11'
       react: '>=19'
@@ -2869,7 +2869,7 @@ snapshots:
       - encoding
       - supports-color
 
-  '@hitomd/editor-core@0.1.6(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.23.1(@tiptap/core@3.23.1(@tiptap/pm@3.23.1))(@tiptap/pm@3.23.1))(@tiptap/extension-text-style@3.23.1(@tiptap/core@3.23.1(@tiptap/pm@3.23.1)))(@tiptap/extensions@3.23.1(@tiptap/core@3.23.1(@tiptap/pm@3.23.1))(@tiptap/pm@3.23.1))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(highlight.js@11.11.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+  '@hitomd/editor-core@0.1.7(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.23.1(@tiptap/core@3.23.1(@tiptap/pm@3.23.1))(@tiptap/pm@3.23.1))(@tiptap/extension-text-style@3.23.1(@tiptap/core@3.23.1(@tiptap/pm@3.23.1)))(@tiptap/extensions@3.23.1(@tiptap/core@3.23.1(@tiptap/pm@3.23.1))(@tiptap/pm@3.23.1))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(highlight.js@11.11.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
     dependencies:
       '@tiptap/core': 3.23.1(@tiptap/pm@3.23.1)
       '@tiptap/extension-blockquote': 3.23.1(@tiptap/core@3.23.1(@tiptap/pm@3.23.1))
