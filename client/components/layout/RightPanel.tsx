@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "../../contexts/AppContext";
 import { useNavigation } from "../../contexts/NavigationContext";
 import type { TabId } from "../../contexts/NavigationContext";
@@ -8,6 +8,8 @@ import { TaskTab } from "../task/TaskTab";
 import { RecordForm } from "../record/RecordForm";
 import { InterruptionForm } from "../record/InterruptionForm";
 import { ViewerPanel } from "../record/ViewerPanel";
+import { SearchPalette } from "../search/SearchPalette";
+import { SearchIcon } from "../shared/Icons";
 import s from "./RightPanel.module.css";
 
 /** Which tabs are visible in each timer phase */
@@ -37,6 +39,21 @@ export function RightPanel() {
   const { activeTab, viewerState } = nav;
   const phase = timer.state.phase;
   const prevPhaseRef = useRef<Phase | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen((open) => !open);
+      }
+      if (event.key === "Escape") {
+        setSearchOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   // Unified visibility: phase-based + viewer (when viewerState is set)
   const vis: Record<string, boolean> = {
@@ -87,6 +104,18 @@ export function RightPanel() {
             </button>
           );
         })}
+        <div className={s["tab-spacer"]} />
+        <button
+          type="button"
+          className={s["search-button"]}
+          onClick={() => setSearchOpen(true)}
+          title="検索を開く (Ctrl/Cmd+K)"
+          aria-label="検索を開く"
+        >
+          <SearchIcon size={15} />
+          <span>検索</span>
+          <kbd>⌘K</kbd>
+        </button>
       </div>
       <div className={s["tab-content"]}>
         {vis.memo && (
@@ -115,6 +144,7 @@ export function RightPanel() {
           </div>
         )}
       </div>
+      <SearchPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
   );
 }

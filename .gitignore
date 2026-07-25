@@ -154,6 +154,7 @@ src/ClientBundle.html
 # .mcp.json
 .playwright-mcp/
 playwright.config.json
+test-results/
 
 # Docs (design specs, not tracked)
 docs/

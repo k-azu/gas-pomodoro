@@ -201,6 +201,31 @@ export function ExternalLinkIcon({
   );
 }
 
+/** Magnifying glass / search */
+export function SearchIcon({
+  size = 16,
+  color = "currentColor",
+}: {
+  size?: number;
+  color?: string;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke={color}
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="7" cy="7" r="4.5" />
+      <path d="M10.5 10.5L14 14" />
+    </svg>
+  );
+}
+
 /** Rich Text (formatted lines) */
 export function RichTextIcon({
   size = 14,

@@ -28,6 +28,7 @@ export interface EditorLayoutProps {
   onImageUpload?: (file: File) => Promise<string>;
   toolbarLeft?: ReactNode;
   toolbarRight?: ReactNode;
+  searchNavigation?: ReactNode;
   children?: ReactNode; // meta section
   afterMeta?: ReactNode;
   scrollRef?: React.RefObject<HTMLDivElement | null>;
@@ -47,6 +48,7 @@ export function EditorLayout({
   onImageUpload,
   toolbarLeft,
   toolbarRight,
+  searchNavigation,
   children,
   afterMeta,
   scrollRef: externalScrollRef,
@@ -195,6 +197,47 @@ export function EditorLayout({
         {charCount.toLocaleString()} / {maxCharCount.toLocaleString()}
       </span>
     ) : null;
+  const toolbarElement = hasToolbarSlots ? (
+    <div className="mdg-editor-toolbar-row">
+      {toolbarLeft}
+      {afterMeta ? (
+        <div className={s["toolbar-spacer"]} />
+      ) : (
+        <div className="mdg-editor-header">
+          {!readOnly && toolbarItems !== false && editor && mode === "wysiwyg" && (
+            <Toolbar editor={editor} items={toolbarItems} />
+          )}
+          {charCountEl}
+          <button
+            type="button"
+            className={`${s["mode-switch-btn"]} mdg-mode-btn`}
+            onClick={handleModeSwitch}
+          >
+            {mode === "wysiwyg" ? <MarkdownIcon /> : <RichTextIcon />}
+            {mode === "wysiwyg" ? "Markdown" : "Rich Text"}
+          </button>
+        </div>
+      )}
+      {toolbarRight}
+    </div>
+  ) : (
+    <div className={afterMeta ? "mdg-editor-toolbar-row" : "mdg-editor-header"}>
+      {!readOnly && !afterMeta && toolbarItems !== false && editor && mode === "wysiwyg" && (
+        <Toolbar editor={editor} items={toolbarItems} />
+      )}
+      {!afterMeta && charCountEl}
+      {!afterMeta && (
+        <button
+          type="button"
+          className={`${s["mode-switch-btn"]} mdg-mode-btn`}
+          onClick={handleModeSwitch}
+        >
+          {mode === "wysiwyg" ? <MarkdownIcon /> : <RichTextIcon />}
+          {mode === "wysiwyg" ? "Markdown" : "Rich Text"}
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <div
@@ -203,46 +246,13 @@ export function EditorLayout({
     >
       <div className={`editor-full-container${className ? ` ${className}` : ""}`}>
         <div className="mdg-editor">
-          {hasToolbarSlots ? (
-            <div className="mdg-editor-toolbar-row">
-              {toolbarLeft}
-              {afterMeta ? (
-                <div className={s["toolbar-spacer"]} />
-              ) : (
-                <div className="mdg-editor-header">
-                  {toolbarItems !== false && editor && mode === "wysiwyg" && (
-                    <Toolbar editor={editor} items={toolbarItems} />
-                  )}
-                  {charCountEl}
-                  <button
-                    type="button"
-                    className={`${s["mode-switch-btn"]} mdg-mode-btn`}
-                    onClick={handleModeSwitch}
-                  >
-                    {mode === "wysiwyg" ? <MarkdownIcon /> : <RichTextIcon />}
-                    {mode === "wysiwyg" ? "Markdown" : "Rich Text"}
-                  </button>
-                </div>
-              )}
-              {toolbarRight}
+          {searchNavigation ? (
+            <div className={s["search-toolbar-group"]}>
+              {toolbarElement}
+              {searchNavigation}
             </div>
           ) : (
-            <div className={afterMeta ? "mdg-editor-toolbar-row" : "mdg-editor-header"}>
-              {!afterMeta && toolbarItems !== false && editor && mode === "wysiwyg" && (
-                <Toolbar editor={editor} items={toolbarItems} />
-              )}
-              {!afterMeta && charCountEl}
-              {!afterMeta && (
-                <button
-                  type="button"
-                  className={`${s["mode-switch-btn"]} mdg-mode-btn`}
-                  onClick={handleModeSwitch}
-                >
-                  {mode === "wysiwyg" ? <MarkdownIcon /> : <RichTextIcon />}
-                  {mode === "wysiwyg" ? "Markdown" : "Rich Text"}
-                </button>
-              )}
-            </div>
+            toolbarElement
           )}
           <div className="mdg-content-area">
             <div className={s["meta-section"]}>{children}</div>

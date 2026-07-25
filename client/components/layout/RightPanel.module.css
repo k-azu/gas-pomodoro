@@ -25,7 +25,9 @@
   color: var(--text-secondary);
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  transition: color 0.2s, border-color 0.2s;
+  transition:
+    color 0.2s,
+    border-color 0.2s;
 }
 
 .tab-btn:hover {
@@ -37,6 +39,43 @@
   border-bottom-color: var(--work-color);
 }
 
+.tab-spacer {
+  flex: 1;
+}
+
+.search-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.search-button:hover {
+  border-color: #bdbdbd;
+  background: #f7f7f7;
+  color: var(--text);
+}
+
+.search-button kbd {
+  padding: 1px 4px;
+  border: 1px solid #dedede;
+  border-radius: 4px;
+  background: #f5f5f5;
+  color: #8a8a8a;
+  font-family: inherit;
+  font-size: 0.65rem;
+}
+
 .tab-content {
   flex: 1;
   display: flex;
@@ -45,5 +84,24 @@
 }
 
 @media (max-width: 900px) {
-  .app-right { min-width: 0; height: auto; min-height: 400px; }
+  .app-right {
+    min-width: 0;
+    height: auto;
+    min-height: 400px;
+  }
+}
+
+@media (max-width: 520px) {
+  .tab-bar {
+    padding: 0 6px;
+  }
+
+  .tab-btn {
+    padding: 10px 9px;
+  }
+
+  .search-button span,
+  .search-button kbd {
+    display: none;
+  }
 }

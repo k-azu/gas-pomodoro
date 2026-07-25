@@ -7,6 +7,7 @@
  */
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import { STORAGE_KEYS, lsSet, lsSetJSON } from "../lib/localStorage";
+import type { DocumentSearchResult } from "../types/search";
 
 export type TabId = "memo" | "task" | "record" | "interruption" | "viewer" | "settings";
 
@@ -38,6 +39,17 @@ export interface ViewerState {
   onSaveHierarchy?: (projectId: string, caseId: string, taskId: string) => void;
   /** Actual duration in seconds (work records, for task stats delta) */
   actualDurationSeconds?: number;
+}
+
+export interface DocumentSearchRevealRequest {
+  requestId: number;
+  tab: "memo" | "task";
+  id: string;
+  query: string;
+}
+
+interface NavigationHistoryState {
+  searchDocument?: DocumentSearchResult;
 }
 
 // --- URL hash helpers ---
@@ -98,10 +110,20 @@ interface NavigationContextValue {
   /** True while ViewerPanel is saving to server */
   isViewerSaving: boolean;
   setViewerSaving: (v: boolean) => void;
+  /** Search query to reveal in the document opened from the search palette */
+  searchRevealRequest: DocumentSearchRevealRequest | null;
+  /** Document metadata retained while a search result is open (including archived documents). */
+  searchOpenedDocument: DocumentSearchResult | null;
+  clearSearchRevealRequest: () => void;
   /** Navigate to a specific document (memo or task node) in one action */
   navigateToDocument: (
     tab: TabId,
-    details: { memoId?: string; taskNode?: { type: string; id: string } },
+    details: {
+      memoId?: string;
+      taskNode?: { type: string; id: string };
+      searchQuery?: string;
+      searchDocument?: DocumentSearchResult;
+    },
   ) => void;
 }
 
@@ -112,7 +134,15 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   const [viewerState, setViewerState] = useState<ViewerState | null>(null);
   const [restoreSeq, setRestoreSeq] = useState(0);
   const [isViewerSaving, setIsViewerSaving] = useState(false);
+  const [searchRevealRequest, setSearchRevealRequest] =
+    useState<DocumentSearchRevealRequest | null>(null);
+  const [searchOpenedDocument, setSearchOpenedDocument] = useState<DocumentSearchResult | null>(
+    null,
+  );
+  const searchOpenedDocumentRef = useRef<DocumentSearchResult | null>(null);
   const setViewerSaving = useCallback((v: boolean) => setIsViewerSaving(v), []);
+  const searchRequestSeqRef = useRef(0);
+  const clearSearchRevealRequest = useCallback(() => setSearchRevealRequest(null), []);
 
   // All mutable state lives in refs — pushHash reads ONLY refs (no stale closures)
   const restoringRef = useRef(false);
@@ -127,29 +157,49 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
 
   // --- pushHash (reads only refs → no deps, stable identity) ---
   // Only memo/task are persisted to URL hash. Other tabs are transient.
-  const pushHash = useCallback((opts?: { replace?: boolean }) => {
-    if (restoringRef.current) return;
+  const pushHash = useCallback(
+    (opts?: { replace?: boolean; state?: NavigationHistoryState | null }) => {
+      if (restoringRef.current) return;
 
-    const tab = activeTabRef.current;
-    if (tab !== "memo" && tab !== "task") return;
+      const tab = activeTabRef.current;
+      if (tab !== "memo" && tab !== "task") return;
 
-    const hash = buildHash({
-      tab,
-      memoId: tab === "memo" ? memoIdRef.current : null,
-      taskNode: tab === "task" ? taskNodeRef.current : null,
-    });
+      const hash = buildHash({
+        tab,
+        memoId: tab === "memo" ? memoIdRef.current : null,
+        taskNode: tab === "task" ? taskNodeRef.current : null,
+      });
+      const retainedDocument = searchOpenedDocumentRef.current;
+      const retainedDocumentMatchesTarget =
+        retainedDocument &&
+        ((tab === "memo" &&
+          retainedDocument.type === "memo" &&
+          memoIdRef.current === retainedDocument.id) ||
+          (tab === "task" &&
+            retainedDocument.type === "task" &&
+            taskNodeRef.current?.type === "task" &&
+            taskNodeRef.current.id === retainedDocument.id));
+      const state =
+        opts && Object.prototype.hasOwnProperty.call(opts, "state")
+          ? (opts.state ?? null)
+          : retainedDocumentMatchesTarget
+            ? { searchDocument: retainedDocument }
+            : null;
 
-    if (opts?.replace || !hasHistoryRef.current) {
-      history.replaceState(null, "", hash);
-      hasHistoryRef.current = true;
-    } else {
-      history.pushState(null, "", hash);
-    }
-  }, []);
+      if (opts?.replace || !hasHistoryRef.current) {
+        history.replaceState(state, "", hash);
+        hasHistoryRef.current = true;
+      } else {
+        history.pushState(state, "", hash);
+      }
+    },
+    [],
+  );
 
   // --- switchTab ---
   const switchTab = useCallback(
     (tab: TabId, opts?: { skipHistory?: boolean }) => {
+      setSearchRevealRequest(null);
       prevTabRef.current = activeTabRef.current; // Record tab before switch
       activeTabRef.current = tab;
       setActiveTab(tab);
@@ -189,6 +239,12 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   // --- notifyTaskNodeChange ---
   const notifyTaskNodeChange = useCallback(
     (node: { type: string; id: string } | null, opts?: { replace?: boolean }) => {
+      setSearchRevealRequest(null);
+      const current = searchOpenedDocumentRef.current;
+      if (current?.type === "task" && (node?.type !== "task" || node.id !== current.id)) {
+        searchOpenedDocumentRef.current = null;
+        setSearchOpenedDocument(null);
+      }
       taskNodeRef.current = node;
       if (!restoringRef.current) {
         pushHash(opts);
@@ -200,6 +256,12 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   // --- notifyMemoChange ---
   const notifyMemoChange = useCallback(
     (memoId: string | null, opts?: { replace?: boolean }) => {
+      setSearchRevealRequest(null);
+      const current = searchOpenedDocumentRef.current;
+      if (current?.type === "memo" && memoId !== current.id) {
+        searchOpenedDocumentRef.current = null;
+        setSearchOpenedDocument(null);
+      }
       memoIdRef.current = memoId;
       if (!restoringRef.current) {
         pushHash(opts);
@@ -210,7 +272,23 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
 
   // --- navigateToDocument ---
   const navigateToDocument = useCallback(
-    (tab: TabId, details: { memoId?: string; taskNode?: { type: string; id: string } }) => {
+    (
+      tab: TabId,
+      details: {
+        memoId?: string;
+        taskNode?: { type: string; id: string };
+        searchQuery?: string;
+        searchDocument?: DocumentSearchResult;
+      },
+    ) => {
+      const query = details.searchQuery?.trim();
+      const targetId =
+        tab === "memo" ? details.memoId : tab === "task" ? details.taskNode?.id : undefined;
+      const openedDocument =
+        query && targetId && (tab === "memo" || tab === "task")
+          ? (details.searchDocument ?? null)
+          : null;
+
       // 1. Update localStorage so hooks re-read the correct state
       if (details.memoId) {
         lsSet(STORAGE_KEYS.MEMO_ACTIVE, details.memoId);
@@ -227,9 +305,27 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
       prevTabRef.current = activeTabRef.current;
       activeTabRef.current = tab;
       setActiveTab(tab);
-      pushHash();
+      pushHash({
+        state: openedDocument ? { searchDocument: openedDocument } : null,
+      });
 
-      // 4. Signal hooks to re-read from localStorage
+      // 4. Carry the query only for navigation originating from document search.
+      if (query && targetId && (tab === "memo" || tab === "task")) {
+        searchOpenedDocumentRef.current = openedDocument;
+        setSearchOpenedDocument(openedDocument);
+        setSearchRevealRequest({
+          requestId: ++searchRequestSeqRef.current,
+          tab,
+          id: targetId,
+          query,
+        });
+      } else {
+        searchOpenedDocumentRef.current = null;
+        setSearchOpenedDocument(null);
+        setSearchRevealRequest(null);
+      }
+
+      // 5. Signal hooks to re-read from localStorage
       setRestoreSeq((s) => s + 1);
     },
     [pushHash],
@@ -237,13 +333,28 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
 
   // --- popstate listener ---
   useEffect(() => {
-    const handler = () => {
+    const handler = (event: PopStateEvent) => {
       // No hash = external navigation → ignore
       if (!location.hash) return;
 
       const parsed = parseHash();
+      const historyDocument = (event.state as NavigationHistoryState | null)?.searchDocument;
+      const restoredSearchDocument =
+        historyDocument &&
+        ((historyDocument.type === "memo" &&
+          parsed.tab === "memo" &&
+          parsed.memoId === historyDocument.id) ||
+          (historyDocument.type === "task" &&
+            parsed.tab === "task" &&
+            parsed.taskNode?.type === "task" &&
+            parsed.taskNode.id === historyDocument.id))
+          ? historyDocument
+          : null;
 
       restoringRef.current = true;
+      setSearchRevealRequest(null);
+      searchOpenedDocumentRef.current = restoredSearchDocument;
+      setSearchOpenedDocument(restoredSearchDocument);
 
       // Restore tab
       activeTabRef.current = parsed.tab;
@@ -279,6 +390,20 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (location.hash) {
       const parsed = parseHash();
+      const historyDocument = (history.state as NavigationHistoryState | null)?.searchDocument;
+      if (
+        historyDocument &&
+        ((historyDocument.type === "memo" &&
+          parsed.tab === "memo" &&
+          parsed.memoId === historyDocument.id) ||
+          (historyDocument.type === "task" &&
+            parsed.tab === "task" &&
+            parsed.taskNode?.type === "task" &&
+            parsed.taskNode.id === historyDocument.id))
+      ) {
+        searchOpenedDocumentRef.current = historyDocument;
+        setSearchOpenedDocument(historyDocument);
+      }
       activeTabRef.current = parsed.tab;
       setActiveTab(parsed.tab);
       if (parsed.memoId) {
@@ -308,6 +433,9 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
         restoreSeq,
         isViewerSaving,
         setViewerSaving,
+        searchRevealRequest,
+        searchOpenedDocument,
+        clearSearchRevealRequest,
         navigateToDocument,
       }}
     >

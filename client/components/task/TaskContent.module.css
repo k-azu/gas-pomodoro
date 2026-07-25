@@ -21,6 +21,20 @@
   gap: 8px;
 }
 
+.archived-label {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #efebe9;
+  color: #6d4c41;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.readonly-value {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 .meta-color-folder {
   position: relative;
   display: inline-flex;

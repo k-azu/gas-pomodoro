@@ -203,14 +203,14 @@ export function useMarkdownEditor({
   }, [editor, readOnly]);
 
   useEffect(() => {
-    if (!editor || !onImageUpload) return;
+    if (!editor || !onImageUpload || readOnly) return;
     return bindClipboardImageUpload(editor, (file) => {
       if (!onImageUploadRef.current) {
         return Promise.reject(new Error("画像アップロードが設定されていません"));
       }
       return onImageUploadRef.current(file);
     });
-  }, [editor, onImageUpload]);
+  }, [editor, onImageUpload, readOnly]);
 
   const setMode = useCallback(
     (newMode: EditorMode) => {

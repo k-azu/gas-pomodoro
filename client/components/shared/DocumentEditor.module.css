@@ -32,6 +32,20 @@
   background: var(--surface);
   flex-shrink: 0;
 }
+
+/* Keep a wrapped toolbar and the document-search bar as one sticky unit. */
+.search-toolbar-group {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex-shrink: 0;
+  background: var(--surface);
+}
+.search-toolbar-group :global(.mdg-editor-header),
+.search-toolbar-group :global(.mdg-editor-toolbar-row),
+.search-toolbar-group > [role="search"] {
+  position: static;
+}
 /* Content area: shared padding for meta + editor body */
 .page-root :global(.mdg-content-area) {
   padding-left: var(--content-px);

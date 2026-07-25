@@ -28,6 +28,8 @@ interface UseDocumentEditorOptions {
   onImageUpload?: (file: File) => Promise<string>;
   onResolveLink?: (url: string) => Promise<{ title?: string }>;
   mentions?: MentionTrigger[];
+  /** Keep the document non-editable regardless of synchronization state. */
+  forceReadOnly?: boolean;
   /** Whether the consumer has afterMeta content — used for scroll key differentiation */
   hasAfterMeta?: boolean;
 }
@@ -69,11 +71,13 @@ export function useDocumentEditor({
   onImageUpload,
   onResolveLink,
   mentions,
+  forceReadOnly = false,
   hasAfterMeta = false,
 }: UseDocumentEditorOptions) {
   const [charCount, setCharCount] = useState(0);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
   const [readOnly, setReadOnly] = useState(false);
+  const [contentRevision, setContentRevision] = useState(0);
   const suppressSaveRef = useRef(false);
   const currentDocIdRef = useRef(id);
   const currentDocKeyRef = useRef(docKeyOf(scope, id));
@@ -187,7 +191,7 @@ export function useDocumentEditor({
   // onChange handler for useMarkdownEditor
   const handleChange = useCallback(
     (markdown: string) => {
-      if (suppressSaveRef.current) return;
+      if (suppressSaveRef.current || forceReadOnly) return;
       const docId = currentDocIdRef.current;
       const content = transformOnSave ? transformOnSave(markdown) : markdown;
       const docKey = docKeyOf(scope, docId);
@@ -205,7 +209,7 @@ export function useDocumentEditor({
         doSave();
       }, 2000);
     },
-    [scope, transformOnSave, doSave],
+    [scope, transformOnSave, doSave, forceReadOnly],
   );
 
   const {
@@ -222,7 +226,7 @@ export function useDocumentEditor({
     initialContent: "",
     onChange: handleChange,
     onCharCount: setCharCount,
-    readOnly,
+    readOnly: readOnly || forceReadOnly,
     onImageUpload,
     onResolveLink,
     mentions,
@@ -335,7 +339,10 @@ export function useDocumentEditor({
           suppressSaveRef.current = false;
         }
         const cached = stateCacheRef.current.get(docKey);
-        if (cached) restoreState(cached);
+        if (cached) {
+          restoreState(cached);
+          setContentRevision((revision) => revision + 1);
+        }
 
         if (resolveContent) ensureResolved(scope, id, resolveContent);
       } else {
@@ -355,6 +362,7 @@ export function useDocumentEditor({
             }
             currentDocKeyRef.current = docKey;
             resetContent(content);
+            setContentRevision((revision) => revision + 1);
             if (transformError) {
               markTransformError(transformError);
             } else {
@@ -382,6 +390,7 @@ export function useDocumentEditor({
           currentDocIdRef.current = id;
           currentDocKeyRef.current = docKey;
           resetContent(content);
+          setContentRevision((revision) => revision + 1);
           if (transformError) {
             markTransformError(transformError);
           } else {
@@ -413,6 +422,7 @@ export function useDocumentEditor({
         if (cancelledRef.current) return;
         suppressSaveRef.current = true;
         applyContent(content, { addToHistory: true });
+        setContentRevision((revision) => revision + 1);
         applyingResolvedContent = false;
         if (transformError) {
           _resolveStatus.delete(docKey);
@@ -526,8 +536,9 @@ export function useDocumentEditor({
     setRawMarkdown,
     charCount,
     scrollRef,
-    readOnly,
+    readOnly: readOnly || forceReadOnly,
     syncStatus,
+    contentRevision,
     flushPendingSave,
   };
 }

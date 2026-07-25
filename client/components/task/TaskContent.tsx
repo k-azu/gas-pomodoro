@@ -9,6 +9,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import type { UseTasksReturn } from "../../hooks/useTasks";
 import { STATUS_CONFIG, STATUS_ITEMS_WITH_ARCHIVED, statusLabelToKey } from "../../hooks/useTasks";
 import { useDocumentEditor } from "../../hooks/useDocumentEditor";
+import { useDocumentSearchNavigation } from "../../hooks/useDocumentSearchNavigation";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { useTaskRecordCache } from "../../hooks/useTaskRecordCache";
 import { useApp } from "../../contexts/AppContext";
@@ -22,6 +23,7 @@ import { RecordField } from "../shared/RecordField";
 import { RecordRow } from "../shared/RecordRow";
 import { EditorLayout, ToolbarSlot, MetaTitle } from "../shared/EditorLayout";
 import { SyncIndicator, type SyncStatus } from "../shared/SyncIndicator";
+import { DocumentSearchNavigation } from "../search/DocumentSearchNavigation";
 import { TaskTableView } from "./TaskTableView";
 import s from "./TaskContent.module.css";
 import * as TaskStore from "../../lib/taskStore";
@@ -83,6 +85,7 @@ function AllTasksContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskConte
 
 function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskContentProps) {
   const { selectedNode } = tasks;
+  const nav = useNavigation();
   const editorConfig = useEditorConfig();
   if (!selectedNode || selectedNode.type === "all") return null;
 
@@ -91,6 +94,11 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
   const storeName = storeNameFor(type);
   const isContainerType = type === "project" || type === "case";
   const showingDoc = isContainerType ? tasks.taskViewMode !== "table" : true;
+  const isArchivedSearchDocument =
+    type === "task" &&
+    nav.searchOpenedDocument?.type === "task" &&
+    nav.searchOpenedDocument.id === id &&
+    nav.searchOpenedDocument.isArchived;
 
   // --- Single useDocumentEditor instance ---
   const {
@@ -103,6 +111,7 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
     scrollRef,
     readOnly,
     syncStatus,
+    contentRevision,
     flushPendingSave,
   } = useDocumentEditor({
     scope: storeName,
@@ -120,7 +129,18 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
     ),
     ...editorConfig.editorProps,
     ...editorConfig.hookOptions,
+    forceReadOnly: isArchivedSearchDocument,
     hasAfterMeta: !showingDoc && isContainerType,
+  });
+
+  const searchNavigation = useDocumentSearchNavigation({
+    tab: "task",
+    id,
+    editor,
+    mode,
+    rawMarkdown,
+    contentRevision,
+    scrollRef,
   });
 
   // --- Toggle view (project/case only) ---
@@ -168,11 +188,14 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
         charCount={charCount}
         maxCharCount={50000}
         placeholder="ドキュメントを入力..."
-        readOnly={readOnly}
+        readOnly={readOnly || isArchivedSearchDocument}
         onImageUpload={editorConfig.editorProps.onImageUpload}
         scrollRef={scrollRef}
         toolbarLeft={toolbarLeftSlot}
         toolbarRight={toolbarRightSlot}
+        searchNavigation={
+          searchNavigation ? <DocumentSearchNavigation controller={searchNavigation} /> : undefined
+        }
         className={s["task-wiki-container"]}
         afterMeta={tableSlot}
       >
@@ -184,12 +207,18 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
           <CaseMeta key={`c-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
         )}
         {type === "task" && (
-          <TaskMeta key={`t-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
+          <TaskMeta
+            key={`t-${id}`}
+            id={id}
+            tasks={tasks}
+            syncStatus={syncStatus}
+            readOnly={isArchivedSearchDocument}
+          />
         )}
       </EditorLayout>
 
       {/* Work records — task only */}
-      {type === "task" && <TaskWorkRecords key={id} id={id} />}
+      {type === "task" && !isArchivedSearchDocument && <TaskWorkRecords key={id} id={id} />}
     </div>
   );
 }
@@ -335,10 +364,12 @@ function TaskMeta({
   id,
   tasks,
   syncStatus,
+  readOnly = false,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
+  readOnly?: boolean;
 }) {
   const [entity, setEntity] = useEntity("tasks", "task", id);
 
@@ -349,42 +380,55 @@ function TaskMeta({
   return (
     <>
       <div className={s["meta-status-row"]}>
-        <SyncIndicator status={syncStatus} />
+        {readOnly ? (
+          <span className={s["archived-label"]}>アーカイブ済み・読み取り専用</span>
+        ) : (
+          <SyncIndicator status={syncStatus} />
+        )}
       </div>
       <MetaTitle>
         <ContentHeaderName
           name={entity.name}
-          onRename={(name) => {
-            setEntity((prev: any) => ({ ...prev, name }));
-            tasks.rename("task", id, name);
-          }}
+          onRename={
+            readOnly
+              ? undefined
+              : (name) => {
+                  setEntity((prev: any) => ({ ...prev, name }));
+                  tasks.rename("task", id, name);
+                }
+          }
         />
       </MetaTitle>
       <RecordField label="ステータス">
-        <ItemPicker
-          mode="single"
-          items={STATUS_ITEMS_WITH_ARCHIVED}
-          selected={[sc.label]}
-          removable={false}
-          onSelect={(selected) => {
-            if (selected.length > 0) {
-              const label = selected[0];
-              if (label === "Archived") {
-                tasks.updateTaskFields(id, { isActive: false });
-              } else {
-                const key = statusLabelToKey(label);
-                tasks.updateTaskFields(id, { status: key });
+        {readOnly ? (
+          <span className={s["readonly-value"]}>{sc.label}</span>
+        ) : (
+          <ItemPicker
+            mode="single"
+            items={STATUS_ITEMS_WITH_ARCHIVED}
+            selected={[sc.label]}
+            removable={false}
+            onSelect={(selected) => {
+              if (selected.length > 0) {
+                const label = selected[0];
+                if (label === "Archived") {
+                  tasks.updateTaskFields(id, { isActive: false });
+                } else {
+                  const key = statusLabelToKey(label);
+                  tasks.updateTaskFields(id, { status: key });
+                }
               }
-            }
-          }}
-          placeholder="ステータス"
-        />
+            }}
+            placeholder="ステータス"
+          />
+        )}
       </RecordField>
       <RecordField label="開始">
         <input
           type="date"
           className={s["task-date-input"]}
           value={entity.startedAt ? entity.startedAt.slice(0, 10) : ""}
+          disabled={readOnly}
           onChange={(e) => tasks.updateTaskFields(id, { startedAt: e.target.value || "" })}
         />
       </RecordField>
@@ -393,6 +437,7 @@ function TaskMeta({
           type="date"
           className={s["task-date-input"]}
           value={entity.dueDate ? entity.dueDate.slice(0, 10) : ""}
+          disabled={readOnly}
           onChange={(e) => tasks.updateTaskFields(id, { dueDate: e.target.value || "" })}
         />
       </RecordField>

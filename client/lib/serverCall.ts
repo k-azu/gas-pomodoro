@@ -2,9 +2,12 @@
  * Promise wrapper for google.script.run
  * In dev mode (no google.script.run), returns mock data.
  */
+import { countMockDocumentsByType, searchMockDocuments } from "./mockDocumentSearch";
+import type { DocumentSearchFilter } from "../types/search";
 
 declare global {
   interface Window {
+    __mockDocumentSearchCallCount?: number;
     google?: {
       script: {
         run: {
@@ -508,6 +511,10 @@ const MOCK_CONTENT_BY_ID: Record<string, { content: string; updatedAt: string }>
     ),
     updatedAt: "2025-05-01T00:00:00.000Z",
   },
+  "mock-memo-archived": {
+    content: "# 旧バグトラッカー\n\n解決済みのタイマー不具合と調査ログです。",
+    updatedAt: "2024-11-30T08:20:00.000Z",
+  },
 };
 
 function getContentMockResponse(functionName: string, id?: string): unknown {
@@ -654,6 +661,20 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
         counts[formatDate(d)] = i === 0 ? 3 : Math.floor(Math.random() * 5);
       }
       return counts;
+    }
+
+    case "searchDocuments": {
+      window.__mockDocumentSearchCallCount = (window.__mockDocumentSearchCallCount ?? 0) + 1;
+      const query = String(args[0] || "");
+      const requestedFilter = String(args[1] || "all");
+      const filter: DocumentSearchFilter =
+        requestedFilter === "memo" || requestedFilter === "task" ? requestedFilter : "all";
+      const requestedLimit = Number(args[2]);
+      const limit = Number.isFinite(requestedLimit) ? Math.max(1, requestedLimit) : 50;
+      return {
+        results: searchMockDocuments(query, filter).slice(0, limit),
+        counts: countMockDocumentsByType(query),
+      };
     }
 
     // ---- Record CRUD ----
