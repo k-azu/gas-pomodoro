@@ -1,7 +1,9 @@
 import type { ViewerState } from "../contexts/NavigationContext";
 
 const DRAFT_PREFIX = "gas_pomodoro_viewer_draft:";
-const ACTIVE_DRAFT_KEY = "gas_pomodoro_active_viewer_draft";
+export const ACTIVE_VIEWER_KEY = "gas_pomodoro_active_viewer";
+const LEGACY_ACTIVE_DRAFT_KEY = "gas_pomodoro_active_viewer_draft";
+const ACTIVE_VIEWER_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface ViewerDraftFields {
   markdown: string;
@@ -18,6 +20,7 @@ export interface ViewerDraft {
   identity: string;
   source: ViewerState;
   fields: ViewerDraftFields;
+  dirty: boolean;
   updatedAt: string;
 }
 
@@ -36,7 +39,9 @@ export function loadViewerDraft(identity: string): ViewerDraft | null {
     const raw = localStorage.getItem(storageKey(identity));
     if (!raw) return null;
     const draft = JSON.parse(raw) as ViewerDraft;
-    return draft.identity === identity ? draft : null;
+    if (draft.identity !== identity) return null;
+    // Drafts written before the active-viewer snapshot existed were always dirty.
+    return { ...draft, dirty: draft.dirty ?? true };
   } catch {
     return null;
   }
@@ -44,40 +49,65 @@ export function loadViewerDraft(identity: string): ViewerDraft | null {
 
 export function saveViewerDraft(draft: ViewerDraft): void {
   try {
-    localStorage.setItem(storageKey(draft.identity), JSON.stringify(draft));
-    sessionStorage.setItem(ACTIVE_DRAFT_KEY, draft.identity);
+    const dirtyDraft = { ...draft, dirty: true };
+    localStorage.setItem(storageKey(draft.identity), JSON.stringify(dirtyDraft));
+    localStorage.setItem(ACTIVE_VIEWER_KEY, JSON.stringify(dirtyDraft));
   } catch {
     // Storage may be unavailable or full. The beforeunload guard still warns.
+  }
+}
+
+export function saveActiveViewerSnapshot(snapshot: ViewerDraft): void {
+  try {
+    localStorage.setItem(ACTIVE_VIEWER_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Storage may be unavailable or full.
   }
 }
 
 export function removeViewerDraft(identity: string): void {
   try {
     localStorage.removeItem(storageKey(identity));
-    if (sessionStorage.getItem(ACTIVE_DRAFT_KEY) === identity) {
-      sessionStorage.removeItem(ACTIVE_DRAFT_KEY);
-    }
   } catch {
     // ignore
   }
 }
 
-export function clearActiveViewerDraft(identity?: string): void {
+export function clearActiveViewerSnapshot(identity?: string): void {
   try {
-    if (!identity || sessionStorage.getItem(ACTIVE_DRAFT_KEY) === identity) {
-      sessionStorage.removeItem(ACTIVE_DRAFT_KEY);
+    const active = loadActiveViewerSnapshot();
+    if (!identity || active?.identity === identity) {
+      localStorage.removeItem(ACTIVE_VIEWER_KEY);
     }
+    sessionStorage.removeItem(LEGACY_ACTIVE_DRAFT_KEY);
   } catch {
     // ignore
   }
 }
 
-export function loadActiveViewerDraft(): ViewerDraft | null {
+export function loadActiveViewerSnapshot(): ViewerDraft | null {
   try {
-    const identity = sessionStorage.getItem(ACTIVE_DRAFT_KEY);
-    const draft = identity ? loadViewerDraft(identity) : null;
-    // In-memory interruption callbacks cannot be reconstructed after reload.
-    return draft?.source.recordId ? draft : null;
+    const raw = localStorage.getItem(ACTIVE_VIEWER_KEY);
+    if (raw) {
+      const snapshot = JSON.parse(raw) as ViewerDraft;
+      const updatedAt = Date.parse(snapshot.updatedAt);
+      const expired = !Number.isFinite(updatedAt) || Date.now() - updatedAt > ACTIVE_VIEWER_TTL_MS;
+      if (expired || !snapshot.identity || !snapshot.source?.recordId || !snapshot.fields) {
+        localStorage.removeItem(ACTIVE_VIEWER_KEY);
+        return null;
+      }
+      return { ...snapshot, dirty: snapshot.dirty ?? true };
+    }
+
+    // One-time migration from the sessionStorage pointer used by the first draft implementation.
+    const legacyIdentity = sessionStorage.getItem(LEGACY_ACTIVE_DRAFT_KEY);
+    const legacyDraft = legacyIdentity ? loadViewerDraft(legacyIdentity) : null;
+    sessionStorage.removeItem(LEGACY_ACTIVE_DRAFT_KEY);
+    if (legacyDraft?.source.recordId) {
+      saveActiveViewerSnapshot(legacyDraft);
+      return legacyDraft;
+    }
+    return null;
   } catch {
     return null;
   }

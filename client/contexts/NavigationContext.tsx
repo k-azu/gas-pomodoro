@@ -7,7 +7,7 @@
  */
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import { STORAGE_KEYS, lsSet, lsSetJSON } from "../lib/localStorage";
-import { clearActiveViewerDraft, loadActiveViewerDraft } from "../lib/viewerDraft";
+import { clearActiveViewerSnapshot, loadActiveViewerSnapshot } from "../lib/viewerDraft";
 import type { DocumentSearchResult } from "../types/search";
 
 export type TabId = "memo" | "task" | "record" | "interruption" | "viewer" | "settings";
@@ -137,8 +137,8 @@ interface NavigationContextValue {
 const NavigationContext = createContext<NavigationContextValue | null>(null);
 
 export function NavigationProvider({ children }: { children: React.ReactNode }) {
-  const restoredViewerDraftRef = useRef(loadActiveViewerDraft());
-  const restoredViewerState = restoredViewerDraftRef.current?.source ?? null;
+  const restoredViewerSnapshotRef = useRef(loadActiveViewerSnapshot());
+  const restoredViewerState = restoredViewerSnapshotRef.current?.source ?? null;
   const [activeTab, setActiveTab] = useState<TabId>(restoredViewerState ? "viewer" : "memo");
   const [viewerState, setViewerState] = useState<ViewerState | null>(restoredViewerState);
   const [restoreSeq, setRestoreSeq] = useState(0);
@@ -256,7 +256,7 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   // (!vis[activeTab]) and calls restoreTab — same code path as all other tab transitions.
   const closeViewer = useCallback(() => {
     const proceed = () => {
-      clearActiveViewerDraft();
+      clearActiveViewerSnapshot();
       viewerStateRef.current = null;
       setViewerState(null);
     };
@@ -420,9 +420,9 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
 
   // --- Seed initial state from URL hash ---
   useEffect(() => {
-    if (restoredViewerDraftRef.current) {
+    if (restoredViewerSnapshotRef.current) {
       activeTabRef.current = "viewer";
-      viewerStateRef.current = restoredViewerDraftRef.current.source;
+      viewerStateRef.current = restoredViewerSnapshotRef.current.source;
       hasHistoryRef.current = true;
       return;
     }

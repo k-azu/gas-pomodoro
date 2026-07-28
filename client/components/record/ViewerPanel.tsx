@@ -22,6 +22,7 @@ import {
   getViewerIdentity,
   loadViewerDraft,
   removeViewerDraft,
+  saveActiveViewerSnapshot,
   saveViewerDraft,
 } from "../../lib/viewerDraft";
 import type { ViewerDraft } from "../../lib/viewerDraft";
@@ -43,6 +44,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
     useNavigation();
   const editorConfig = useEditorConfig();
   const identity = getViewerIdentity(vs);
+  const activeSourceRef = useRef(vs);
   const initialDraftRef = useRef(identity ? loadViewerDraft(identity) : null);
   const initialDraft = initialDraftRef.current;
 
@@ -236,6 +238,17 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       origCaseId.current = newCaseId;
       origTaskId.current = newTaskId;
       origMarkdown.current = editorMarkdown;
+      activeSourceRef.current = buildSavedViewerState(
+        vs,
+        markdown,
+        newCategory,
+        newType,
+        startTime,
+        endTime,
+        newProjectId,
+        newCaseId,
+        newTaskId,
+      );
       setCurrentMarkdown(editorMarkdown);
       setMarkdownDirty(false);
       if (identity) removeViewerDraft(identity);
@@ -302,6 +315,17 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       origCaseId.current = newCaseId;
       origTaskId.current = newTaskId;
       origMarkdown.current = editorMarkdown;
+      activeSourceRef.current = buildSavedViewerState(
+        vs,
+        markdown,
+        newCategory,
+        newType,
+        startTime,
+        endTime,
+        newProjectId,
+        newCaseId,
+        newTaskId,
+      );
       setCurrentMarkdown(editorMarkdown);
       setMarkdownDirty(false);
       if (identity) removeViewerDraft(identity);
@@ -334,7 +358,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
     identity && resolvedMarkdown !== null
       ? {
           identity,
-          source: vs,
+          source: activeSourceRef.current,
           fields: {
             markdown: blobUrlsToDrive(currentMarkdown),
             category: selectedCategory[0] || "",
@@ -345,6 +369,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
             caseId: selectedCaseId,
             taskId: selectedTaskId,
           },
+          dirty: isDirty,
           updatedAt: new Date().toISOString(),
         }
       : null;
@@ -360,6 +385,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     if (!isDirty) {
       removeViewerDraft(identity);
+      saveActiveViewerSnapshot(draft);
       return;
     }
     draftClearedRef.current = false;
@@ -558,4 +584,38 @@ function toDatetimeLocal(iso: string | null | undefined): string {
   if (isNaN(d.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function buildSavedViewerState(
+  source: ViewerState,
+  markdown: string,
+  category: string,
+  interruptionType: "work" | "nonWork",
+  startTime: string,
+  endTime: string,
+  projectId: string,
+  caseId: string,
+  taskId: string,
+): ViewerState {
+  const start = startTime ? new Date(startTime) : null;
+  const end = endTime ? new Date(endTime) : null;
+  const hasValidTimes =
+    start !== null &&
+    end !== null &&
+    Number.isFinite(start.getTime()) &&
+    Number.isFinite(end.getTime());
+  return {
+    ...source,
+    markdown,
+    category,
+    interruptionType: source.interruptionType ? interruptionType : null,
+    startTime: start?.toISOString() ?? source.startTime,
+    endTime: end?.toISOString() ?? source.endTime,
+    projectId,
+    caseId,
+    taskId,
+    actualDurationSeconds: hasValidTimes
+      ? Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000))
+      : source.actualDurationSeconds,
+  };
 }

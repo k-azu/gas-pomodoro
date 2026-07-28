@@ -1,6 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { gotoApp } from "./helpers/app";
 
+const ACTIVE_VIEWER_KEY = "gas_pomodoro_active_viewer";
+
 async function openHistory(page: Page, index = 1): Promise<void> {
   await page.locator("[class*='record-item-row']").nth(index).click();
   await expect(page.getByRole("button", { name: "履歴詳細" })).toBeVisible();
@@ -31,6 +33,7 @@ test.describe("履歴詳細の未保存変更", () => {
     await page.getByRole("button", { name: "戻る" }).click();
     await dialog.getByRole("button", { name: "変更を破棄" }).click();
     await expect(page.getByRole("button", { name: "履歴詳細" })).toHaveCount(0);
+    expect(await page.evaluate((key) => localStorage.getItem(key), ACTIVE_VIEWER_KEY)).toBeNull();
   });
 
   test("別履歴選択時に現在の変更を破棄して移動できる", async ({ page }) => {
@@ -109,5 +112,71 @@ test.describe("履歴詳細の未保存変更", () => {
     await expect(page.getByRole("button", { name: "履歴詳細" })).toBeVisible({ timeout: 10_000 });
     await expect(page.locator("input[type='datetime-local']:visible").first()).toHaveValue(changed);
     await expect(page.getByRole("status")).toHaveText("未保存の変更を復元しました");
+  });
+
+  test("未編集でも最後に開いていた履歴詳細を新しいページで復元する", async ({ page }) => {
+    await gotoApp(page);
+    await openHistory(page);
+    await expect
+      .poll(() => page.evaluate((key) => localStorage.getItem(key), ACTIVE_VIEWER_KEY))
+      .not.toBeNull();
+
+    const restoredPage = await page.context().newPage();
+    await restoredPage.goto("/#tab=memo");
+
+    await expect(restoredPage.getByRole("button", { name: "履歴詳細" })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(restoredPage.locator(".ProseMirror:visible")).toContainText("コードレビュー");
+    await expect(restoredPage.getByRole("status")).toHaveCount(0);
+  });
+
+  test("保存後の最新内容をクリーンな状態としてクラッシュ復元する", async ({ page }) => {
+    await gotoApp(page);
+    await openHistory(page);
+    await appendToViewer(page, "保存後クラッシュ復元");
+    await page.getByRole("button", { name: "保存" }).click();
+    await expect(page.getByRole("button", { name: "保存" })).toBeDisabled();
+    await expect
+      .poll(() =>
+        page.evaluate((key) => {
+          const raw = localStorage.getItem(key);
+          return raw ? JSON.parse(raw) : null;
+        }, ACTIVE_VIEWER_KEY),
+      )
+      .toMatchObject({ dirty: false });
+
+    const restoredPage = await page.context().newPage();
+    await restoredPage.goto("/#tab=memo");
+
+    await expect(restoredPage.locator(".ProseMirror:visible")).toContainText(
+      "保存後クラッシュ復元",
+      { timeout: 10_000 },
+    );
+    await expect(restoredPage.getByRole("status")).toHaveCount(0);
+    await expect(restoredPage.getByRole("button", { name: "保存" })).toBeDisabled();
+  });
+
+  test("7日を超えた最新履歴詳細は自動復元しない", async ({ page }) => {
+    await gotoApp(page);
+    await openHistory(page);
+    await expect
+      .poll(() => page.evaluate((key) => localStorage.getItem(key), ACTIVE_VIEWER_KEY))
+      .not.toBeNull();
+    await page.evaluate((key) => {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const snapshot = JSON.parse(raw);
+      snapshot.updatedAt = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+      localStorage.setItem(key, JSON.stringify(snapshot));
+    }, ACTIVE_VIEWER_KEY);
+
+    const restoredPage = await page.context().newPage();
+    await gotoApp(restoredPage);
+
+    await expect(restoredPage.getByRole("button", { name: "履歴詳細" })).toHaveCount(0);
+    expect(
+      await restoredPage.evaluate((key) => localStorage.getItem(key), ACTIVE_VIEWER_KEY),
+    ).toBeNull();
   });
 });
