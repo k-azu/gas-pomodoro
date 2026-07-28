@@ -403,6 +403,8 @@ const CONTENT_FUNCTIONS = new Set([
   "getCaseContent",
   "getTaskContent",
   "getMemoContent",
+  "updateRecordDetails",
+  "updateInterruptionDetails",
 ]);
 
 /** Generate large mock content for char-count limit testing. Includes `prefix` for keyword matching. */
@@ -692,6 +694,24 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
     case "updateRecordTimes":
     case "updateRecordTaskId":
       return { success: true, record: MOCK_RECORDS[0] };
+    case "updateRecordDetails": {
+      const id = String(args[0]);
+      const update = (args[1] || {}) as any;
+      const original = MOCK_RECORDS.find((record) => record.id === id) || MOCK_RECORDS[0];
+      return {
+        success: true,
+        record: {
+          ...original,
+          content: update.content,
+          category: update.category,
+          startTime: update.startTime,
+          endTime: update.endTime,
+          projectId: update.projectId,
+          caseId: update.caseId,
+          taskId: update.taskId,
+        },
+      };
+    }
 
     // ---- Interruption CRUD ----
     case "updateInterruptionContent":
@@ -699,6 +719,23 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
     case "updateInterruptionType":
     case "updateInterruptionTimes":
       return { success: true, interruption: MOCK_INTERRUPTIONS[0] };
+    case "updateInterruptionDetails": {
+      const id = String(args[0]);
+      const update = (args[1] || {}) as any;
+      const original =
+        MOCK_INTERRUPTIONS.find((interruption) => interruption.id === id) || MOCK_INTERRUPTIONS[0];
+      return {
+        success: true,
+        interruption: {
+          ...original,
+          content: update.content,
+          category: update.category,
+          type: update.interruptionType,
+          startTime: update.startTime,
+          endTime: update.endTime,
+        },
+      };
+    }
 
     // ---- Category CRUD ----
     case "getCategories":

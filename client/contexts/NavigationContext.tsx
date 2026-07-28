@@ -7,6 +7,7 @@
  */
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import { STORAGE_KEYS, lsSet, lsSetJSON } from "../lib/localStorage";
+import { clearActiveViewerDraft, loadActiveViewerDraft } from "../lib/viewerDraft";
 import type { DocumentSearchResult } from "../types/search";
 
 export type TabId = "memo" | "task" | "record" | "interruption" | "viewer" | "settings";
@@ -39,7 +40,12 @@ export interface ViewerState {
   onSaveHierarchy?: (projectId: string, caseId: string, taskId: string) => void;
   /** Actual duration in seconds (work records, for task stats delta) */
   actualDurationSeconds?: number;
+  /** Stable identity for an in-memory interruption draft */
+  draftId?: string;
 }
+
+export type ViewerExitIntent = "close" | "replace";
+type ViewerExitGuard = (intent: ViewerExitIntent, proceed: () => void) => void;
 
 export interface DocumentSearchRevealRequest {
   requestId: number;
@@ -110,6 +116,7 @@ interface NavigationContextValue {
   /** True while ViewerPanel is saving to server */
   isViewerSaving: boolean;
   setViewerSaving: (v: boolean) => void;
+  registerViewerExitGuard: (guard: ViewerExitGuard | null) => void;
   /** Search query to reveal in the document opened from the search palette */
   searchRevealRequest: DocumentSearchRevealRequest | null;
   /** Document metadata retained while a search result is open (including archived documents). */
@@ -130,8 +137,10 @@ interface NavigationContextValue {
 const NavigationContext = createContext<NavigationContextValue | null>(null);
 
 export function NavigationProvider({ children }: { children: React.ReactNode }) {
-  const [activeTab, setActiveTab] = useState<TabId>("memo");
-  const [viewerState, setViewerState] = useState<ViewerState | null>(null);
+  const restoredViewerDraftRef = useRef(loadActiveViewerDraft());
+  const restoredViewerState = restoredViewerDraftRef.current?.source ?? null;
+  const [activeTab, setActiveTab] = useState<TabId>(restoredViewerState ? "viewer" : "memo");
+  const [viewerState, setViewerState] = useState<ViewerState | null>(restoredViewerState);
   const [restoreSeq, setRestoreSeq] = useState(0);
   const [isViewerSaving, setIsViewerSaving] = useState(false);
   const [searchRevealRequest, setSearchRevealRequest] =
@@ -143,10 +152,15 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   const setViewerSaving = useCallback((v: boolean) => setIsViewerSaving(v), []);
   const searchRequestSeqRef = useRef(0);
   const clearSearchRevealRequest = useCallback(() => setSearchRevealRequest(null), []);
+  const viewerExitGuardRef = useRef<ViewerExitGuard | null>(null);
+  const registerViewerExitGuard = useCallback((guard: ViewerExitGuard | null) => {
+    viewerExitGuardRef.current = guard;
+  }, []);
 
   // All mutable state lives in refs — pushHash reads ONLY refs (no stale closures)
   const restoringRef = useRef(false);
-  const activeTabRef = useRef<TabId>("memo");
+  const activeTabRef = useRef<TabId>(restoredViewerState ? "viewer" : "memo");
+  const viewerStateRef = useRef<ViewerState | null>(restoredViewerState);
   const taskNodeRef = useRef<{ type: string; id: string } | null>(null);
   const memoIdRef = useRef<string | null>(null);
   const hasHistoryRef = useRef(false); // false = first push uses replaceState
@@ -224,8 +238,16 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   // Viewer is transient like record/interruption — no browser history entry.
   const showViewer = useCallback(
     (state: ViewerState) => {
-      setViewerState(state);
-      switchTab("viewer", { skipHistory: true });
+      const proceed = () => {
+        viewerStateRef.current = state;
+        setViewerState(state);
+        switchTab("viewer", { skipHistory: true });
+      };
+      if (viewerStateRef.current && viewerExitGuardRef.current) {
+        viewerExitGuardRef.current("replace", proceed);
+      } else {
+        proceed();
+      }
     },
     [switchTab],
   );
@@ -233,7 +255,16 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   // Just clear viewerState. RightPanel's effect detects viewer becoming invisible
   // (!vis[activeTab]) and calls restoreTab — same code path as all other tab transitions.
   const closeViewer = useCallback(() => {
-    setViewerState(null);
+    const proceed = () => {
+      clearActiveViewerDraft();
+      viewerStateRef.current = null;
+      setViewerState(null);
+    };
+    if (viewerExitGuardRef.current) {
+      viewerExitGuardRef.current("close", proceed);
+    } else {
+      proceed();
+    }
   }, []);
 
   // --- notifyTaskNodeChange ---
@@ -359,6 +390,7 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
       // Restore tab
       activeTabRef.current = parsed.tab;
       setActiveTab(parsed.tab);
+      viewerStateRef.current = null;
       setViewerState(null);
 
       // Update refs
@@ -388,6 +420,12 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
 
   // --- Seed initial state from URL hash ---
   useEffect(() => {
+    if (restoredViewerDraftRef.current) {
+      activeTabRef.current = "viewer";
+      viewerStateRef.current = restoredViewerDraftRef.current.source;
+      hasHistoryRef.current = true;
+      return;
+    }
     if (location.hash) {
       const parsed = parseHash();
       const historyDocument = (history.state as NavigationHistoryState | null)?.searchDocument;
@@ -433,6 +471,7 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
         restoreSeq,
         isViewerSaving,
         setViewerSaving,
+        registerViewerExitGuard,
         searchRevealRequest,
         searchOpenedDocument,
         clearSearchRevealRequest,

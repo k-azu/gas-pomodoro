@@ -4,3 +4,52 @@
   flex-direction: column;
   height: 100%;
 }
+
+.draft-notice {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-bottom: 1px solid #ffe0b2;
+  background: #fff8e1;
+  color: #8d6e63;
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.exit-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(25, 25, 28, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.exit-dialog {
+  width: min(440px, 100%);
+  padding: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+}
+
+.exit-dialog h2 {
+  margin-bottom: 10px;
+  font-size: 1.1rem;
+}
+
+.exit-dialog p {
+  margin-bottom: 20px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.exit-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

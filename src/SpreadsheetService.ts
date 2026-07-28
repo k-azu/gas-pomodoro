@@ -30,6 +30,17 @@ interface InterruptionRecord {
   content: string;
 }
 
+interface RecordDetailsUpdate {
+  content: string;
+  category: string;
+  interruptionType?: string;
+  startTime: string | null;
+  endTime: string | null;
+  projectId?: string;
+  caseId?: string;
+  taskId?: string;
+}
+
 function saveRecord(record: PomodoroRecord): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("PomodoroLog")!;
@@ -224,6 +235,47 @@ function updateRecordContent(
   return { success: false };
 }
 
+/**
+ * Update all editable work-record fields in one Apps Script invocation and
+ * return one final snapshot for the client cache.
+ */
+function updateRecordDetails(
+  recordId: string,
+  update: RecordDetailsUpdate,
+): { success: boolean; record?: PomodoroRecord } {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = Session.getScriptTimeZone();
+  const sheet = ss.getSheetByName("PomodoroLog")!;
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { success: false };
+
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let i = ids.length - 1; i >= 0; i--) {
+    if (String(ids[i][0]) !== recordId) continue;
+    const row = i + 2;
+    sheet.getRange(row, 8).setValue(update.content);
+    sheet.getRange(row, 9).setValue(update.category);
+    sheet.getRange(row, 16).setValue(update.taskId || "");
+    sheet.getRange(row, 17).setValue(update.projectId || "");
+    sheet.getRange(row, 18).setValue(update.caseId || "");
+
+    if (update.startTime) {
+      sheet.getRange(row, 3).setValue(update.startTime);
+      sheet
+        .getRange(row, 2)
+        .setValue(Utilities.formatDate(new Date(update.startTime), tz, "yyyy-MM-dd"));
+    }
+    if (update.endTime) sheet.getRange(row, 4).setValue(update.endTime);
+    if (update.startTime || update.endTime) {
+      const start = new Date(update.startTime || String(sheet.getRange(row, 3).getValue()));
+      const end = new Date(update.endTime || String(sheet.getRange(row, 4).getValue()));
+      sheet.getRange(row, 6).setValue(Math.round((end.getTime() - start.getTime()) / 1000));
+    }
+    return { success: true, record: readRecordRow(sheet, row, tz) };
+  }
+  return { success: false };
+}
+
 function updateInterruptionContent(
   interruptionId: string,
   content: string,
@@ -239,6 +291,38 @@ function updateInterruptionContent(
       sheet.getRange(i + 2, 8).setValue(content); // column 8 = content
       return { success: true, interruption: readInterruptionRow(sheet, i + 2) };
     }
+  }
+  return { success: false };
+}
+
+/**
+ * Update all editable interruption fields together so partial saves cannot
+ * leave the sheet and the local cache with different snapshots.
+ */
+function updateInterruptionDetails(
+  interruptionId: string,
+  update: RecordDetailsUpdate,
+): { success: boolean; interruption?: InterruptionRecord } {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Interruptions")!;
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { success: false };
+
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let i = ids.length - 1; i >= 0; i--) {
+    if (String(ids[i][0]) !== interruptionId) continue;
+    const row = i + 2;
+    sheet.getRange(row, 3).setValue(update.interruptionType || "nonWork");
+    sheet.getRange(row, 7).setValue(update.category);
+    sheet.getRange(row, 8).setValue(update.content);
+    if (update.startTime) sheet.getRange(row, 4).setValue(update.startTime);
+    if (update.endTime) sheet.getRange(row, 5).setValue(update.endTime);
+    if (update.startTime || update.endTime) {
+      const start = new Date(update.startTime || String(sheet.getRange(row, 4).getValue()));
+      const end = new Date(update.endTime || String(sheet.getRange(row, 5).getValue()));
+      sheet.getRange(row, 6).setValue(Math.round((end.getTime() - start.getTime()) / 1000));
+    }
+    return { success: true, interruption: readInterruptionRow(sheet, row) };
   }
   return { success: false };
 }

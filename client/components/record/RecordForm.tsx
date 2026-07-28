@@ -150,6 +150,7 @@ export function RecordForm() {
         markdown: int.content || "",
         recordId: null,
         recordType: null,
+        draftId: int.id,
         category: int.category || "",
         sheetType: "InterruptionCategories",
         interruptionType: int.type as "work" | "nonWork",

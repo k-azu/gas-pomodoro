@@ -18,6 +18,13 @@ import { blobUrlsToDrive, resolveDriveUrls } from "../../lib/imageCache";
 import { serverCall } from "../../lib/serverCall";
 import * as TaskStore from "../../lib/taskStore";
 import * as RecordCache from "../../lib/recordCache";
+import {
+  getViewerIdentity,
+  loadViewerDraft,
+  removeViewerDraft,
+  saveViewerDraft,
+} from "../../lib/viewerDraft";
+import type { ViewerDraft } from "../../lib/viewerDraft";
 import { SaveOverlay } from "../shared/SaveOverlay";
 import s from "./ViewerPanel.module.css";
 
@@ -27,33 +34,64 @@ export function ViewerPanel() {
 
   if (!vs) return null;
 
-  return <ViewerContent key={vs.recordId ?? "mem"} viewerState={vs} />;
+  return <ViewerContent key={getViewerIdentity(vs) ?? "mem"} viewerState={vs} />;
 }
 
 function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
   const { timer } = useApp();
-  const { closeViewer, navigateToDocument, setViewerSaving } = useNavigation();
+  const { closeViewer, navigateToDocument, setViewerSaving, registerViewerExitGuard } =
+    useNavigation();
   const editorConfig = useEditorConfig();
+  const identity = getViewerIdentity(vs);
+  const initialDraftRef = useRef(identity ? loadViewerDraft(identity) : null);
+  const initialDraft = initialDraftRef.current;
 
   const [charCount, setCharCount] = useState(0);
   const [resolvedMarkdown, setResolvedMarkdown] = useState<string | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<string[]>(
-    vs.category ? [vs.category] : [],
+  const [currentMarkdown, setCurrentMarkdown] = useState(
+    initialDraft?.fields.markdown ?? vs.markdown ?? "",
   );
-  const [intType, setIntType] = useState<boolean>(vs.interruptionType === "work");
-  const [startTime, setStartTime] = useState(() => toDatetimeLocal(vs.startTime));
-  const [endTime, setEndTime] = useState(() => toDatetimeLocal(vs.endTime));
+  const [selectedCategory, setSelectedCategory] = useState<string[]>(
+    initialDraft
+      ? initialDraft.fields.category
+        ? [initialDraft.fields.category]
+        : []
+      : vs.category
+        ? [vs.category]
+        : [],
+  );
+  const [intType, setIntType] = useState<boolean>(
+    (initialDraft?.fields.interruptionType ?? vs.interruptionType) === "work",
+  );
+  const [startTime, setStartTime] = useState(
+    () => initialDraft?.fields.startTime ?? toDatetimeLocal(vs.startTime),
+  );
+  const [endTime, setEndTime] = useState(
+    () => initialDraft?.fields.endTime ?? toDatetimeLocal(vs.endTime),
+  );
   const [isSaving, setIsSaving] = useState(false);
+  const [pendingExit, setPendingExit] = useState<{
+    intent: "close" | "replace";
+    proceed: () => void;
+  } | null>(null);
+  const [restoredDraftVisible, setRestoredDraftVisible] = useState(!!initialDraft);
+  const draftClearedRef = useRef(false);
 
   // Task hierarchy state (work records only)
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(vs.projectId || null);
-  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(vs.caseId || null);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(vs.taskId || null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    initialDraft?.fields.projectId ?? vs.projectId ?? null,
+  );
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(
+    initialDraft?.fields.caseId ?? vs.caseId ?? null,
+  );
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(
+    initialDraft?.fields.taskId ?? vs.taskId ?? null,
+  );
   const showTaskPicker = vs.recordType === "record" || vs.onSaveHierarchy !== undefined;
 
   // Auto-fill project/case from taskId for legacy records (only when record has no projectId)
   useEffect(() => {
-    if (!showTaskPicker || vs.projectId || !vs.taskId) return;
+    if (initialDraft || !showTaskPicker || vs.projectId || !vs.taskId) return;
     (async () => {
       try {
         const tasks = await TaskStore.getAllTasks();
@@ -66,7 +104,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
         // ignore
       }
     })();
-  }, [showTaskPicker, vs.projectId, vs.taskId]);
+  }, [initialDraft, showTaskPicker, vs.projectId, vs.taskId]);
 
   const handleHierarchyChange = useCallback(
     (pId: string | null, cId: string | null, tId: string | null) => {
@@ -87,23 +125,35 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
   const { editor, mode, setMode, rawMarkdown, setRawMarkdown, getMarkdown, applyContent } =
     useMarkdownEditor({
       initialContent: "",
-      onChange: (md) => setMarkdownDirty(md !== origMarkdown.current),
+      onChange: (md) => {
+        draftClearedRef.current = false;
+        setCurrentMarkdown(md);
+        setMarkdownDirty(md !== origMarkdown.current);
+      },
       onCharCount: setCharCount,
       ...editorConfig.editorProps,
     });
 
   // Resolve Drive URLs in initial markdown
   useEffect(() => {
-    if (vs.markdown) {
-      resolveDriveUrls(vs.markdown).then((md) => {
-        origMarkdown.current = md;
-        setResolvedMarkdown(md);
-      });
-    } else {
-      origMarkdown.current = vs.markdown ?? "";
-      setResolvedMarkdown(vs.markdown);
-    }
-  }, [vs.markdown]);
+    let cancelled = false;
+    Promise.all([
+      resolveDriveUrls(vs.markdown || ""),
+      initialDraft
+        ? resolveDriveUrls(initialDraft.fields.markdown || "")
+        : Promise.resolve<string | null>(null),
+    ]).then(([original, restored]) => {
+      if (cancelled) return;
+      const displayed = restored ?? original;
+      origMarkdown.current = original;
+      setCurrentMarkdown(displayed);
+      setMarkdownDirty(displayed !== original);
+      setResolvedMarkdown(displayed);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [vs.markdown, initialDraft]);
 
   // Apply resolved content after EditorLayout mounts (view must be available)
   useEffect(() => {
@@ -114,8 +164,8 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
   // Track original values for change detection
   const origCategory = useRef(vs.category);
   const origType = useRef(vs.interruptionType);
-  const origStartTime = useRef(startTime);
-  const origEndTime = useRef(endTime);
+  const origStartTime = useRef(toDatetimeLocal(vs.startTime));
+  const origEndTime = useRef(toDatetimeLocal(vs.endTime));
   const origProjectId = useRef(vs.projectId || null);
   const origCaseId = useRef(vs.caseId || null);
   const origTaskId = useRef(vs.taskId || null);
@@ -142,8 +192,9 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
         (selectedTaskId || "") !== (origTaskId.current || "")
       : false);
 
-  const handleSave = useCallback(async () => {
-    const markdown = blobUrlsToDrive(getMarkdown() || "");
+  const handleSave = useCallback(async (): Promise<boolean> => {
+    const editorMarkdown = getMarkdown() || "";
+    const markdown = blobUrlsToDrive(editorMarkdown);
     const newCategory = selectedCategory[0] || "";
     const newType = intType ? "work" : "nonWork";
     const newProjectId = selectedProjectId || "";
@@ -184,54 +235,38 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       origProjectId.current = newProjectId;
       origCaseId.current = newCaseId;
       origTaskId.current = newTaskId;
-      origMarkdown.current = markdown;
+      origMarkdown.current = editorMarkdown;
+      setCurrentMarkdown(editorMarkdown);
       setMarkdownDirty(false);
-      return;
+      if (identity) removeViewerDraft(identity);
+      draftClearedRef.current = true;
+      setRestoredDraftVisible(false);
+      return true;
     }
 
     // Server save
-    if (!vs.recordId) return;
+    if (!vs.recordId) return false;
     setIsSaving(true);
     setViewerSaving(true);
 
     try {
       const fn =
-        vs.recordType === "interruption" ? "updateInterruptionContent" : "updateRecordContent";
+        vs.recordType === "interruption" ? "updateInterruptionDetails" : "updateRecordDetails";
+      const result = (await serverCall(fn, vs.recordId, {
+        content: markdown,
+        category: newCategory,
+        interruptionType: newType,
+        startTime: startTime ? new Date(startTime).toISOString() : null,
+        endTime: endTime ? new Date(endTime).toISOString() : null,
+        projectId: newProjectId,
+        caseId: newCaseId,
+        taskId: newTaskId,
+      })) as any;
+      if (!result?.success) throw new Error("更新対象の履歴が見つかりませんでした");
 
-      const promises: Promise<unknown>[] = [serverCall(fn, vs.recordId, markdown)];
-
-      if (categoryChanged) {
-        const catFn =
-          vs.recordType === "interruption" ? "updateInterruptionCategory" : "updateRecordCategory";
-        promises.push(serverCall(catFn, vs.recordId, newCategory));
-      }
-
-      if (typeChanged) {
-        promises.push(serverCall("updateInterruptionType", vs.recordId, newType));
-      }
-
-      if ((startChanged || endChanged) && startTime && endTime) {
-        const ns = new Date(startTime);
-        const ne = new Date(endTime);
-        const timeFn =
-          vs.recordType === "interruption" ? "updateInterruptionTimes" : "updateRecordTimes";
-        promises.push(serverCall(timeFn, vs.recordId, ns.toISOString(), ne.toISOString()));
-      }
-
-      if (hierarchyChanged) {
-        promises.push(
-          serverCall("updateRecordHierarchy", vs.recordId, newProjectId, newCaseId, newTaskId),
-        );
-      }
-
-      const results = await Promise.all(promises);
-
-      // Write-through: update IDB cache from server responses
-      for (const result of results) {
-        const r = result as any;
-        if (r?.record) await RecordCache.upsertRecord(r.record);
-        if (r?.interruption) await RecordCache.upsertInterruptions([r.interruption]);
-      }
+      // Write-through the single final server snapshot to IDB.
+      if (result.record) await RecordCache.upsertRecord(result.record);
+      if (result.interruption) await RecordCache.upsertInterruptions([result.interruption]);
 
       // Update task stats (work records only)
       if (vs.recordType === "record") {
@@ -266,10 +301,16 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       origProjectId.current = newProjectId;
       origCaseId.current = newCaseId;
       origTaskId.current = newTaskId;
-      origMarkdown.current = markdown;
+      origMarkdown.current = editorMarkdown;
+      setCurrentMarkdown(editorMarkdown);
       setMarkdownDirty(false);
+      if (identity) removeViewerDraft(identity);
+      draftClearedRef.current = true;
+      setRestoredDraftVisible(false);
+      return true;
     } catch (err) {
       alert("保存に失敗しました: " + err);
+      return false;
     } finally {
       setIsSaving(false);
       setViewerSaving(false);
@@ -286,16 +327,120 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
     showTaskPicker,
     setViewerSaving,
     getMarkdown,
+    identity,
   ]);
 
-  // Clean up viewer-saving flag on unmount
-  useEffect(() => () => setViewerSaving(false), [setViewerSaving]);
+  const draft: ViewerDraft | null =
+    identity && resolvedMarkdown !== null
+      ? {
+          identity,
+          source: vs,
+          fields: {
+            markdown: blobUrlsToDrive(currentMarkdown),
+            category: selectedCategory[0] || "",
+            interruptionType: vs.interruptionType ? (intType ? "work" : "nonWork") : null,
+            startTime,
+            endTime,
+            projectId: selectedProjectId,
+            caseId: selectedCaseId,
+            taskId: selectedTaskId,
+          },
+          updatedAt: new Date().toISOString(),
+        }
+      : null;
+  const latestDraftRef = useRef<ViewerDraft | null>(draft);
+  latestDraftRef.current = draft;
+  const isDirtyRef = useRef(isDirty);
+  isDirtyRef.current = isDirty;
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Persist an unsaved viewer draft without committing it to the server.
+  useEffect(() => {
+    if (!identity || !draft || resolvedMarkdown === null) return;
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    if (!isDirty) {
+      removeViewerDraft(identity);
+      return;
+    }
+    draftClearedRef.current = false;
+    draftTimerRef.current = setTimeout(() => {
+      draftTimerRef.current = null;
+      const latest = latestDraftRef.current;
+      if (latest) saveViewerDraft(latest);
+    }, 1000);
+    return () => {
+      if (draftTimerRef.current) {
+        clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = null;
+      }
+    };
+  }, [identity, draft, isDirty, resolvedMarkdown]);
+
+  // A reload cannot await google.script.run, so synchronously flush the local draft and warn.
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirtyRef.current) return;
+      const latest = latestDraftRef.current;
+      if (latest) saveViewerDraft(latest);
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
+
+  // Route destructive viewer transitions through the same three-way decision.
+  useEffect(() => {
+    registerViewerExitGuard((intent, proceed) => {
+      if (isSaving) return;
+      if (!isDirty) {
+        proceed();
+        return;
+      }
+      const latest = latestDraftRef.current;
+      if (latest) saveViewerDraft(latest);
+      setPendingExit({ intent, proceed });
+    });
+    return () => registerViewerExitGuard(null);
+  }, [isDirty, isSaving, registerViewerExitGuard]);
+
+  // Flush a pending draft on unmount; successful save/discard already removed it.
+  useEffect(
+    () => () => {
+      setViewerSaving(false);
+      if (!draftClearedRef.current && isDirtyRef.current && latestDraftRef.current) {
+        saveViewerDraft(latestDraftRef.current);
+      }
+    },
+    [setViewerSaving],
+  );
+
+  const discardAndProceed = useCallback(() => {
+    if (identity) removeViewerDraft(identity);
+    draftClearedRef.current = true;
+    const proceed = pendingExit?.proceed;
+    setPendingExit(null);
+    proceed?.();
+  }, [identity, pendingExit]);
+
+  const saveAndProceed = useCallback(async () => {
+    const saved = await handleSave();
+    if (!saved) return;
+    const proceed = pendingExit?.proceed;
+    setPendingExit(null);
+    proceed?.();
+  }, [handleSave, pendingExit]);
 
   if (resolvedMarkdown === null) return null;
 
   return (
     <div className={s["viewer-panel"]}>
       <SaveOverlay visible={isSaving} />
+      {restoredDraftVisible && (
+        <div className={s["draft-notice"]} role="status">
+          未保存の変更を復元しました
+        </div>
+      )}
       <EditorLayout
         editor={editor}
         mode={mode}
@@ -358,6 +503,49 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
             保存
           </button>
         </FormActions>
+      )}
+      {pendingExit && (
+        <div className={s["exit-backdrop"]} role="presentation">
+          <section
+            className={s["exit-dialog"]}
+            role="dialog"
+            aria-modal="true"
+            aria-label="未保存の変更"
+          >
+            <h2>未保存の変更があります</h2>
+            <p>
+              {pendingExit.intent === "replace"
+                ? "変更を保存して、選択した履歴を開きますか？"
+                : "変更を保存して履歴詳細を閉じますか？"}
+            </p>
+            <div className={s["exit-actions"]}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={saveAndProceed}
+                disabled={isSaving}
+              >
+                保存して移動
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={discardAndProceed}
+                disabled={isSaving}
+              >
+                変更を破棄
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setPendingExit(null)}
+                disabled={isSaving}
+              >
+                編集を続ける
+              </button>
+            </div>
+          </section>
+        </div>
       )}
     </div>
   );
