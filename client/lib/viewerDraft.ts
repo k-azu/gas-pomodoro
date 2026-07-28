@@ -47,13 +47,15 @@ export function loadViewerDraft(identity: string): ViewerDraft | null {
   }
 }
 
-export function saveViewerDraft(draft: ViewerDraft): void {
+export function saveViewerDraft(draft: ViewerDraft): boolean {
   try {
     const dirtyDraft = { ...draft, dirty: true };
     localStorage.setItem(storageKey(draft.identity), JSON.stringify(dirtyDraft));
     localStorage.setItem(ACTIVE_VIEWER_KEY, JSON.stringify(dirtyDraft));
+    return true;
   } catch {
-    // Storage may be unavailable or full. The beforeunload guard still warns.
+    // Storage may be unavailable or full.
+    return false;
   }
 }
 

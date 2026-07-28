@@ -402,12 +402,12 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
     };
   }, [identity, draft, isDirty, resolvedMarkdown]);
 
-  // A reload cannot await google.script.run, so synchronously flush the local draft and warn.
+  // A reload cannot await google.script.run. Flush synchronously and warn only if recovery failed.
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!isDirtyRef.current) return;
       const latest = latestDraftRef.current;
-      if (latest) saveViewerDraft(latest);
+      if (latest && saveViewerDraft(latest)) return;
       event.preventDefault();
       event.returnValue = "";
     };

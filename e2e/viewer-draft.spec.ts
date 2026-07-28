@@ -84,17 +84,52 @@ test.describe("履歴詳細の未保存変更", () => {
     ).toBeNull();
   });
 
-  test("再読み込み後にローカル下書きを復元する", async ({ page }) => {
+  test("ローカル下書きの保存成功時は警告せず再読み込み後に復元する", async ({ page }) => {
     await gotoApp(page);
     await openHistory(page);
     await appendToViewer(page, "再読み込み復元");
-    await page.waitForTimeout(1200);
+    await expect(page.getByRole("button", { name: "保存" })).toBeEnabled();
 
+    const dialogTypes: string[] = [];
+    page.on("dialog", async (dialog) => {
+      dialogTypes.push(dialog.type());
+      await dialog.accept();
+    });
     await page.reload();
 
+    expect(dialogTypes).not.toContain("beforeunload");
     await expect(page.getByRole("button", { name: "履歴詳細" })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("status")).toHaveText("未保存の変更を復元しました");
     await expect(page.locator(".ProseMirror:visible")).toContainText("再読み込み復元");
+  });
+
+  test("ローカル下書きの保存失敗時だけ再読み込み警告を表示する", async ({ page }) => {
+    await gotoApp(page);
+    await openHistory(page);
+    await page.evaluate(
+      ({ draftPrefix, activeViewerKey }) => {
+        const originalSetItem = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (key: string, value: string) {
+          if (key.startsWith(draftPrefix) || key === activeViewerKey) {
+            throw new DOMException("Mock: localStorage unavailable", "QuotaExceededError");
+          }
+          return originalSetItem.call(this, key, value);
+        };
+      },
+      {
+        draftPrefix: "gas_pomodoro_viewer_draft:",
+        activeViewerKey: ACTIVE_VIEWER_KEY,
+      },
+    );
+    await appendToViewer(page, "保存失敗警告");
+    await expect(page.getByRole("button", { name: "保存" })).toBeEnabled();
+
+    const dialogPromise = page.waitForEvent("dialog");
+    const reloadPromise = page.reload();
+    const dialog = await dialogPromise;
+    expect(dialog.type()).toBe("beforeunload");
+    await dialog.accept();
+    await reloadPromise;
   });
 
   test("本文以外の変更だけでも再読み込み後に復元する", async ({ page }) => {
