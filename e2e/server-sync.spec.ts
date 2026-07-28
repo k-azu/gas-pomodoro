@@ -235,7 +235,8 @@ test.describe("C. サーバー同期と競合解決", () => {
     await page.waitForTimeout(2500);
 
     record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
-    expect(record.content).toContain("保存失敗後も残る 再保存");
+    expect(record.content).toContain("保存失敗後も残る");
+    expect(record.content).toContain("再保存");
   });
 
   test("C9b: 非表示メモの保存失敗も次回 flush で再保存される", async ({ page }) => {

@@ -513,6 +513,10 @@ const MOCK_CONTENT_BY_ID: Record<string, { content: string; updatedAt: string }>
     ),
     updatedAt: "2025-05-01T00:00:00.000Z",
   },
+  "mock-memo-empty": {
+    content: "",
+    updatedAt: "2025-06-01T00:00:00.000Z",
+  },
   "mock-memo-archived": {
     content: "# 旧バグトラッカー\n\n解決済みのタイマー不具合と調査ログです。",
     updatedAt: "2024-11-30T08:20:00.000Z",
@@ -522,10 +526,6 @@ const MOCK_CONTENT_BY_ID: Record<string, { content: string; updatedAt: string }>
 function getContentMockResponse(functionName: string, id?: string): unknown {
   if (typeof window !== "undefined" && (window as any).__mockContentOverride !== undefined) {
     return (window as any).__mockContentOverride;
-  }
-  // Per-ID content: enabled by ?mockDelay>0 (sync testing) or ?mockLargeContent=1 (char limit testing)
-  if ((mockParams.delay > 0 || mockParams.largeContent) && id && MOCK_CONTENT_BY_ID[id]) {
-    return MOCK_CONTENT_BY_ID[id];
   }
   const { scenario } = mockParams;
   if (scenario === "serverNewer") {
@@ -541,7 +541,11 @@ function getContentMockResponse(functionName: string, id?: string): unknown {
       updatedAt: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
     };
   }
-  // default — server has no content data (null triggers "keep local" path in resolveContentConflict)
+  // Normal documents return their server content regardless of response delay.
+  if (id && MOCK_CONTENT_BY_ID[id]) {
+    return MOCK_CONTENT_BY_ID[id];
+  }
+  // An unknown ID represents a record that no longer exists on the server.
   return null;
 }
 
@@ -622,6 +626,15 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
             isActive: true,
             createdAt: "2025-05-01T00:00:00.000Z",
             updatedAt: "2025-05-01T00:00:00.000Z",
+          },
+          {
+            id: "mock-memo-empty",
+            name: "空のメモ",
+            tags: [],
+            sortOrder: 6,
+            isActive: true,
+            createdAt: "2025-06-01T00:00:00.000Z",
+            updatedAt: "2025-06-01T00:00:00.000Z",
           },
         ],
         memoTags: [

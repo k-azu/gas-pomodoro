@@ -2,7 +2,7 @@
  * A. 初回ロード — mount 時の IDB → エディタ表示
  */
 import { test, expect } from "@playwright/test";
-import { idbGet, idbPut } from "./helpers/idb";
+import { idbSeedDirtyContent } from "./helpers/idb";
 import {
   gotoApp,
   selectMemo,
@@ -33,17 +33,27 @@ test.describe("A. 初回ロード", () => {
     expect(text).toContain("初回ロードテスト");
   });
 
-  test("A2: IDB 空 → 空エディタ", async ({ page }) => {
+  test("A2: IDB 空 + 通常文書 → 遅延指定なしでサーバー内容を表示", async ({ page }) => {
     await gotoApp(page);
     await waitForSyncComplete(page);
     await selectMemo(page, "開発メモ");
     await waitForSyncComplete(page);
 
     const text = await getEditorText(page);
+    expect(text).toContain("今週のタスク");
+  });
+
+  test("A3: サーバー上の空文書 → 空エディタ", async ({ page }) => {
+    await gotoApp(page);
+    await waitForSyncComplete(page);
+    await selectMemo(page, "空のメモ");
+    await waitForSyncComplete(page);
+
+    const text = await getEditorText(page);
     expect(text.trim()).toBe("");
   });
 
-  test("A3: syncing → readOnly → 完了後 editable", async ({ page }) => {
+  test("A4: syncing → readOnly → 完了後 editable", async ({ page }) => {
     await gotoApp(page, { params: { mockDelay: "800" } });
     await selectMemo(page, "開発メモ");
 
@@ -58,13 +68,16 @@ test.describe("A. 初回ロード", () => {
     await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 3_000 });
   });
 
-  test("A4: 初回ロード後の undo でマークダウン形式にならない", async ({ page }) => {
+  test("A5: 初回ロード後の undo でマークダウン形式にならない", async ({ page }) => {
     // Seed markdown content in memo2 (not auto-selected, so editor won't overwrite)
     await gotoApp(page);
     await waitForSyncComplete(page);
-    const record = await idbGet(page, MEMO_STORE, MEMO_2_ID);
-    record.content = "# テスト見出し\n\n**太字テキスト**です";
-    await idbPut(page, MEMO_STORE, record);
+    await idbSeedDirtyContent(
+      page,
+      MEMO_STORE,
+      MEMO_2_ID,
+      "# テスト見出し\n\n**太字テキスト**です",
+    );
 
     // Reload → fresh initial load from IDB
     await page.reload();

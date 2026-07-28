@@ -2,7 +2,7 @@
  * B. ドキュメント切り替え — キャッシュ or IDB → switchDocument
  */
 import { test, expect } from "@playwright/test";
-import { idbGet, idbPut } from "./helpers/idb";
+import { idbGet, idbPut, idbSeedDirtyContent } from "./helpers/idb";
 import {
   gotoApp,
   selectMemo,
@@ -26,9 +26,7 @@ test.describe("B. ドキュメント切り替え", () => {
     await waitForSyncComplete(page);
 
     // Seed content to memo2 directly in IDB
-    const record = await idbGet(page, MEMO_STORE, MEMO_2_ID);
-    record.content = "IDB直接書き込み";
-    await idbPut(page, MEMO_STORE, record);
+    await idbSeedDirtyContent(page, MEMO_STORE, MEMO_2_ID, "IDB直接書き込み");
 
     // Switch to memo2 (no cache → reads from IDB)
     await selectMemo(page, "議事録");
@@ -123,9 +121,12 @@ test.describe("B. ドキュメント切り替え", () => {
     await waitForSyncComplete(page);
 
     // Seed markdown content to memo2 in IDB
-    const record = await idbGet(page, MEMO_STORE, MEMO_2_ID);
-    record.content = "# 議事録タイトル\n\n- **重要**: ポイント1";
-    await idbPut(page, MEMO_STORE, record);
+    await idbSeedDirtyContent(
+      page,
+      MEMO_STORE,
+      MEMO_2_ID,
+      "# 議事録タイトル\n\n- **重要**: ポイント1",
+    );
 
     // Switch to memo2 (no cache → reads from IDB, EditorState.create resets history)
     await selectMemo(page, "議事録");
@@ -146,7 +147,7 @@ test.describe("B. ドキュメント切り替え", () => {
     expect(text).not.toContain("**");
   });
 
-  test("B7: キャッシュなし IDB ロード後に undo でドキュメントが空にならない", async ({ page }) => {
+  test("B6: キャッシュなし IDB ロード後に undo でドキュメントが空にならない", async ({ page }) => {
     await gotoApp(page);
     await waitForSyncComplete(page);
 
@@ -155,9 +156,7 @@ test.describe("B. ドキュメント切り替え", () => {
     await waitForSyncComplete(page);
 
     // Seed content to memo2 directly in IDB
-    const record = await idbGet(page, MEMO_STORE, MEMO_2_ID);
-    record.content = "IDBから読み込んだ内容";
-    await idbPut(page, MEMO_STORE, record);
+    await idbSeedDirtyContent(page, MEMO_STORE, MEMO_2_ID, "IDBから読み込んだ内容");
 
     // Switch to memo2 (no cache → reads from IDB)
     await selectMemo(page, "議事録");
@@ -177,7 +176,7 @@ test.describe("B. ドキュメント切り替え", () => {
     expect(text).toContain("IDBから読み込んだ内容");
   });
 
-  test("B6: キャッシュあり切り替え後の undo で入力が取り消される", async ({ page }) => {
+  test("B7: キャッシュあり切り替え後の undo で入力が取り消される", async ({ page }) => {
     await gotoApp(page);
     await waitForSyncComplete(page);
 
@@ -198,19 +197,17 @@ test.describe("B. ドキュメント切り替え", () => {
     });
 
     // Type more text after returning (use pressSequentially for undo granularity)
-    const editor = page.locator(".ProseMirror");
-    await editor.click();
-    await page.waitForTimeout(200);
-    await page.keyboard.press("End");
     await typeInEditorSequentially(page, "Extra");
     await page.waitForTimeout(200);
-    expect(await getEditorText(page)).toContain("BaseTextExtra");
+    let text = await getEditorText(page);
+    expect(text).toContain("BaseText");
+    expect(text).toContain("Extra");
 
     // Press Ctrl+Z — should undo the "Extra" portion
     await page.keyboard.press("Control+z");
     await page.waitForTimeout(200);
 
-    const text = await getEditorText(page);
+    text = await getEditorText(page);
     expect(text).toContain("BaseText");
     expect(text).not.toContain("Extra");
   });

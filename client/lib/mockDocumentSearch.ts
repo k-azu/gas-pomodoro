@@ -56,6 +56,16 @@ const MOCK_DOCUMENTS: DocumentSearchResult[] = [
   },
   {
     type: "memo",
+    id: "mock-memo-empty",
+    title: "空のメモ",
+    path: "メモ",
+    snippet: "",
+    tags: [],
+    isArchived: false,
+    updatedAt: "2025-06-01T00:00:00.000Z",
+  },
+  {
+    type: "memo",
     id: "mock-memo-archived",
     title: "旧バグトラッカー",
     path: "メモ",

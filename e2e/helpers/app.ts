@@ -86,7 +86,8 @@ export async function typeInEditor(page: Page, text: string): Promise<void> {
  */
 export async function typeInEditorSequentially(page: Page, text: string): Promise<void> {
   const editor = page.locator(".ProseMirror");
-  await editor.click();
+  // Preserve the editor state's restored selection; clicking may move it into existing text.
+  await editor.focus();
   await page.waitForTimeout(100);
   await editor.pressSequentially(text, { delay: 50 });
 }

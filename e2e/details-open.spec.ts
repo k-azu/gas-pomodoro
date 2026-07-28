@@ -2,22 +2,23 @@
  * Details ブロックの展開状態がドキュメント切り替えで保存されるかテスト
  */
 import { test, expect } from "@playwright/test";
-import { idbGet, idbPut } from "./helpers/idb";
+import { idbSeedDirtyContent } from "./helpers/idb";
 import { gotoApp, selectMemo, waitForSyncComplete } from "./helpers/app";
 
 const MEMO_STORE = "memos";
 const MEMO_1_ID = "mock-memo-1";
-const MEMO_2_ID = "mock-memo-2";
 
 test.describe("Details ブロックの展開状態", () => {
   test("キャッシュヒットで展開状態が保持される", async ({ page }) => {
     // Seed details block into memo1
     await gotoApp(page);
     await waitForSyncComplete(page);
-    const record1 = await idbGet(page, MEMO_STORE, MEMO_1_ID);
-    record1.content =
-      "<details>\n<summary>テスト見出し</summary>\n\n隠しコンテンツ\n\n</details>\n\nその他テキスト";
-    await idbPut(page, MEMO_STORE, record1);
+    await idbSeedDirtyContent(
+      page,
+      MEMO_STORE,
+      MEMO_1_ID,
+      "<details>\n<summary>テスト見出し</summary>\n\n隠しコンテンツ\n\n</details>\n\nその他テキスト",
+    );
 
     // Reload to pick up the seeded content
     await page.reload();

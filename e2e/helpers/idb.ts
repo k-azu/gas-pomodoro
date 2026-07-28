@@ -42,6 +42,25 @@ export async function idbPut(page: Page, storeName: string, data: any): Promise<
   );
 }
 
+/**
+ * Seed unsynced local content.
+ * This models a real local edit, so normal server content must not overwrite it during resolve.
+ */
+export async function idbSeedDirtyContent(
+  page: Page,
+  storeName: string,
+  id: string,
+  content: string,
+): Promise<void> {
+  const record = await idbGet(page, storeName, id);
+  if (!record) {
+    throw new Error(`Cannot seed missing IndexedDB record: ${storeName}/${id}`);
+  }
+  record.content = content;
+  record._contentDirtyAt = new Date().toISOString();
+  await idbPut(page, storeName, record);
+}
+
 export async function idbGetAll(page: Page, storeName: string): Promise<any[]> {
   return page.evaluate(
     ({ storeName }) => {
