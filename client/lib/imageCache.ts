@@ -263,6 +263,12 @@ function isUploadManaged(attrs: Record<string, unknown>): boolean {
 
 function shouldUploadImageSource(src: string, attrs: Record<string, unknown>): boolean {
   if (!src || DRIVE_FILE_URL_RE.test(src) || isUploadManaged(attrs)) return false;
+
+  // Images already loaded by gas-pomodoro have a blob URL registered to their
+  // original Drive URL. Reuse that mapping when they are copied and pasted in
+  // the same page instead of creating a duplicate Drive file.
+  if (src.startsWith("blob:") && blobToDriveUrl[src]) return false;
+
   return (
     src.startsWith("data:") ||
     src.startsWith("blob:") ||
