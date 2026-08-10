@@ -8,7 +8,18 @@ export interface CachedDocumentView {
   dirty: boolean;
 }
 
-class DocumentViewCache {
+export interface DocumentViewCache {
+  get(key: string): CachedDocumentView | undefined;
+  set(key: string, view: CachedDocumentView): void;
+  update(key: string, fields: Partial<CachedDocumentView>): void;
+  invalidate(key: string): void;
+  scrollKey(documentKey: string | undefined, table: boolean): string;
+  saveScroll(key: string, position: number): void;
+  getScroll(key: string): number | undefined;
+  clearScroll(documentKey: string): void;
+}
+
+class InMemoryDocumentViewCache implements DocumentViewCache {
   private readonly documents = new Map<string, CachedDocumentView>();
   private readonly scrollPositions = new Map<string, number>();
 
@@ -50,6 +61,6 @@ class DocumentViewCache {
 
 export function useDocumentViewCache(): DocumentViewCache {
   const cacheRef = useRef<DocumentViewCache | null>(null);
-  if (!cacheRef.current) cacheRef.current = new DocumentViewCache();
+  if (!cacheRef.current) cacheRef.current = new InMemoryDocumentViewCache();
   return cacheRef.current;
 }

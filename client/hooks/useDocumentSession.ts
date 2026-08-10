@@ -2,13 +2,13 @@ import { useReducer } from "react";
 import type { SyncStatus } from "../components/shared/SyncIndicator";
 import type { ContentConflictSnapshot } from "../lib/documentSync";
 
-interface DocumentSessionState {
+export interface DocumentSessionState {
   syncStatus: SyncStatus;
   readOnly: boolean;
   conflict: ContentConflictSnapshot | null;
 }
 
-type DocumentSessionAction =
+export type DocumentSessionAction =
   | { type: "ready" }
   | { type: "editable" }
   | { type: "loading" }
