@@ -111,7 +111,7 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
     scrollRef,
     readOnly,
     syncStatus,
-    contentRevision,
+    contentVersion,
     flushPendingSave,
     acceptRemoteContent,
     keepLocalContent,
@@ -144,7 +144,7 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
     editor,
     mode,
     rawMarkdown,
-    contentRevision,
+    contentVersion,
     scrollRef,
   });
 

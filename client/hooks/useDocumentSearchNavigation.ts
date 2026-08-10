@@ -18,7 +18,7 @@ interface UseDocumentSearchNavigationOptions {
   editor: Editor | null;
   mode: EditorMode;
   rawMarkdown: string;
-  contentRevision: number;
+  contentVersion: number;
   scrollRef: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -81,7 +81,7 @@ export function useDocumentSearchNavigation({
   editor,
   mode,
   rawMarkdown,
-  contentRevision,
+  contentVersion,
   scrollRef,
 }: UseDocumentSearchNavigationOptions): DocumentSearchNavigationController | null {
   const nav = useNavigation();
@@ -133,7 +133,7 @@ export function useDocumentSearchNavigation({
     };
     sessionRef.current = nextSession;
     setSession(nextSession);
-  }, [contentRevision, editor, isTarget, mode, request, scrollRef]);
+  }, [contentVersion, editor, isTarget, mode, request, scrollRef]);
 
   useEffect(() => {
     if (!editor || mode !== "wysiwyg" || !request || !isTarget) return;

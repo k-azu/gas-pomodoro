@@ -66,7 +66,7 @@ export function MemoTab() {
     scrollRef,
     readOnly,
     syncStatus,
-    contentRevision,
+    contentVersion,
     acceptRemoteContent,
     keepLocalContent,
   } = useDocumentEditor({
@@ -91,7 +91,7 @@ export function MemoTab() {
     editor,
     mode,
     rawMarkdown,
-    contentRevision,
+    contentVersion,
     scrollRef,
   });
 
