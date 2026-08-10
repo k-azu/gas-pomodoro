@@ -1,12 +1,11 @@
 /**
  * EntityStore — IndexedDB CRUD + server sync + event system
- * Port of EntityStore.html IIFE → TypeScript class with identical behavior.
- *
- * Backward-compatible: same IDB name/version, same _dirty/_pendingCreate fields,
- * same sync timing (metadata 1s, content 30s, reorder 5s).
+ * Metadata keeps the existing dirty-field workflow. Document bodies use
+ * revisioned, per-tab drafts so a tab can never acknowledge another tab's edit.
  */
 
 import { serverCall } from "./serverCall";
+import { getTabId, isTabActive, onTabIdChange, publishDocumentCommit } from "./tabSync";
 
 // =========================================================
 // Debug Logging
@@ -46,7 +45,12 @@ export interface StoreRegistration {
     reorder?: string;
   };
   addServerArgs?: (entity: any) => unknown[];
-  contentSyncFn?: (id: string, content: string) => Promise<any>;
+  contentSyncFn?: (
+    id: string,
+    content: string,
+    baseRevision: number,
+    mutationId: string,
+  ) => Promise<any>;
   onUpdateHook?: (item: any, fields: Record<string, any>) => void;
 }
 
@@ -54,6 +58,58 @@ export interface DataChangedEvent {
   entityType: string;
   op: string;
   id?: string;
+}
+
+export interface ContentSnapshot {
+  content: string;
+  revision: number;
+  dirty: boolean;
+  conflict?: ContentConflictSnapshot;
+}
+
+export interface ContentConflictSnapshot {
+  content: string;
+  revision: number;
+  updatedAt: string;
+}
+
+interface CommittedSnapshot extends ContentSnapshot {
+  updatedAt: string;
+}
+
+interface AppliedCommittedSnapshot {
+  snapshot: CommittedSnapshot;
+  applied: boolean;
+}
+
+export interface ContentSaveOptions {
+  immediateSync?: boolean;
+  baseRevision?: number;
+  mutationId?: string;
+}
+
+interface PendingContentSync {
+  storeName: string;
+  id: string;
+  tabId: string;
+  content: string;
+  baseRevision: number;
+  mutationId: string;
+  dirtyAt: string;
+  conflict?: ContentConflictSnapshot;
+  recoveryState?: "conflicting" | "rejected";
+  recoveryReason?: "inactive" | "notFound";
+  recoveryWinnerMutationId?: string;
+}
+
+export interface RecoveryDraft {
+  key: string;
+  storeName: string;
+  id: string;
+  content: string;
+  dirtyAt: string;
+  recoveryState: "conflicting" | "rejected";
+  recoveryReason?: "inactive" | "notFound";
 }
 
 type EventCallback = (data: any) => void;
@@ -75,8 +131,16 @@ const _metaDebounces: Record<string, ReturnType<typeof setTimeout>> = {};
 const _contentSyncDebounces: Record<string, ReturnType<typeof setTimeout>> = {};
 const _reorderState: Record<string, { pending: unknown[] | null; saving: boolean }> = {};
 const _reorderDebounces: Record<string, ReturnType<typeof setTimeout>> = {};
-const _pendingServerContent: Record<string, { content: string; serverTs: string }> = {};
+const _pendingServerContent: Record<
+  string,
+  { content: string; serverTs: string; revision: number }
+> = {};
 const _pendingOps: Record<string, Promise<any>> = {};
+const _pendingContentSyncs: Record<string, PendingContentSync> = {};
+const _contentSyncInFlight = new Set<string>();
+const _contentSyncRequested = new Set<string>();
+
+const DRAFT_STORE = "documentDrafts";
 
 function scopedKey(storeName: string, id: string): string {
   return `${storeName}:${id}`;
@@ -99,7 +163,13 @@ function rememberEntityStore(storeName: string, id: string): string {
 function withLock(storeName: string, id: string, fn: () => Promise<any>): Promise<any> {
   const key = scopedKey(storeName, id);
   const prev = _pendingOps[key] || Promise.resolve();
-  const next = prev.then(fn, fn);
+  const run = () => {
+    if (navigator.locks) {
+      return navigator.locks.request(`gas-pomodoro:${storeName}:${id}`, fn);
+    }
+    return fn();
+  };
+  const next = prev.then(run, run);
   _pendingOps[key] = next;
   const cleanup = () => {
     if (_pendingOps[key] === next) delete _pendingOps[key];
@@ -126,6 +196,8 @@ export function init(
   _dbName = dbName;
   _dbVersion = dbVersion;
   _onUpgrade = opts?.onUpgrade ?? null;
+  // Start tab-ID collision detection before drafts can be loaded or edited.
+  getTabId();
   return openDB().then(() => {
     window.addEventListener("beforeunload", (e) => {
       const pending = hasPendingChanges();
@@ -294,6 +366,286 @@ export function getByIndex(storeName: string, indexName: string, val: string): P
   );
 }
 
+function draftKey(storeName: string, id: string, tabId = getTabId()): string {
+  return `${tabId}:${storeName}:${id}`;
+}
+
+function ownsEntityDraft(entity: any): boolean {
+  return Boolean(
+    entity?._contentDirtyAt &&
+    (!entity._contentDirtyOwner || entity._contentDirtyOwner === getTabId()),
+  );
+}
+
+function getDraft(storeName: string, id: string): Promise<any | null> {
+  return get(DRAFT_STORE, draftKey(storeName, id));
+}
+
+function putDraft(draft: PendingContentSync): Promise<void> {
+  return put(DRAFT_STORE, {
+    ...draft,
+    key: draftKey(draft.storeName, draft.id, draft.tabId),
+  });
+}
+
+export async function getRecoveryDrafts(): Promise<RecoveryDraft[]> {
+  const drafts = (await getAll(DRAFT_STORE)) as Array<PendingContentSync & { key: string }>;
+  return drafts
+    .filter((draft): draft is typeof draft & { recoveryState: RecoveryDraft["recoveryState"] } =>
+      Boolean(draft.recoveryState),
+    )
+    .map(({ key, storeName, id, content, dirtyAt, recoveryState, recoveryReason }) => ({
+      key,
+      storeName,
+      id,
+      content,
+      dirtyAt,
+      recoveryState,
+      recoveryReason,
+    }))
+    .sort((a, b) => b.dirtyAt.localeCompare(a.dirtyAt));
+}
+
+export async function discardRecoveryDraft(key: string): Promise<void> {
+  const draft = (await get(DRAFT_STORE, key)) as (PendingContentSync & { key: string }) | null;
+  if (!draft?.recoveryState) return;
+  await remove(DRAFT_STORE, key);
+  emit("recoveryDraftsChanged");
+}
+
+function putEntityAndDraft(
+  storeName: string,
+  entity: any,
+  draft: PendingContentSync,
+): Promise<void> {
+  return openDB().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction([storeName, DRAFT_STORE], "readwrite");
+        tx.objectStore(storeName).put(entity);
+        tx.objectStore(DRAFT_STORE).put({
+          ...draft,
+          key: draftKey(draft.storeName, draft.id, draft.tabId),
+        });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      }),
+  );
+}
+
+function persistContentConflict(
+  storeName: string,
+  id: string,
+  conflict: ContentConflictSnapshot,
+  expectedMutationId: string,
+): Promise<PendingContentSync | null> {
+  return withLock(storeName, id, async () => {
+    const draft = (await getDraft(storeName, id)) as PendingContentSync | null;
+    if (!draft || draft.mutationId !== expectedMutationId) return null;
+    const conflictingDraft: PendingContentSync = { ...draft, conflict };
+    await putDraft(conflictingDraft);
+    _pendingContentSyncs[scopedKey(storeName, id)] = conflictingDraft;
+    return conflictingDraft;
+  });
+}
+
+function preserveRejectedDraft(
+  storeName: string,
+  id: string,
+  pending: PendingContentSync,
+  reason: "inactive" | "notFound",
+): Promise<boolean> {
+  return withLock(storeName, id, () => {
+    const key = scopedKey(storeName, id);
+    return openDB().then(
+      (db) =>
+        new Promise<boolean>((resolve, reject) => {
+          const tx = db.transaction([storeName, DRAFT_STORE], "readwrite");
+          const entityStore = tx.objectStore(storeName);
+          const draftStore = tx.objectStore(DRAFT_STORE);
+          const draftRequest = draftStore.get(draftKey(storeName, id, pending.tabId));
+          let preserved = false;
+
+          draftRequest.onsuccess = () => {
+            const draft = draftRequest.result as PendingContentSync | undefined;
+            if (!draft || draft.mutationId !== pending.mutationId) return;
+
+            preserved = true;
+            draftStore.put({
+              ...draft,
+              recoveryState: "rejected",
+              recoveryReason: reason,
+              key: draftKey(storeName, id, pending.tabId),
+            });
+
+            const entityRequest = entityStore.get(id);
+            entityRequest.onsuccess = () => {
+              const entity = entityRequest.result;
+              if (
+                entity &&
+                entity._contentDirtyOwner === pending.tabId &&
+                entity._contentDirtyAt === pending.dirtyAt
+              ) {
+                entity._contentDirtyAt = null;
+                entity._contentDirtyOwner = null;
+                entity._draftBaseRevision = null;
+                entityStore.put(entity);
+              }
+            };
+            entityRequest.onerror = () => reject(entityRequest.error);
+          };
+          draftRequest.onerror = () => reject(draftRequest.error);
+          tx.oncomplete = () => {
+            if (preserved && _pendingContentSyncs[key]?.mutationId === pending.mutationId) {
+              delete _pendingContentSyncs[key];
+            }
+            if (preserved && _contentSyncDebounces[key]) {
+              clearTimeout(_contentSyncDebounces[key]);
+              delete _contentSyncDebounces[key];
+            }
+            if (preserved) emit("recoveryDraftsChanged");
+            resolve(preserved);
+          };
+          tx.onerror = () => reject(tx.error);
+          tx.onabort = () => reject(tx.error);
+        }),
+    );
+  });
+}
+
+type DraftCompletion = "completed" | "advanced" | "stale";
+
+function completePendingDraft(
+  storeName: string,
+  id: string,
+  pending: PendingContentSync,
+  revision: number,
+): Promise<DraftCompletion> {
+  return withLock(storeName, id, async () => {
+    const key = scopedKey(storeName, id);
+    const stored = (await get(
+      DRAFT_STORE,
+      draftKey(storeName, id, pending.tabId),
+    )) as PendingContentSync | null;
+
+    if (!stored || stored.mutationId === pending.mutationId) {
+      if (stored) await deleteDraft(storeName, id, pending.tabId);
+      if (_pendingContentSyncs[key]?.mutationId === pending.mutationId) {
+        delete _pendingContentSyncs[key];
+      }
+      return "completed";
+    }
+
+    if (stored.conflict || stored.recoveryState) return "stale";
+
+    const advanced = { ...stored, baseRevision: revision };
+    await putDraft(advanced);
+    _pendingContentSyncs[key] = advanced;
+    return "advanced";
+  });
+}
+
+function deleteDraft(storeName: string, id: string, tabId = getTabId()): Promise<void> {
+  return remove(DRAFT_STORE, draftKey(storeName, id, tabId));
+}
+
+function transferOrphanDraft(
+  storeName: string,
+  id: string,
+  entity: any,
+  orphan: PendingContentSync,
+  adopted: PendingContentSync,
+  conflictingDrafts: PendingContentSync[],
+): Promise<void> {
+  return openDB().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction([storeName, DRAFT_STORE], "readwrite");
+        tx.objectStore(storeName).put(entity);
+
+        const draftsStore = tx.objectStore(DRAFT_STORE);
+        draftsStore.put({
+          ...adopted,
+          key: draftKey(storeName, id, adopted.tabId),
+        });
+        draftsStore.delete(draftKey(storeName, id, orphan.tabId));
+        conflictingDrafts.forEach((draft) => {
+          draftsStore.put({
+            ...draft,
+            recoveryState: "conflicting",
+            recoveryWinnerMutationId: adopted.mutationId,
+            key: draftKey(storeName, id, draft.tabId),
+          });
+        });
+
+        tx.oncomplete = () => {
+          if (conflictingDrafts.length > 0) emit("recoveryDraftsChanged");
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error);
+      }),
+  );
+}
+
+async function adoptOrphanDraft(storeName: string, id: string): Promise<PendingContentSync | null> {
+  return withLock(storeName, id, async () => {
+    const ownDraft = await getDraft(storeName, id);
+    if (ownDraft) return ownDraft as PendingContentSync;
+
+    const candidates = (await getAll(DRAFT_STORE)).filter(
+      (draft) => draft.storeName === storeName && draft.id === id && !draft.recoveryState,
+    ) as PendingContentSync[];
+    const activity = await Promise.all(
+      candidates.map(async (draft) => ({ draft, active: await isTabActive(String(draft.tabId)) })),
+    );
+    const drafts = activity
+      .filter(({ active }) => !active)
+      .map(({ draft }) => draft)
+      .sort((a, b) => String(b.dirtyAt || "").localeCompare(String(a.dirtyAt || "")));
+    const orphan = drafts[0] as PendingContentSync | undefined;
+    if (!orphan) return null;
+
+    const adopted: PendingContentSync = {
+      ...orphan,
+      tabId: getTabId(),
+      recoveryState: undefined,
+      recoveryReason: undefined,
+      recoveryWinnerMutationId: undefined,
+    };
+    const entity = await get(storeName, id);
+    if (!entity) return null;
+
+    entity.content = adopted.content;
+    entity._contentDirtyAt = adopted.dirtyAt;
+    entity._contentDirtyOwner = adopted.tabId;
+    entity._draftBaseRevision = adopted.baseRevision;
+    await transferOrphanDraft(storeName, id, entity, orphan, adopted, drafts.slice(1));
+    logSync("adopted orphan draft", storeName, id, orphan.tabId, "→", adopted.tabId);
+    if (drafts.length > 1) {
+      console.warn(
+        "[EntityStore] Preserved additional orphan drafts as recovery conflicts:",
+        storeName,
+        id,
+        drafts.length - 1,
+      );
+    }
+    return adopted;
+  });
+}
+
+onTabIdChange((oldTabId) => {
+  Object.entries(_pendingContentSyncs).forEach(([key, pending]) => {
+    if (pending.tabId !== oldTabId) return;
+    delete _pendingContentSyncs[key];
+    _contentSyncRequested.delete(key);
+    if (_contentSyncDebounces[key]) {
+      clearTimeout(_contentSyncDebounces[key]);
+      delete _contentSyncDebounces[key];
+    }
+  });
+});
+
 // =========================================================
 // Event System
 // =========================================================
@@ -333,6 +685,8 @@ export function addEntity(storeName: string, entityData: Record<string, any>): P
     createdAt: now,
     updatedAt: now,
     content: "",
+    contentRevision: 1,
+    _serverContent: "",
     _dirty: true,
     _pendingCreate: true,
     ...entityData,
@@ -435,48 +789,103 @@ export function saveContent(
   storeName: string,
   id: string,
   content: string,
-  opts?: { immediateSync?: boolean },
+  opts?: ContentSaveOptions,
 ): Promise<void> {
   const key = rememberEntityStore(storeName, id);
   if (isDev() && (window as any).__mockLocalSaveShouldFailOnce) {
     (window as any).__mockLocalSaveShouldFailOnce = false;
     return Promise.reject(new Error("Mock: forced local save error"));
   }
-  return withLock(storeName, id, () =>
-    get(storeName, id).then((existing) => {
-      if (!existing) return;
-      logSync("saveContent → IDB", storeName, id, `${content.length} chars`);
-      if (!content && !existing._serverUpdatedAt && !existing._pendingCreate) {
-        console.warn("[EntityStore] Skipping empty content save for unconfirmed entity:", id);
-        return;
+  return withLock(storeName, id, async () => {
+    const existing = await get(storeName, id);
+    if (!existing) return;
+    logSync("saveContent → IDB", storeName, id, `${content.length} chars`);
+    if (!content && !existing._serverUpdatedAt && !existing._pendingCreate) {
+      console.warn("[EntityStore] Skipping empty content save for unconfirmed entity:", id);
+      return;
+    }
+    const now = new Date().toISOString();
+    const tabId = getTabId();
+    const baseRevision = Number(opts?.baseRevision ?? existing.contentRevision ?? 0);
+    const pending: PendingContentSync = {
+      storeName,
+      id,
+      tabId,
+      content,
+      baseRevision,
+      mutationId: opts?.mutationId || crypto.randomUUID(),
+      dirtyAt: now,
+    };
+    existing.content = content;
+    existing._contentDirtyAt = now;
+    existing._contentDirtyOwner = tabId;
+    existing._draftBaseRevision = baseRevision;
+    await putEntityAndDraft(storeName, existing, pending);
+    _pendingContentSyncs[key] = pending;
+    if (opts?.immediateSync) {
+      if (_contentSyncDebounces[key]) {
+        clearTimeout(_contentSyncDebounces[key]);
+        delete _contentSyncDebounces[key];
       }
-      const now = new Date().toISOString();
-      existing.content = content;
-      existing._contentDirtyAt = now;
-      return put(storeName, existing).then(() => {
-        if (opts?.immediateSync) {
-          if (_contentSyncDebounces[key]) {
-            clearTimeout(_contentSyncDebounces[key]);
-            delete _contentSyncDebounces[key];
-          }
-          syncContentToServer(storeName, id);
-        } else {
-          scheduleContentSync(storeName, id);
-        }
-      });
-    }),
-  );
+      void syncContentToServer(storeName, id);
+    } else {
+      scheduleContentSync(storeName, id);
+    }
+  });
 }
 
 export function getContent(storeName: string, id: string): Promise<string | null> {
+  return getContentSnapshot(storeName, id).then((snapshot) => snapshot?.content ?? null);
+}
+
+export async function getContentSnapshot(
+  storeName: string,
+  id: string,
+): Promise<ContentSnapshot | null> {
   if (isDev() && (window as any).__mockLocalLoadShouldFailOnce) {
     (window as any).__mockLocalLoadShouldFailOnce = false;
-    return Promise.reject(new Error("Mock: forced local load error"));
+    throw new Error("Mock: forced local load error");
   }
-  return get(storeName, id).then((record) => {
-    if (!record) return null;
-    return record.content != null ? record.content : "";
-  });
+  const [record, ownDraft] = await Promise.all([get(storeName, id), getDraft(storeName, id)]);
+  if (!record) return null;
+  const draft = ownDraft || (await adoptOrphanDraft(storeName, id));
+  if (draft) {
+    return {
+      content: String(draft.content || ""),
+      revision: Math.max(0, Number(draft.baseRevision) || 0),
+      dirty: true,
+      conflict: draft.conflict,
+    };
+  }
+
+  // Legacy dirty records predate the per-tab draft store. Preserve them on the
+  // tab that owns them (or when no owner was recorded).
+  if (ownsEntityDraft(record)) {
+    return {
+      content: String(record.content || ""),
+      revision: Math.max(0, Number(record._draftBaseRevision ?? record.contentRevision ?? 0) || 0),
+      dirty: true,
+    };
+  }
+
+  return {
+    content: String(record._serverContent ?? record.content ?? ""),
+    revision: Math.max(0, Number(record.contentRevision) || 0),
+    dirty: false,
+  };
+}
+
+export async function getCommittedContentSnapshot(
+  storeName: string,
+  id: string,
+): Promise<ContentSnapshot | null> {
+  const record = await get(storeName, id);
+  if (!record) return null;
+  return {
+    content: String(record._serverContent ?? record.content ?? ""),
+    revision: Math.max(0, Number(record.contentRevision) || 0),
+    dirty: false,
+  };
 }
 
 // =========================================================
@@ -545,7 +954,10 @@ function syncCreateToServer(storeName: string, id: string): void {
             }
             return put(storeName, latest);
           }),
-        ),
+        ).then(() => {
+          syncMetadataToServer(storeName, id);
+          return syncContentToServer(storeName, id);
+        }),
       );
     })
     .catch((err) => {
@@ -567,6 +979,7 @@ function syncMetadataToServer(storeName: string, id: string): void {
     .then((entity) => {
       if (!entity) return;
       if (entity._pendingCreate) return;
+      if (!entity._dirty) return;
       const capturedUpdatedAt = entity.updatedAt;
       const cfg = _registrations[storeName];
       if (!cfg?.serverFns?.update) return;
@@ -637,44 +1050,293 @@ export function flushContentSync(storeName: string, id: string): void {
   syncContentToServer(storeName, id);
 }
 
-function syncContentToServer(storeName: string, id: string): void {
-  get(storeName, id)
-    .then((entity) => {
-      if (!entity) return;
-      if (entity._pendingCreate) return;
-      if (!entity._contentDirtyAt) return;
-      const cfg = _registrations[storeName];
-      if (!cfg?.serverFns) return;
-      const content = entity.content || "";
-      logSync("content → server", storeName, id, `${content.length} chars`);
-      const capturedDirtyAt = entity._contentDirtyAt;
+async function syncContentToServer(storeName: string, id: string): Promise<void> {
+  const key = scopedKey(storeName, id);
+  if (_contentSyncInFlight.has(key)) {
+    _contentSyncRequested.add(key);
+    return;
+  }
+  let continueWithNewerPending = false;
+  try {
+    const entity = await get(storeName, id);
+    if (!entity || entity._pendingCreate) return;
 
-      let syncFn: () => Promise<any>;
-      if (cfg.contentSyncFn) {
-        syncFn = () => cfg.contentSyncFn!(id, content);
-      } else if (cfg.serverFns.update) {
-        syncFn = () => serverCall(cfg.serverFns!.update!, id, { content });
-      } else {
+    let pending = _pendingContentSyncs[key];
+    if (!pending) {
+      const draft = await getDraft(storeName, id);
+      if (draft) {
+        pending = draft as PendingContentSync;
+        _pendingContentSyncs[key] = pending;
+      } else if (ownsEntityDraft(entity)) {
+        pending = {
+          storeName,
+          id,
+          tabId: getTabId(),
+          content: String(entity.content || ""),
+          baseRevision: Math.max(
+            1,
+            Number(entity._draftBaseRevision || entity.contentRevision) || 1,
+          ),
+          mutationId: crypto.randomUUID(),
+          dirtyAt: entity._contentDirtyAt,
+        };
+        _pendingContentSyncs[key] = pending;
+        await putDraft(pending);
+      }
+    }
+    if (!pending || pending.conflict || pending.recoveryState) return;
+
+    _contentSyncInFlight.add(key);
+
+    const cfg = _registrations[storeName];
+    if (!cfg?.contentSyncFn) return;
+    logSync(
+      "content → server",
+      storeName,
+      id,
+      `${pending.content.length} chars`,
+      `rev ${pending.baseRevision}`,
+    );
+
+    const result: any = await retryWithBackoff(() =>
+      cfg.contentSyncFn!(id, pending!.content, pending!.baseRevision, pending!.mutationId),
+    );
+
+    // A duplicated tab may rotate its ID while this request is in flight. The
+    // old-ID draft belongs to the tab that retained that ID, so never settle it
+    // from the rotated tab.
+    if (pending.tabId !== getTabId()) return;
+
+    if (result?.status === "conflict") {
+      if (!_pendingContentSyncs[key]) return;
+      const applied = await applyCommittedSnapshot(
+        storeName,
+        id,
+        String(result.content || ""),
+        Math.max(1, Number(result.revision) || 1),
+        String(result.updatedAt || ""),
+        { preserveDraft: true },
+      );
+      if (!applied) return;
+      const conflict = {
+        content: applied.snapshot.content,
+        revision: applied.snapshot.revision,
+        updatedAt: applied.snapshot.updatedAt,
+      };
+      const conflictingPending = await persistContentConflict(
+        storeName,
+        id,
+        conflict,
+        pending.mutationId,
+      );
+      if (!conflictingPending) {
+        continueWithNewerPending = Boolean(_pendingContentSyncs[key]);
         return;
       }
-
-      return retryWithBackoff(syncFn).then((result: any) => {
-        const serverUpdatedAt = result?.updatedAt;
-        return withLock(storeName, id, () =>
-          get(storeName, id).then((latest) => {
-            if (!latest) return;
-            if (latest._contentDirtyAt === capturedDirtyAt) {
-              latest._contentDirtyAt = null;
-            }
-            if (serverUpdatedAt) latest._serverUpdatedAt = serverUpdatedAt;
-            return put(storeName, latest);
-          }),
-        );
+      emit("contentConflict", {
+        storeName,
+        id,
+        ...conflict,
+        mutationId: conflictingPending.mutationId,
       });
-    })
-    .catch((err) => {
-      console.error("[EntityStore] syncContentToServer failed:", storeName, id, err);
-    });
+      return;
+    }
+
+    if (result?.status === "inactive" || result?.status === "notFound") {
+      const preserved = await preserveRejectedDraft(storeName, id, pending, result.status);
+      continueWithNewerPending = !preserved && Boolean(_pendingContentSyncs[key]);
+      throw new Error(`Content save rejected: ${result.status}`);
+    }
+
+    const revision = Number(result?.revision);
+    if (result?.status !== "saved" || !Number.isFinite(revision) || revision < 1) {
+      throw new Error(`Invalid content save response: ${String(result?.status || "missing")}`);
+    }
+    const updatedAt = String(result.updatedAt || "");
+    const applied = await applyCommittedSnapshot(
+      storeName,
+      id,
+      pending.content,
+      revision,
+      updatedAt,
+      {
+        pending,
+      },
+    );
+    if (!applied) return;
+
+    if (!applied.applied && applied.snapshot.revision > revision) {
+      const latestPending = _pendingContentSyncs[key];
+      if (latestPending?.content === applied.snapshot.content) {
+        await acceptCommittedContent(
+          storeName,
+          id,
+          applied.snapshot.content,
+          applied.snapshot.revision,
+          applied.snapshot.updatedAt,
+        );
+        emit("contentCommitted", {
+          storeName,
+          id,
+          content: applied.snapshot.content,
+          revision: applied.snapshot.revision,
+          updatedAt: applied.snapshot.updatedAt,
+          mutationId: latestPending.mutationId,
+        });
+      } else if (latestPending) {
+        const conflict = {
+          content: applied.snapshot.content,
+          revision: applied.snapshot.revision,
+          updatedAt: applied.snapshot.updatedAt,
+        };
+        const conflictingPending = await persistContentConflict(
+          storeName,
+          id,
+          conflict,
+          latestPending.mutationId,
+        );
+        if (!conflictingPending) return;
+        emit("contentConflict", {
+          storeName,
+          id,
+          ...conflict,
+          mutationId: conflictingPending.mutationId,
+        });
+      }
+      return;
+    }
+    const completion = await completePendingDraft(storeName, id, pending, revision);
+    continueWithNewerPending = completion === "advanced";
+
+    const event = {
+      storeName,
+      id,
+      content: pending.content,
+      revision,
+      updatedAt,
+      mutationId: pending.mutationId,
+    };
+    emit("contentCommitted", event);
+    publishDocumentCommit({ storeName, id, revision, updatedAt });
+  } catch (err) {
+    console.error("[EntityStore] syncContentToServer failed:", storeName, id, err);
+    emit("contentSyncError", { storeName, id, error: err });
+  } finally {
+    _contentSyncInFlight.delete(key);
+    if (continueWithNewerPending || _contentSyncRequested.delete(key)) {
+      void syncContentToServer(storeName, id);
+    }
+  }
+}
+
+async function applyCommittedSnapshot(
+  storeName: string,
+  id: string,
+  content: string,
+  revision: number,
+  updatedAt: string,
+  opts?: { preserveDraft?: boolean; pending?: PendingContentSync; accept?: boolean },
+): Promise<AppliedCommittedSnapshot | null> {
+  return withLock(storeName, id, () =>
+    openDB().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          const tx = db.transaction(storeName, "readwrite");
+          const store = tx.objectStore(storeName);
+          const req = store.get(id);
+          let result: AppliedCommittedSnapshot | null = null;
+
+          req.onsuccess = () => {
+            const latest = req.result;
+            if (!latest) return;
+            const currentRevision = Math.max(1, Number(latest.contentRevision) || 1);
+            if (revision < currentRevision) {
+              const currentContent = String(latest._serverContent ?? latest.content ?? "");
+              if (opts?.accept) {
+                latest.content = currentContent;
+                latest._contentDirtyAt = null;
+                latest._contentDirtyOwner = null;
+                latest._draftBaseRevision = null;
+                store.put(latest);
+              }
+              result = {
+                applied: false,
+                snapshot: {
+                  content: currentContent,
+                  revision: currentRevision,
+                  updatedAt: String(latest._serverUpdatedAt || ""),
+                  dirty: false,
+                },
+              };
+              return;
+            }
+
+            latest._serverContent = content;
+            latest.contentRevision = revision;
+            latest._serverUpdatedAt = updatedAt || latest._serverUpdatedAt;
+
+            const pending = opts?.pending;
+            if (
+              opts?.accept ||
+              (!opts?.preserveDraft &&
+                pending &&
+                latest._contentDirtyOwner === pending.tabId &&
+                latest.content === pending.content &&
+                latest._contentDirtyAt === pending.dirtyAt)
+            ) {
+              latest.content = content;
+              latest._contentDirtyAt = null;
+              latest._contentDirtyOwner = null;
+              latest._draftBaseRevision = null;
+            }
+            store.put(latest);
+            result = {
+              applied: true,
+              snapshot: {
+                content,
+                revision,
+                updatedAt: String(updatedAt || latest._serverUpdatedAt || ""),
+                dirty: false,
+              },
+            };
+          };
+          req.onerror = () => reject(req.error);
+          tx.oncomplete = () => resolve(result);
+          tx.onerror = () => reject(tx.error);
+        }),
+    ),
+  );
+}
+
+async function applyAcceptedSnapshot(
+  storeName: string,
+  id: string,
+  content: string,
+  revision: number,
+  updatedAt: string,
+): Promise<CommittedSnapshot | null> {
+  const applied = await applyCommittedSnapshot(storeName, id, content, revision, updatedAt, {
+    accept: true,
+  });
+  return applied?.snapshot ?? null;
+}
+
+export async function acceptCommittedContent(
+  storeName: string,
+  id: string,
+  content: string,
+  revision: number,
+  updatedAt = "",
+): Promise<ContentSnapshot | null> {
+  const key = scopedKey(storeName, id);
+  if (_contentSyncDebounces[key]) {
+    clearTimeout(_contentSyncDebounces[key]);
+    delete _contentSyncDebounces[key];
+  }
+  delete _pendingContentSyncs[key];
+  const snapshot = await applyAcceptedSnapshot(storeName, id, content, revision, updatedAt);
+  if (snapshot) await deleteDraft(storeName, id);
+  return snapshot;
 }
 
 export function scheduleReorderSync(storeName: string, args: unknown[]): void {
@@ -716,6 +1378,8 @@ export function hasPendingChanges(): boolean {
   return (
     Object.keys(_metaDebounces).length > 0 ||
     Object.keys(_contentSyncDebounces).length > 0 ||
+    Object.keys(_pendingContentSyncs).length > 0 ||
+    _contentSyncInFlight.size > 0 ||
     Object.values(_reorderState).some((s) => s.pending !== null)
   );
 }
@@ -769,9 +1433,13 @@ export function mergeServerData(storeName: string, serverEntities: any[]): Promi
         const pending = _pendingServerContent[pendingKey];
         if (pending) {
           se.content = pending.content;
+          se.contentRevision = pending.revision;
           delete _pendingServerContent[pendingKey];
         } else {
           se.content = "";
+          // Metadata does not contain the matching body snapshot. Revision 0
+          // forces CAS conflict detection if content loading fails before edit.
+          se.contentRevision = 0;
         }
         ops.push(put(storeName, se));
       }
@@ -813,6 +1481,9 @@ export function mergeServerData(storeName: string, serverEntities: any[]): Promi
             merged[k] = le[k];
           }
         });
+        // `content` and its revision must always describe the same committed
+        // snapshot. Server metadata may already advertise a newer revision.
+        merged.contentRevision = le.contentRevision ?? 0;
         merged._serverUpdatedAt = se.updatedAt;
         merged._dirty = false;
         ops.push(put(storeName, merged));
@@ -844,13 +1515,42 @@ export function requeueDirtyRecords(storeName: string): void {
         } else if (entity._dirty) {
           scheduleMetadataSync(storeName, entity.id);
         }
-        if (entity._contentDirtyAt) {
+        if (ownsEntityDraft(entity)) {
           scheduleContentSync(storeName, entity.id);
         }
       });
     })
     .catch((err) => {
       console.warn("[EntityStore] requeueDirtyRecords error:", storeName, err);
+    });
+
+  getAll(DRAFT_STORE)
+    .then(async (drafts) => {
+      const candidates = drafts.filter(
+        (draft) => draft.storeName === storeName && !draft.recoveryState && !draft.conflict,
+      );
+      const activity = await Promise.all(
+        candidates.map(async (draft) => ({
+          draft,
+          active: await isTabActive(String(draft.tabId)),
+        })),
+      );
+      const ids = new Set(
+        activity
+          .filter(({ draft, active }) => draft.tabId === getTabId() || !active)
+          .map(({ draft }) => String(draft.id)),
+      );
+      ids.forEach((id) => {
+        void adoptOrphanDraft(storeName, id).then((draft) => {
+          if (!draft) return;
+          const key = rememberEntityStore(storeName, id);
+          _pendingContentSyncs[key] = draft;
+          scheduleContentSync(storeName, id);
+        });
+      });
+    })
+    .catch((err) => {
+      console.warn("[EntityStore] requeue drafts error:", storeName, err);
     });
 }
 
@@ -863,23 +1563,16 @@ function applyServerContent(
   id: string,
   content: string,
   serverTs: string,
-): Promise<void> {
-  return withLock(storeName, id, () =>
-    get(storeName, id).then((entity) => {
-      if (!entity) return;
-      entity.content = content;
-      entity._contentDirtyAt = null;
-      entity._serverUpdatedAt = serverTs;
-      return put(storeName, entity);
-    }),
-  );
+  revision: number,
+): Promise<CommittedSnapshot | null> {
+  return applyAcceptedSnapshot(storeName, id, content, revision, serverTs);
 }
 
 function resolveContentConflict(
   storeName: string,
   id: string,
   serverResult: any,
-): Promise<{ useServer: boolean; content?: string } | null> {
+): Promise<{ useServer: boolean; content?: string; revision?: number } | null> {
   if (serverResult == null) {
     return get(storeName, id).then((entity) => {
       if (entity?.content) {
@@ -891,11 +1584,16 @@ function resolveContentConflict(
 
   const serverContent = serverResult.content || "";
   const serverTs = serverResult.updatedAt || "";
+  const serverRevision = Math.max(1, Number(serverResult.contentRevision) || 1);
 
-  return get(storeName, id).then((entity) => {
+  return Promise.all([get(storeName, id), getDraft(storeName, id)]).then(([entity, ownDraft]) => {
     if (!entity) {
       if (!serverContent) return { useServer: false };
-      _pendingServerContent[scopedKey(storeName, id)] = { content: serverContent, serverTs };
+      _pendingServerContent[scopedKey(storeName, id)] = {
+        content: serverContent,
+        serverTs,
+        revision: serverRevision,
+      };
       // エンティティ未存在時も contentResolved を発火
       const cfg = _registrations[storeName];
       emit("contentResolved", {
@@ -903,48 +1601,95 @@ function resolveContentConflict(
         entityType: cfg?.entityType || storeName,
         id,
         content: serverContent,
+        revision: serverRevision,
       });
-      return { useServer: true, content: serverContent };
+      return { useServer: true, content: serverContent, revision: serverRevision };
     }
 
-    const localContent = entity.content || "";
+    const ownsStoredDraft = ownsEntityDraft(entity);
+    const hasOwnDirtyContent = Boolean(ownDraft || ownsStoredDraft);
+    const localContent = ownDraft?.content ?? entity.content ?? "";
 
-    if (localContent === serverContent) {
-      return applyServerContent(storeName, id, localContent, serverTs).then(() => ({
-        useServer: false,
-      }));
+    if (hasOwnDirtyContent && localContent === serverContent) {
+      return acceptCommittedContent(storeName, id, localContent, serverRevision, serverTs).then(
+        (snapshot) => ({
+          useServer: false,
+          revision: snapshot?.revision ?? serverRevision,
+        }),
+      );
     }
 
-    if (entity._contentDirtyAt) {
+    if (hasOwnDirtyContent) {
       logSync("resolve: local dirty, keep local", storeName, id);
-      scheduleContentSync(storeName, id);
-      return { useServer: false };
+      return applyCommittedSnapshot(storeName, id, serverContent, serverRevision, serverTs, {
+        preserveDraft: true,
+      }).then((applied) => {
+        if (!ownDraft?.recoveryState) scheduleContentSync(storeName, id);
+        return {
+          useServer: false,
+          revision: applied?.snapshot.revision ?? serverRevision,
+        };
+      });
+    }
+
+    // Another tab may own the shared record's compatibility dirty fields.
+    // Update only the committed snapshot so that tab's draft is not cleared.
+    if (entity._contentDirtyAt) {
+      return applyCommittedSnapshot(storeName, id, serverContent, serverRevision, serverTs, {
+        preserveDraft: true,
+      }).then((applied) => {
+        const snapshot = applied?.snapshot;
+        if (!snapshot) return { useServer: false, revision: serverRevision };
+        const cfg = _registrations[storeName];
+        emit("contentResolved", {
+          storeName,
+          entityType: cfg?.entityType || storeName,
+          id,
+          content: snapshot.content,
+          revision: snapshot.revision,
+        });
+        return { useServer: true, content: snapshot.content, revision: snapshot.revision };
+      });
+    }
+
+    const committedContent = entity._serverContent ?? entity.content ?? "";
+    if (committedContent === serverContent) {
+      return applyServerContent(storeName, id, serverContent, serverTs, serverRevision).then(
+        (snapshot) => ({
+          useServer: false,
+          revision: snapshot?.revision ?? serverRevision,
+        }),
+      );
     }
 
     logSync("resolve: use server content", storeName, id, `${serverContent.length} chars`);
-    return applyServerContent(storeName, id, serverContent, serverTs).then(() => {
-      const cfg = _registrations[storeName];
-      emit("contentResolved", {
-        storeName,
-        entityType: cfg?.entityType || storeName,
-        id,
-        content: serverContent,
-      });
-      return { useServer: true, content: serverContent };
-    });
+    return applyServerContent(storeName, id, serverContent, serverTs, serverRevision).then(
+      (snapshot) => {
+        if (!snapshot) return { useServer: false, revision: serverRevision };
+        const cfg = _registrations[storeName];
+        emit("contentResolved", {
+          storeName,
+          entityType: cfg?.entityType || storeName,
+          id,
+          content: snapshot.content,
+          revision: snapshot.revision,
+        });
+        return { useServer: true, content: snapshot.content, revision: snapshot.revision };
+      },
+    );
   });
 }
 
 export function resolveWithServer(
   storeName: string,
   id: string,
-): Promise<{ useServer: boolean; content?: string } | null> {
+): Promise<{ useServer: boolean; content?: string; revision?: number } | null> {
   const cfg = _registrations[storeName];
   if (!cfg?.serverFns?.getContent) {
     return Promise.resolve(null);
   }
   logSync("resolve ← server", storeName, id);
-  function attempt(): Promise<{ useServer: boolean; content?: string } | null> {
+  function attempt(): Promise<{ useServer: boolean; content?: string; revision?: number } | null> {
     return withTimeout(serverCall(cfg.serverFns!.getContent!, id), 30000).then((serverResult) =>
       resolveContentConflict(storeName, id, serverResult),
     );

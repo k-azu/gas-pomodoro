@@ -29,8 +29,8 @@ export function init(serverMemos: MemoMetadata[], serverMemoTags: MemoTag[]): vo
       reorder: "updateMemoSortOrders",
     },
     addServerArgs: (e: any) => [{ id: e.id, name: e.name, content: "", tags: e.tags || [] }],
-    contentSyncFn: (id: string, content: string) =>
-      serverCall("saveMemoContent", id, content, new Date().toISOString()) as Promise<any>,
+    contentSyncFn: (id: string, content: string, baseRevision: number, mutationId: string) =>
+      serverCall("saveMemoContent", id, content, baseRevision, mutationId) as Promise<any>,
   });
 }
 
@@ -179,13 +179,17 @@ export function getTags(): MemoTag[] {
 export function saveContent(
   id: string,
   content: string,
-  opts?: { immediateSync?: boolean },
+  opts?: EntityStore.ContentSaveOptions,
 ): Promise<void> {
   return EntityStore.saveContent("memos", id, content, opts);
 }
 
 export function getContent(id: string): Promise<string | null> {
   return EntityStore.getContent("memos", id);
+}
+
+export function getContentSnapshot(id: string) {
+  return EntityStore.getContentSnapshot("memos", id);
 }
 
 export function resolveWithServer(id: string) {

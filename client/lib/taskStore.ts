@@ -4,6 +4,7 @@
  */
 
 import * as EntityStore from "./entityStore";
+import { serverCall } from "./serverCall";
 import type { TaskStatus } from "../types/entities";
 
 export const STATUS_ORDER: Record<string, number> = {
@@ -38,6 +39,8 @@ export function init(serverData?: {
       reorder: "reorderProjects",
     },
     addServerArgs: (e: any) => [e.id, e.name, e.color || "#4285f4"],
+    contentSyncFn: (id, content, baseRevision, mutationId) =>
+      serverCall("saveProjectContent", id, content, baseRevision, mutationId),
   });
 
   EntityStore.register("cases", {
@@ -52,6 +55,8 @@ export function init(serverData?: {
       reorder: "reorderCases",
     },
     addServerArgs: (e: any) => [e.id, e.projectId, e.name],
+    contentSyncFn: (id, content, baseRevision, mutationId) =>
+      serverCall("saveCaseContent", id, content, baseRevision, mutationId),
   });
 
   EntityStore.register("tasks", {
@@ -70,6 +75,8 @@ export function init(serverData?: {
       reorder: "reorderTasks",
     },
     addServerArgs: (e: any) => [e.id, e.projectId, e.caseId || "", e.name],
+    contentSyncFn: (id, content, baseRevision, mutationId) =>
+      serverCall("saveTaskContent", id, content, baseRevision, mutationId),
     onUpdateHook: (item: any, fields: Record<string, any>) => {
       if (fields.status === "done" && item.status !== "done") {
         fields.completedAt = new Date().toISOString();
@@ -77,6 +84,12 @@ export function init(serverData?: {
         fields.completedAt = "";
       }
     },
+  });
+
+  EntityStore.register("documentDrafts", {
+    entityType: "documentDraft",
+    keyPath: "key",
+    indexes: [],
   });
 
   if (serverData) {
@@ -87,7 +100,7 @@ export function init(serverData?: {
     };
   }
 
-  return EntityStore.init("gas_pomodoro", 4, {
+  return EntityStore.init("gas_pomodoro", 5, {
     onUpgrade: (db) => {
       if (db.objectStoreNames.contains("contents")) db.deleteObjectStore("contents");
       if (db.objectStoreNames.contains("syncMeta")) db.deleteObjectStore("syncMeta");
@@ -333,13 +346,17 @@ export function saveContent(
   id: string,
   content: string,
   storeName: string,
-  opts?: { immediateSync?: boolean },
+  opts?: EntityStore.ContentSaveOptions,
 ): Promise<void> {
   return EntityStore.saveContent(storeName, id, content, opts);
 }
 
 export function getContent(id: string, storeName: string): Promise<string | null> {
   return EntityStore.getContent(storeName, id);
+}
+
+export function getContentSnapshot(id: string, storeName: string) {
+  return EntityStore.getContentSnapshot(storeName, id);
 }
 
 export function resolveWithServer(id: string, storeName: string) {

@@ -67,12 +67,14 @@ export function MemoTab() {
     readOnly,
     syncStatus,
     contentRevision,
+    acceptRemoteContent,
+    keepLocalContent,
   } = useDocumentEditor({
     scope: "memos",
     id: memo.activeId || "",
-    loadContent: useCallback((id: string) => MemoStore.getContent(id), []),
+    loadContentSnapshot: useCallback((id: string) => MemoStore.getContentSnapshot(id), []),
     saveContent: useCallback(
-      (id: string, md: string, opts?: { immediateSync?: boolean }) =>
+      (id: string, md: string, opts?: Parameters<typeof MemoStore.saveContent>[2]) =>
         MemoStore.saveContent(id, md, opts),
       [],
     ),
@@ -249,7 +251,11 @@ export function MemoTab() {
               {isArchivedSearchDocument ? (
                 <span className={s["archived-label"]}>アーカイブ済み・読み取り専用</span>
               ) : (
-                <SyncIndicator status={syncStatus} />
+                <SyncIndicator
+                  status={syncStatus}
+                  onAcceptRemote={acceptRemoteContent}
+                  onKeepLocal={keepLocalContent}
+                />
               )}
             </div>
             <MetaTitle>

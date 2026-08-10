@@ -3,7 +3,7 @@
  * E1. サーバーエラー
  */
 import { test, expect } from "@playwright/test";
-import { idbGet, idbDelete, clearDirtyAt } from "./helpers/idb";
+import { idbGet, idbDelete, clearDirtyAt, idbSeedDirtyContent } from "./helpers/idb";
 import {
   gotoApp,
   selectMemo,
@@ -77,7 +77,8 @@ test.describe("C. サーバー同期と競合解決", () => {
     await typeInEditor(page, "ローカル未同期");
     await page.waitForTimeout(2500); // Wait for debounce flush to IDB
 
-    // Do NOT clear _contentDirtyAt — local has unsaved changes
+    // Model a local edit that has not reached the server yet.
+    await idbSeedDirtyContent(page, MEMO_STORE, MEMO_1_ID, "ローカル未同期");
     await setMockContentOverride(page, {
       content: "サーバー内容",
       updatedAt: new Date().toISOString(),

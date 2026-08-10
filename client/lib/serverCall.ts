@@ -403,6 +403,10 @@ const CONTENT_FUNCTIONS = new Set([
   "getCaseContent",
   "getTaskContent",
   "getMemoContent",
+  "saveProjectContent",
+  "saveCaseContent",
+  "saveTaskContent",
+  "saveMemoContent",
   "updateRecordDetails",
   "updateInterruptionDetails",
 ]);
@@ -523,9 +527,110 @@ const MOCK_CONTENT_BY_ID: Record<string, { content: string; updatedAt: string }>
   },
 };
 
+interface MockRevisionedContent {
+  content: string;
+  updatedAt: string;
+  contentRevision: number;
+  lastMutationId?: string;
+  isActive?: boolean;
+}
+
+const MOCK_CONTENT_STATE_PREFIX = "gas_pomodoro_mock_server_content_";
+
+function readMockRevisionedContent(id: string): MockRevisionedContent | null {
+  try {
+    const stored = localStorage.getItem(MOCK_CONTENT_STATE_PREFIX + id);
+    if (stored) return JSON.parse(stored) as MockRevisionedContent;
+  } catch {
+    // Fall through to static mock data.
+  }
+  const initial = MOCK_CONTENT_BY_ID[id];
+  if (initial) return { ...initial, contentRevision: 1, isActive: true };
+  const entity = [...MOCK_PROJECTS, ...MOCK_CASES, ...MOCK_TASKS].find((item) => item.id === id);
+  return entity
+    ? {
+        content: "",
+        updatedAt: String(entity.updatedAt || ""),
+        contentRevision: 1,
+        isActive: entity.isActive !== false,
+      }
+    : null;
+}
+
+function writeMockRevisionedContent(id: string, state: MockRevisionedContent): void {
+  try {
+    localStorage.setItem(MOCK_CONTENT_STATE_PREFIX + id, JSON.stringify(state));
+  } catch {
+    // The in-memory static data remains available when storage is unavailable.
+  }
+}
+
+function createMockRevisionedContent(id: string): void {
+  if (!id || readMockRevisionedContent(id)) return;
+  writeMockRevisionedContent(id, {
+    content: "",
+    updatedAt: new Date().toISOString(),
+    contentRevision: 1,
+    isActive: true,
+  });
+}
+
+function archiveMockRevisionedContent(id: string): void {
+  const current = readMockRevisionedContent(id);
+  if (!current) return;
+  writeMockRevisionedContent(id, {
+    ...current,
+    updatedAt: new Date().toISOString(),
+    isActive: false,
+  });
+}
+
+function withMockContentRevisions<T extends { id: string }>(entities: T[]) {
+  return entities.map((entity) => ({
+    ...entity,
+    contentRevision: readMockRevisionedContent(entity.id)?.contentRevision ?? 1,
+  }));
+}
+
+function saveMockRevisionedContent(args: unknown[]): unknown {
+  const id = String(args[0] || "");
+  const content = String(args[1] || "");
+  const baseRevision = Math.max(0, Number(args[2]) || 0);
+  const mutationId = String(args[3] || "");
+  const current = readMockRevisionedContent(id);
+  if (!current) return { status: "notFound" };
+  if (current.isActive === false) return { status: "inactive" };
+  if (mutationId && current.lastMutationId === mutationId) {
+    return { status: "saved", ...current, revision: current.contentRevision, mutationId };
+  }
+  if (current.contentRevision !== baseRevision) {
+    return { status: "conflict", ...current, revision: current.contentRevision };
+  }
+
+  const next: MockRevisionedContent = {
+    content,
+    updatedAt: new Date().toISOString(),
+    contentRevision: current.contentRevision + 1,
+    lastMutationId: mutationId,
+  };
+  writeMockRevisionedContent(id, next);
+  return {
+    status: "saved",
+    content: next.content,
+    revision: next.contentRevision,
+    updatedAt: next.updatedAt,
+    mutationId,
+  };
+}
+
 function getContentMockResponse(functionName: string, id?: string): unknown {
   if (typeof window !== "undefined" && (window as any).__mockContentOverride !== undefined) {
-    return (window as any).__mockContentOverride;
+    const override = (window as any).__mockContentOverride;
+    if (override && typeof override === "object" && override.contentRevision == null) {
+      const currentRevision = id ? readMockRevisionedContent(id)?.contentRevision : undefined;
+      return { ...override, contentRevision: (currentRevision ?? 0) + 1 };
+    }
+    return override;
   }
   const { scenario } = mockParams;
   if (scenario === "serverNewer") {
@@ -542,8 +647,9 @@ function getContentMockResponse(functionName: string, id?: string): unknown {
     };
   }
   // Normal documents return their server content regardless of response delay.
-  if (id && MOCK_CONTENT_BY_ID[id]) {
-    return MOCK_CONTENT_BY_ID[id];
+  if (id) {
+    const current = readMockRevisionedContent(id);
+    if (current) return current;
   }
   // An unknown ID represents a record that no longer exists on the server.
   return null;
@@ -581,7 +687,7 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
         recentRecordsBulk: MOCK_RECORDS,
         recentInterruptionsBulk: MOCK_INTERRUPTIONS,
         spreadsheetUrl: "https://docs.google.com/spreadsheets/d/example",
-        memos: [
+        memos: withMockContentRevisions([
           {
             id: "mock-memo-1",
             name: "開発メモ",
@@ -636,14 +742,14 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
             createdAt: "2025-06-01T00:00:00.000Z",
             updatedAt: "2025-06-01T00:00:00.000Z",
           },
-        ],
+        ]),
         memoTags: [
           { name: "dev", color: "#4CAF50", sortOrder: 1, isActive: true },
           { name: "memo", color: "#2196F3", sortOrder: 2, isActive: true },
         ],
-        projects: MOCK_PROJECTS,
-        cases: MOCK_CASES,
-        tasks: MOCK_TASKS,
+        projects: withMockContentRevisions(MOCK_PROJECTS),
+        cases: withMockContentRevisions(MOCK_CASES),
+        tasks: withMockContentRevisions(MOCK_TASKS),
       };
 
     case "getRefreshData":
@@ -780,9 +886,9 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
     // ---- Task Data ----
     case "getAllTaskData":
       return {
-        projects: MOCK_PROJECTS,
-        cases: MOCK_CASES,
-        tasks: MOCK_TASKS,
+        projects: withMockContentRevisions(MOCK_PROJECTS),
+        cases: withMockContentRevisions(MOCK_CASES),
+        tasks: withMockContentRevisions(MOCK_TASKS),
       };
 
     case "getTaskPomodoroRecords":
@@ -792,6 +898,7 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
     case "addProject":
     case "addCase":
     case "addTask":
+      createMockRevisionedContent(String(args[0] || ""));
       return { success: true };
 
     case "updateProject":
@@ -802,6 +909,7 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
     case "archiveProject":
     case "archiveCase":
     case "archiveTask":
+      archiveMockRevisionedContent(String(args[0] || ""));
       return { success: true };
 
     case "reorderProjects":
@@ -819,6 +927,11 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
       return getContentMockResponse(functionName, args[0] as string);
 
     case "saveMemoContent":
+    case "saveProjectContent":
+    case "saveCaseContent":
+    case "saveTaskContent":
+      return saveMockRevisionedContent(args);
+
     case "renameMemo":
     case "updateMemoTags":
     case "addMemoTag":

@@ -4,6 +4,7 @@ interface MemoMetadata {
   tags: string[];
   createdAt: string;
   updatedAt: string;
+  contentRevision: number;
   sortOrder: number;
   isActive: boolean;
 }
@@ -35,7 +36,7 @@ function getMemos(): MemoMetadata[] {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
 
-  const data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
   const result = data
     .filter((row) => row[7] === true)
     .map((row) => ({
@@ -44,6 +45,7 @@ function getMemos(): MemoMetadata[] {
       tags: parseTags(row[3]),
       createdAt: String(row[4]),
       updatedAt: String(row[5]),
+      contentRevision: Math.max(1, Number(row[8]) || 1),
       sortOrder: Number(row[6]),
       isActive: Boolean(row[7]),
     }))
@@ -53,18 +55,21 @@ function getMemos(): MemoMetadata[] {
   return result;
 }
 
-function getMemoContent(memoId: string): { id: string; content: string; updatedAt: string } | null {
+function getMemoContent(
+  memoId: string,
+): { id: string; content: string; updatedAt: string; contentRevision: number } | null {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Memos")!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return null;
 
-  const data = sheet.getRange(2, 1, lastRow - 1, 6).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
   for (let i = data.length - 1; i >= 0; i--) {
     if (String(data[i][0]) === memoId) {
       const content = String(data[i][2]);
       const updatedAt = String(data[i][5]);
-      return { id: memoId, content, updatedAt };
+      const contentRevision = Math.max(1, Number(data[i][8]) || 1);
+      return { id: memoId, content, updatedAt, contentRevision };
     }
   }
   return null;
@@ -73,6 +78,7 @@ function getMemoContent(memoId: string): { id: string; content: string; updatedA
 function saveMemo(memo: { id?: string; name: string; content: string; tags?: string[] }): {
   success: boolean;
   id: string;
+  updatedAt: string;
 } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Memos")!;
@@ -88,11 +94,10 @@ function saveMemo(memo: { id?: string; name: string; content: string; tags?: str
         if (String(ids[i][0]) === memo.id) {
           const row = i + 2;
           sheet.getRange(row, 2).setValue(memo.name);
-          sheet.getRange(row, 3).setValue(memo.content);
           sheet.getRange(row, 4).setValue(tagsJson);
           sheet.getRange(row, 6).setValue(now);
           invalidateMemoCache();
-          return { success: true, id: memo.id };
+          return { success: true, id: memo.id, updatedAt: now };
         }
       }
     }
@@ -102,9 +107,9 @@ function saveMemo(memo: { id?: string; name: string; content: string; tags?: str
   const id = memo.id || Utilities.getUuid();
   const lastRow = sheet.getLastRow();
   const nextOrder = lastRow; // 1-based after header
-  sheet.appendRow([id, memo.name, memo.content, tagsJson, now, now, nextOrder, true]);
+  sheet.appendRow([id, memo.name, memo.content, tagsJson, now, now, nextOrder, true, 1, ""]);
   invalidateMemoCache();
-  return { success: true, id };
+  return { success: true, id, updatedAt: now };
 }
 
 function deleteMemo(memoId: string): { success: boolean } {
@@ -224,23 +229,29 @@ function updateMemoTagColor(name: string, color: string): { success: boolean; me
   return { success: false, message: "タグが見つかりません" };
 }
 
-function saveMemoContent(memoId: string, content: string, updatedAt: string): { success: boolean } {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Memos")!;
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return { success: false };
-
-  const data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
-  for (let i = data.length - 1; i >= 0; i--) {
-    if (String(data[i][0]) === memoId) {
-      // Skip soft-deleted memos
-      if (data[i][7] !== true) return { success: false };
-      sheet.getRange(i + 2, 3).setValue(content);
-      sheet.getRange(i + 2, 6).setValue(updatedAt);
-      return { success: true };
-    }
-  }
-  return { success: false };
+function saveMemoContent(
+  memoId: string,
+  content: string,
+  baseRevision: number,
+  mutationId: string,
+): ContentSaveResult {
+  const result = saveRevisionedContent(
+    {
+      sheetName: "Memos",
+      idColumn: 1,
+      contentColumn: 3,
+      updatedAtColumn: 6,
+      isActiveColumn: 8,
+      revisionColumn: 9,
+      mutationColumn: 10,
+    },
+    memoId,
+    content,
+    baseRevision,
+    mutationId,
+  );
+  if (result.status === "saved") invalidateMemoCache();
+  return result;
 }
 
 // --- Helpers ---

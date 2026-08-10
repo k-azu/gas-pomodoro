@@ -113,12 +113,17 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
     syncStatus,
     contentRevision,
     flushPendingSave,
+    acceptRemoteContent,
+    keepLocalContent,
   } = useDocumentEditor({
     scope: storeName,
     id,
-    loadContent: useCallback((id: string) => TaskStore.getContent(id, storeName), [storeName]),
+    loadContentSnapshot: useCallback(
+      (id: string) => TaskStore.getContentSnapshot(id, storeName),
+      [storeName],
+    ),
     saveContent: useCallback(
-      (id: string, md: string, opts?: { immediateSync?: boolean }) =>
+      (id: string, md: string, opts?: Parameters<typeof TaskStore.saveContent>[3]) =>
         TaskStore.saveContent(id, md, storeName, opts),
       [storeName],
     ),
@@ -201,10 +206,24 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
       >
         {/* Meta section — keyed to remount per type+id */}
         {type === "project" && (
-          <ProjectMeta key={`p-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
+          <ProjectMeta
+            key={`p-${id}`}
+            id={id}
+            tasks={tasks}
+            syncStatus={syncStatus}
+            onAcceptRemote={acceptRemoteContent}
+            onKeepLocal={keepLocalContent}
+          />
         )}
         {type === "case" && (
-          <CaseMeta key={`c-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
+          <CaseMeta
+            key={`c-${id}`}
+            id={id}
+            tasks={tasks}
+            syncStatus={syncStatus}
+            onAcceptRemote={acceptRemoteContent}
+            onKeepLocal={keepLocalContent}
+          />
         )}
         {type === "task" && (
           <TaskMeta
@@ -213,6 +232,8 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
             tasks={tasks}
             syncStatus={syncStatus}
             readOnly={isArchivedSearchDocument}
+            onAcceptRemote={acceptRemoteContent}
+            onKeepLocal={keepLocalContent}
           />
         )}
       </EditorLayout>
@@ -278,10 +299,14 @@ function ProjectMeta({
   id,
   tasks,
   syncStatus,
+  onAcceptRemote,
+  onKeepLocal,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
+  onAcceptRemote: () => void;
+  onKeepLocal: () => void;
 }) {
   const [entity, setEntity] = useEntity("projects", "project", id);
   const colorRef = useRef<HTMLInputElement>(null);
@@ -314,7 +339,11 @@ function ProjectMeta({
             }}
           />
         </span>
-        <SyncIndicator status={syncStatus} />
+        <SyncIndicator
+          status={syncStatus}
+          onAcceptRemote={onAcceptRemote}
+          onKeepLocal={onKeepLocal}
+        />
       </div>
       <MetaTitle>
         <ContentHeaderName
@@ -333,10 +362,14 @@ function CaseMeta({
   id,
   tasks,
   syncStatus,
+  onAcceptRemote,
+  onKeepLocal,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
+  onAcceptRemote: () => void;
+  onKeepLocal: () => void;
 }) {
   const [entity, setEntity] = useEntity("cases", "case", id);
 
@@ -345,7 +378,11 @@ function CaseMeta({
   return (
     <>
       <div className={s["meta-status-row"]}>
-        <SyncIndicator status={syncStatus} />
+        <SyncIndicator
+          status={syncStatus}
+          onAcceptRemote={onAcceptRemote}
+          onKeepLocal={onKeepLocal}
+        />
       </div>
       <MetaTitle>
         <ContentHeaderName
@@ -365,11 +402,15 @@ function TaskMeta({
   tasks,
   syncStatus,
   readOnly = false,
+  onAcceptRemote,
+  onKeepLocal,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
   readOnly?: boolean;
+  onAcceptRemote: () => void;
+  onKeepLocal: () => void;
 }) {
   const [entity, setEntity] = useEntity("tasks", "task", id);
 
@@ -383,7 +424,11 @@ function TaskMeta({
         {readOnly ? (
           <span className={s["archived-label"]}>アーカイブ済み・読み取り専用</span>
         ) : (
-          <SyncIndicator status={syncStatus} />
+          <SyncIndicator
+            status={syncStatus}
+            onAcceptRemote={onAcceptRemote}
+            onKeepLocal={onKeepLocal}
+          />
         )}
       </div>
       <MetaTitle>

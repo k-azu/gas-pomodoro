@@ -1,11 +1,23 @@
 // Bump when sheet structure changes (new columns, new sheets, etc.)
 // so that existing deployments re-run initializeSpreadsheet().
-const SCHEMA_VERSION = "1";
+const SCHEMA_VERSION = "2";
 
 function initializeSpreadsheet(): void {
   const props = PropertiesService.getScriptProperties();
   if (props.getProperty("schemaVersion") === SCHEMA_VERSION) return;
 
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    // Another request may have completed the migration while this request waited.
+    if (props.getProperty("schemaVersion") === SCHEMA_VERSION) return;
+    initializeSpreadsheetUnlocked(props);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function initializeSpreadsheetUnlocked(props: GoogleAppsScript.Properties.Properties): void {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   // PomodoroLog sheet
@@ -96,11 +108,22 @@ function initializeSpreadsheet(): void {
   if (!memosSheet) {
     memosSheet = ss.insertSheet("Memos");
     memosSheet
-      .getRange("A1:H1")
+      .getRange("A1:J1")
       .setValues([
-        ["id", "name", "content", "tags", "createdAt", "updatedAt", "sortOrder", "isActive"],
+        [
+          "id",
+          "name",
+          "content",
+          "tags",
+          "createdAt",
+          "updatedAt",
+          "sortOrder",
+          "isActive",
+          "contentRevision",
+          "lastContentMutationId",
+        ],
       ]);
-    memosSheet.getRange("A1:H1").setFontWeight("bold");
+    memosSheet.getRange("A1:J1").setFontWeight("bold");
     memosSheet.setFrozenRows(1);
   }
 
@@ -118,11 +141,22 @@ function initializeSpreadsheet(): void {
   if (!projSheet) {
     projSheet = ss.insertSheet("Projects");
     projSheet
-      .getRange("A1:H1")
+      .getRange("A1:J1")
       .setValues([
-        ["id", "name", "content", "color", "sortOrder", "isActive", "createdAt", "updatedAt"],
+        [
+          "id",
+          "name",
+          "content",
+          "color",
+          "sortOrder",
+          "isActive",
+          "createdAt",
+          "updatedAt",
+          "contentRevision",
+          "lastContentMutationId",
+        ],
       ]);
-    projSheet.getRange("A1:H1").setFontWeight("bold");
+    projSheet.getRange("A1:J1").setFontWeight("bold");
     projSheet.setFrozenRows(1);
   }
 
@@ -131,11 +165,22 @@ function initializeSpreadsheet(): void {
   if (!casesSheet) {
     casesSheet = ss.insertSheet("Cases");
     casesSheet
-      .getRange("A1:H1")
+      .getRange("A1:J1")
       .setValues([
-        ["id", "projectId", "name", "content", "sortOrder", "isActive", "createdAt", "updatedAt"],
+        [
+          "id",
+          "projectId",
+          "name",
+          "content",
+          "sortOrder",
+          "isActive",
+          "createdAt",
+          "updatedAt",
+          "contentRevision",
+          "lastContentMutationId",
+        ],
       ]);
-    casesSheet.getRange("A1:H1").setFontWeight("bold");
+    casesSheet.getRange("A1:J1").setFontWeight("bold");
     casesSheet.setFrozenRows(1);
   }
 
@@ -144,7 +189,7 @@ function initializeSpreadsheet(): void {
   if (!tasksSheet) {
     tasksSheet = ss.insertSheet("Tasks");
     tasksSheet
-      .getRange("A1:M1")
+      .getRange("A1:O1")
       .setValues([
         [
           "id",
@@ -160,11 +205,21 @@ function initializeSpreadsheet(): void {
           "startedAt",
           "dueDate",
           "updatedAt",
+          "contentRevision",
+          "lastContentMutationId",
         ],
       ]);
-    tasksSheet.getRange("A1:M1").setFontWeight("bold");
+    tasksSheet.getRange("A1:O1").setFontWeight("bold");
     tasksSheet.setFrozenRows(1);
   }
+
+  // Content synchronization columns are appended so all existing positional
+  // reads/writes keep their original column numbers.
+  ensureContentSyncColumns(memosSheet, 9, 10);
+  ensureContentSyncColumns(projSheet, 9, 10);
+  ensureContentSyncColumns(casesSheet, 9, 10);
+  ensureContentSyncColumns(tasksSheet, 14, 15);
+  CacheService.getScriptCache().removeAll(["memos_meta_v1", "task_data_v2"]);
 
   // PomodoroLog: add taskId column (P) if not present
   if (logSheet.getRange("P1").getValue() === "") {
@@ -237,4 +292,37 @@ function initializeSpreadsheet(): void {
   }
 
   props.setProperty("schemaVersion", SCHEMA_VERSION);
+}
+
+function ensureContentSyncColumns(
+  sheet: GoogleAppsScript.Spreadsheet.Sheet,
+  revisionColumn: number,
+  mutationColumn: number,
+): void {
+  const revisionHeader = String(sheet.getRange(1, revisionColumn).getValue());
+  const mutationHeader = String(sheet.getRange(1, mutationColumn).getValue());
+
+  if (revisionHeader && revisionHeader !== "contentRevision") {
+    throw new Error(
+      `${sheet.getName()}: expected empty/contentRevision at column ${revisionColumn}, got ${revisionHeader}`,
+    );
+  }
+  if (mutationHeader && mutationHeader !== "lastContentMutationId") {
+    throw new Error(
+      `${sheet.getName()}: expected empty/lastContentMutationId at column ${mutationColumn}, got ${mutationHeader}`,
+    );
+  }
+
+  sheet.getRange(1, revisionColumn).setValue("contentRevision").setFontWeight("bold");
+  sheet.getRange(1, mutationColumn).setValue("lastContentMutationId").setFontWeight("bold");
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return;
+
+  const revisionRange = sheet.getRange(2, revisionColumn, lastRow - 1, 1);
+  const revisions = revisionRange.getValues().map(([value]) => {
+    const revision = Number(value);
+    return [Number.isFinite(revision) && revision > 0 ? revision : 1];
+  });
+  revisionRange.setValues(revisions);
 }

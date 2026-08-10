@@ -1,0 +1,77 @@
+.panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 80;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 32px));
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid #f4b400;
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.description {
+  margin: 6px 0 12px;
+  color: var(--text-secondary, #666);
+  font-size: 13px;
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+}
+
+.draft {
+  padding: 10px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+}
+
+.draft summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.meta {
+  margin-top: 8px;
+  color: var(--text-secondary, #666);
+  font-size: 12px;
+}
+
+.draft pre {
+  max-height: 180px;
+  overflow: auto;
+  margin: 8px 0;
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--background, #f7f7f7);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.actions button {
+  padding: 6px 10px;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 4px;
+  background: var(--surface, #fff);
+  cursor: pointer;
+}
+
+.actions .discard {
+  color: #b3261e;
+}

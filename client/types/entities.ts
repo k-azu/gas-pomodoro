@@ -4,6 +4,9 @@ export interface EntityInternals {
   _pendingCreate?: boolean;
   _serverUpdatedAt?: string;
   _contentDirtyAt?: string | null;
+  _contentDirtyOwner?: string;
+  _draftBaseRevision?: number;
+  _serverContent?: string;
 }
 
 export interface BaseEntity extends EntityInternals {
@@ -14,6 +17,7 @@ export interface BaseEntity extends EntityInternals {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  contentRevision?: number;
 }
 
 export interface Project extends BaseEntity {

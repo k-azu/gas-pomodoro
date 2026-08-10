@@ -12,6 +12,7 @@ export interface MemoMetadata {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  contentRevision?: number;
 }
 
 /** Shape of getAllInitData response */

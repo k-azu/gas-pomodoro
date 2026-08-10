@@ -1,5 +1,6 @@
 import { LeftPanel } from "./LeftPanel";
 import { RightPanel } from "./RightPanel";
+import { RecoveryDraftPanel } from "../shared/RecoveryDraftPanel";
 import { useApp } from "../../contexts/AppContext";
 import s from "./AppLayout.module.css";
 
@@ -27,6 +28,7 @@ export function AppLayout() {
     <div className={s["app-layout"]}>
       <LeftPanel />
       <RightPanel />
+      <RecoveryDraftPanel />
     </div>
   );
 }

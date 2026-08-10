@@ -6,6 +6,7 @@ interface ProjectMetadata {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  contentRevision: number;
 }
 
 interface CaseMetadata {
@@ -16,6 +17,7 @@ interface CaseMetadata {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  contentRevision: number;
 }
 
 interface TaskMetadata {
@@ -31,6 +33,7 @@ interface TaskMetadata {
   startedAt: string;
   dueDate: string;
   updatedAt: string;
+  contentRevision: number;
   _cachedTimeSeconds?: number;
   _cachedPomodoroCount?: number;
 }
@@ -64,7 +67,7 @@ function getAllTaskData(): {
   const projLastRow = projSheet.getLastRow();
   let projects: ProjectMetadata[] = [];
   if (projLastRow > 1) {
-    const projData = projSheet.getRange(2, 1, projLastRow - 1, 8).getValues();
+    const projData = projSheet.getRange(2, 1, projLastRow - 1, 10).getValues();
     projects = projData
       .map((row) => ({
         id: String(row[0]),
@@ -74,6 +77,7 @@ function getAllTaskData(): {
         isActive: Boolean(row[5]),
         createdAt: String(row[6]),
         updatedAt: String(row[7]),
+        contentRevision: Math.max(1, Number(row[8]) || 1),
       }))
       .sort((a, b) => a.sortOrder - b.sortOrder);
   }
@@ -83,7 +87,7 @@ function getAllTaskData(): {
   const casesLastRow = casesSheet.getLastRow();
   let cases: CaseMetadata[] = [];
   if (casesLastRow > 1) {
-    const casesData = casesSheet.getRange(2, 1, casesLastRow - 1, 8).getValues();
+    const casesData = casesSheet.getRange(2, 1, casesLastRow - 1, 10).getValues();
     cases = casesData
       .map((row) => ({
         id: String(row[0]),
@@ -93,6 +97,7 @@ function getAllTaskData(): {
         isActive: Boolean(row[5]),
         createdAt: String(row[6]),
         updatedAt: String(row[7]),
+        contentRevision: Math.max(1, Number(row[8]) || 1),
       }))
       .sort((a, b) => a.sortOrder - b.sortOrder);
   }
@@ -102,7 +107,7 @@ function getAllTaskData(): {
   const tasksLastRow = tasksSheet.getLastRow();
   let tasks: TaskMetadata[] = [];
   if (tasksLastRow > 1) {
-    const tasksData = tasksSheet.getRange(2, 1, tasksLastRow - 1, 13).getValues();
+    const tasksData = tasksSheet.getRange(2, 1, tasksLastRow - 1, 15).getValues();
     tasks = tasksData
       .map((row) => ({
         id: String(row[0]),
@@ -117,6 +122,7 @@ function getAllTaskData(): {
         startedAt: String(row[10]),
         dueDate: String(row[11]),
         updatedAt: String(row[12]),
+        contentRevision: Math.max(1, Number(row[13]) || 1),
       }))
       .sort((a, b) => a.sortOrder - b.sortOrder);
   }
@@ -155,61 +161,128 @@ function getAllTaskData(): {
   return result;
 }
 
-function getProjectContent(id: string): { id: string; content: string; updatedAt: string } | null {
+function getProjectContent(
+  id: string,
+): { id: string; content: string; updatedAt: string; contentRevision: number } | null {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Projects")!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return null;
 
-  const data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
   for (let i = data.length - 1; i >= 0; i--) {
     if (String(data[i][0]) === id) {
       return {
         id,
         content: String(data[i][2]),
         updatedAt: String(data[i][7]),
+        contentRevision: Math.max(1, Number(data[i][8]) || 1),
       };
     }
   }
   return null;
 }
 
-function getCaseContent(id: string): { id: string; content: string; updatedAt: string } | null {
+function getCaseContent(
+  id: string,
+): { id: string; content: string; updatedAt: string; contentRevision: number } | null {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Cases")!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return null;
 
-  const data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
   for (let i = data.length - 1; i >= 0; i--) {
     if (String(data[i][0]) === id) {
       return {
         id,
         content: String(data[i][3]),
         updatedAt: String(data[i][7]),
+        contentRevision: Math.max(1, Number(data[i][8]) || 1),
       };
     }
   }
   return null;
 }
 
-function getTaskContent(id: string): { id: string; content: string; updatedAt: string } | null {
+function getTaskContent(
+  id: string,
+): { id: string; content: string; updatedAt: string; contentRevision: number } | null {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Tasks")!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return null;
 
-  const data = sheet.getRange(2, 1, lastRow - 1, 13).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, 15).getValues();
   for (let i = data.length - 1; i >= 0; i--) {
     if (String(data[i][0]) === id) {
       return {
         id,
         content: String(data[i][4]),
         updatedAt: String(data[i][12]),
+        contentRevision: Math.max(1, Number(data[i][13]) || 1),
       };
     }
   }
   return null;
+}
+
+function saveProjectContent(
+  id: string,
+  content: string,
+  baseRevision: number,
+  mutationId: string,
+): ContentSaveResult {
+  return saveTaskEntityContent("Projects", 3, 8, 9, 10, 6, id, content, baseRevision, mutationId);
+}
+
+function saveCaseContent(
+  id: string,
+  content: string,
+  baseRevision: number,
+  mutationId: string,
+): ContentSaveResult {
+  return saveTaskEntityContent("Cases", 4, 8, 9, 10, 6, id, content, baseRevision, mutationId);
+}
+
+function saveTaskContent(
+  id: string,
+  content: string,
+  baseRevision: number,
+  mutationId: string,
+): ContentSaveResult {
+  return saveTaskEntityContent("Tasks", 5, 13, 14, 15, 8, id, content, baseRevision, mutationId);
+}
+
+function saveTaskEntityContent(
+  sheetName: string,
+  contentColumn: number,
+  updatedAtColumn: number,
+  revisionColumn: number,
+  mutationColumn: number,
+  isActiveColumn: number,
+  id: string,
+  content: string,
+  baseRevision: number,
+  mutationId: string,
+): ContentSaveResult {
+  const result = saveRevisionedContent(
+    {
+      sheetName,
+      idColumn: 1,
+      contentColumn,
+      updatedAtColumn,
+      revisionColumn,
+      mutationColumn,
+      isActiveColumn,
+    },
+    id,
+    content,
+    baseRevision,
+    mutationId,
+  );
+  if (result.status === "saved") invalidateTaskCache();
+  return result;
 }
 
 function addProject(
@@ -222,7 +295,7 @@ function addProject(
   const now = new Date().toISOString();
   const lastRow = sheet.getLastRow();
   const nextOrder = lastRow;
-  sheet.appendRow([id, name, "", color, nextOrder, true, now, now]);
+  sheet.appendRow([id, name, "", color, nextOrder, true, now, now, 1, ""]);
   invalidateTaskCache();
   return { success: true, id, updatedAt: now };
 }
@@ -237,7 +310,7 @@ function addCase(
   const now = new Date().toISOString();
   const lastRow = sheet.getLastRow();
   const nextOrder = lastRow;
-  sheet.appendRow([id, projectId, name, "", nextOrder, true, now, now]);
+  sheet.appendRow([id, projectId, name, "", nextOrder, true, now, now, 1, ""]);
   invalidateTaskCache();
   return { success: true, id, updatedAt: now };
 }
@@ -267,6 +340,8 @@ function addTask(
     "",
     "",
     now,
+    1,
+    "",
   ]);
   invalidateTaskCache();
   return { success: true, id, updatedAt: now };
@@ -274,7 +349,7 @@ function addTask(
 
 function updateProject(
   id: string,
-  fields: { name?: string; color?: string; content?: string },
+  fields: { name?: string; color?: string },
 ): { success: boolean; updatedAt?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Projects")!;
@@ -286,7 +361,6 @@ function updateProject(
     if (String(data[i][0]) === id) {
       const row = i + 2;
       if (fields.name !== undefined) sheet.getRange(row, 2).setValue(fields.name);
-      if (fields.content !== undefined) sheet.getRange(row, 3).setValue(fields.content);
       if (fields.color !== undefined) sheet.getRange(row, 4).setValue(fields.color);
       const updatedAt = new Date().toISOString();
       sheet.getRange(row, 8).setValue(updatedAt);
@@ -299,7 +373,7 @@ function updateProject(
 
 function updateCase(
   id: string,
-  fields: { name?: string; content?: string; isActive?: boolean },
+  fields: { name?: string; isActive?: boolean },
 ): { success: boolean; updatedAt?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Cases")!;
@@ -311,7 +385,6 @@ function updateCase(
     if (String(data[i][0]) === id) {
       const row = i + 2;
       if (fields.name !== undefined) sheet.getRange(row, 3).setValue(fields.name);
-      if (fields.content !== undefined) sheet.getRange(row, 4).setValue(fields.content);
       if (fields.isActive !== undefined) sheet.getRange(row, 6).setValue(fields.isActive);
       const updatedAt = new Date().toISOString();
       sheet.getRange(row, 8).setValue(updatedAt);
@@ -326,7 +399,6 @@ function updateTask(
   id: string,
   fields: {
     name?: string;
-    content?: string;
     status?: string;
     startedAt?: string;
     dueDate?: string;
@@ -343,7 +415,6 @@ function updateTask(
     if (String(data[i][0]) === id) {
       const row = i + 2;
       if (fields.name !== undefined) sheet.getRange(row, 4).setValue(fields.name);
-      if (fields.content !== undefined) sheet.getRange(row, 5).setValue(fields.content);
       if (fields.status !== undefined) {
         const oldStatus = String(data[i][5]);
         sheet.getRange(row, 6).setValue(fields.status);

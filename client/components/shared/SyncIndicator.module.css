@@ -19,6 +19,25 @@
   background: #fce8e6;
 }
 
+.sync-indicator[data-status="conflict"] {
+  color: #8a4b00;
+  background: #fef7e0;
+  flex-wrap: wrap;
+}
+
+.sync-indicator button {
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 2px 8px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sync-indicator button:hover {
+  background: rgb(0 0 0 / 6%);
+}
+
 .spinner {
   display: inline-block;
   width: 14px;

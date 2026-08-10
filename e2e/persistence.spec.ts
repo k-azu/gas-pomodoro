@@ -16,7 +16,7 @@ const MEMO_STORE = "memos";
 const MEMO_1_ID = "mock-memo-1"; // "開発メモ"
 
 test.describe("D. コンテンツ永続化", () => {
-  test("D1: 入力 → IDB 保存 + _contentDirtyAt 設定", async ({ page }) => {
+  test("D1: 入力 → GAS確定後にIDBのrevisionを更新してdirtyを解消", async ({ page }) => {
     await gotoApp(page);
     await waitForSyncComplete(page);
     await selectMemo(page, "開発メモ");
@@ -26,7 +26,8 @@ test.describe("D. コンテンツ永続化", () => {
 
     const record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
     expect(record.content).toContain("永続化テスト");
-    expect(record._contentDirtyAt).not.toBeNull();
+    expect(record.contentRevision).toBeGreaterThanOrEqual(2);
+    expect(record._contentDirtyAt).toBeNull();
   });
 
   test("D2: リロード後 IDB から復元", async ({ page }) => {
