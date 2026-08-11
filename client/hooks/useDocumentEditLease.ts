@@ -1,6 +1,6 @@
 import { useEffect, useState, type RefObject } from "react";
 
-export type DocumentEditLeaseStatus = "owned" | "waiting";
+export type DocumentEditLeaseStatus = "owned" | "waiting" | "unsupported";
 
 function editLockName(documentKey: string): string {
   return `gas-pomodoro:edit:${documentKey}`;
@@ -12,23 +12,11 @@ function startDocumentEditLease(
   beforeAcquire: () => Promise<void>,
 ): (beforeRelease: () => Promise<void>) => void {
   if (!navigator.locks) {
-    // Even without cross-tab exclusion, refresh the canonical draft before
-    // enabling input so an abandoned pending sync is requeued.
-    let stopped = false;
-    onStatus("waiting");
-    void beforeAcquire()
-      .then(() => {
-        if (!stopped) onStatus("owned");
-      })
-      .catch((error) => {
-        if (!stopped) {
-          console.error("[DocumentEditLease] Failed to prepare editing:", documentKey, error);
-        }
-      });
-    return (beforeRelease) => {
-      stopped = true;
-      void beforeRelease().catch(() => undefined);
-    };
+    // A shared Active Draft is only safe when the browser can guarantee one
+    // editor per document. Failing closed avoids silently overwriting another
+    // tab's draft in browsers without Web Locks.
+    onStatus("unsupported");
+    return () => undefined;
   }
 
   const abortController = new AbortController();
@@ -48,7 +36,7 @@ function startDocumentEditLease(
     } catch (error) {
       console.error("[DocumentEditLease] Failed to prepare editing:", documentKey, error);
       onStatus("waiting");
-      return;
+      throw error;
     }
     if (stopped) return;
     owned = true;
@@ -75,6 +63,7 @@ function startDocumentEditLease(
         if (stopped || error?.name === "AbortError") return;
         console.error("[DocumentEditLease] Failed to acquire edit lock:", documentKey, error);
         onStatus("waiting");
+        if (retryTimer) clearTimeout(retryTimer);
         retryTimer = setTimeout(requestLease, 1_000);
       });
   };

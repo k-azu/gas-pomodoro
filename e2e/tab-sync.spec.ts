@@ -48,16 +48,33 @@ test.describe("文書本文のタブ間調停", () => {
     await expect(waiting.locator(".ProseMirror")).toHaveAttribute("contenteditable", "true");
   });
 
-  test("Web Locks非対応でも単一タブでは編集できる", async ({ page }) => {
+  test("Web Locks非対応ではDraft競合を避けるため読み取り専用にする", async ({ page }) => {
     await page.addInitScript(() => {
       Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
     });
     await gotoApp(page);
     await selectMemo(page, "開発メモ");
+    await expect(page.locator(".ProseMirror")).toHaveAttribute("contenteditable", "false");
+    await expect(page.locator('[data-status="unsupported"]')).toBeVisible();
+  });
+
+  test("編集権取得前の一時的な読込失敗から自動復旧する", async ({ page }) => {
+    await gotoApp(page);
+    await selectMemo(page, "開発メモ");
+    await waitForSyncComplete(page);
+    await selectMemo(page, "議事録");
     await waitForSyncComplete(page);
 
+    await page.evaluate(() => {
+      (window as any).__mockLocalLoadShouldFailOnce = true;
+    });
+    await selectMemo(page, "開発メモ");
+
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__mockLocalLoadShouldFailOnce))
+      .toBe(false);
     await expect(page.locator(".ProseMirror")).toHaveAttribute("contenteditable", "true");
-    await expect(page.locator('[data-status="locked"]')).toHaveCount(0);
+    await expect(page.locator('[data-status="error"]')).toHaveCount(0);
   });
 
   test("編集タブ終了後に待機タブが永続化済みDraftの送信を引き継ぐ", async ({ context }) => {

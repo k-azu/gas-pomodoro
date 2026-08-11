@@ -164,8 +164,15 @@ export function useDocumentEditor({
     };
   }, [currentDocKey, hasAfterMeta, id, viewCache]);
 
+  const documentSyncStatus = getDocumentSyncStatus(session);
   const syncStatus =
-    editLeaseStatus === "owned" ? getDocumentSyncStatus(session) : ("locked" as const);
+    editLeaseStatus === "unsupported"
+      ? ("unsupported" as const)
+      : editLeaseStatus === "owned" ||
+          documentSyncStatus === "syncing" ||
+          documentSyncStatus === "error"
+        ? documentSyncStatus
+        : ("locked" as const);
 
   return {
     editor,

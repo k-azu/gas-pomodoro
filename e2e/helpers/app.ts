@@ -75,9 +75,11 @@ export async function selectMemo(page: Page, name: string): Promise<void> {
  */
 export async function typeInEditor(page: Page, text: string): Promise<void> {
   const editor = page.locator(".ProseMirror");
-  await editor.click();
+  await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 5_000 });
+  await editor.focus();
   await page.waitForTimeout(100);
   await page.keyboard.insertText(text);
+  await expect(editor).toContainText(text, { timeout: 3_000 });
 }
 
 /**

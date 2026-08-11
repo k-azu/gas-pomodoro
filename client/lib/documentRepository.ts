@@ -13,12 +13,36 @@ import {
   type SaveAcceptedEvent,
   type TerminalRejectionEvent,
 } from "./documentContentModel";
-import { getDatabase } from "./entityStore";
+import { getDatabase, register } from "./entityStore";
 
 export const DOCUMENT_BODY_STORE = "documentBodies";
 export const ACTIVE_DOCUMENT_DRAFT_STORE = "activeDocumentDrafts";
 export const RECOVERY_DOCUMENT_DRAFT_STORE = "recoveryDocumentDrafts";
 const LEGACY_DRAFT_STORE = "documentDrafts";
+
+/** Register the document persistence schema before EntityStore opens IndexedDB. */
+export function registerDocumentRepositoryStores(): void {
+  register(LEGACY_DRAFT_STORE, {
+    entityType: "documentDraft",
+    keyPath: "key",
+    indexes: [],
+  });
+  register(DOCUMENT_BODY_STORE, {
+    entityType: "documentBody",
+    keyPath: "key",
+    indexes: [],
+  });
+  register(ACTIVE_DOCUMENT_DRAFT_STORE, {
+    entityType: "activeDocumentDraft",
+    keyPath: "key",
+    indexes: [],
+  });
+  register(RECOVERY_DOCUMENT_DRAFT_STORE, {
+    entityType: "recoveryDocumentDraft",
+    keyPath: "recoveryId",
+    indexes: [{ name: "documentKey", keyPath: "documentKey", options: { unique: false } }],
+  });
+}
 
 interface LegacyDraft {
   key: string;

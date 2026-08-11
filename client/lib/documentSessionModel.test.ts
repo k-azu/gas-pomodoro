@@ -62,6 +62,7 @@ test("競合解決は処理成功まで競合スナップショットを保持�
 
   assert.equal(getDocumentSyncStatus(conflicted), "syncing");
   assert.deepEqual(getDocumentConflict(conflicted), remote);
+  assert.equal(isDocumentReadOnly(conflicted), true);
 
   const failed = documentSessionReducer(conflicted, {
     type: "operationFailed",
@@ -91,6 +92,7 @@ test("競合解決中の追加入力では解決処理を多重起動可能に�
     "keeping-local",
   );
   assert.equal(getDocumentSyncStatus(resolving), "syncing");
+  assert.equal(isDocumentReadOnly(resolving), true);
 });
 
 test("保存失敗はresolve中の読み取り専用状態を変更しない", () => {

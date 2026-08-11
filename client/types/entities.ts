@@ -8,7 +8,6 @@ export interface EntityInternals {
 export interface BaseEntity extends EntityInternals {
   id: string;
   name: string;
-  content: string;
   sortOrder: number;
   isActive: boolean;
   createdAt: string;

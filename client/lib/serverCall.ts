@@ -614,6 +614,9 @@ function saveMockRevisionedContent(args: unknown[]): unknown {
     lastMutationId: mutationId,
   };
   writeMockRevisionedContent(id, next);
+  // An explicit server override models an external revision. Once this client
+  // successfully writes a newer revision, subsequent reads must return it.
+  if (typeof window !== "undefined") (window as any).__mockContentOverride = undefined;
   return {
     status: "saved",
     content: next.content,
@@ -626,9 +629,27 @@ function saveMockRevisionedContent(args: unknown[]): unknown {
 function getContentMockResponse(functionName: string, id?: string): unknown {
   if (typeof window !== "undefined" && (window as any).__mockContentOverride !== undefined) {
     const override = (window as any).__mockContentOverride;
-    if (override && typeof override === "object" && override.contentRevision == null) {
-      const currentRevision = id ? readMockRevisionedContent(id)?.contentRevision : undefined;
-      return { ...override, contentRevision: (currentRevision ?? 0) + 1 };
+    if (override && typeof override === "object") {
+      const current = id ? readMockRevisionedContent(id) : null;
+      const normalized = {
+        ...override,
+        contentRevision:
+          override.contentRevision == null
+            ? (current?.contentRevision ?? 0) + 1
+            : Math.max(1, Number(override.contentRevision) || 1),
+      } as MockRevisionedContent;
+      // Load and save must observe the same mock server state; otherwise CAS
+      // conflict-resolution tests compare against a revision that save cannot see.
+      if (id) {
+        writeMockRevisionedContent(id, {
+          content: String(normalized.content || ""),
+          updatedAt: String(normalized.updatedAt || new Date().toISOString()),
+          contentRevision: normalized.contentRevision,
+          ...(current?.lastMutationId ? { lastMutationId: current.lastMutationId } : {}),
+          isActive: normalized.isActive ?? current?.isActive ?? true,
+        });
+      }
+      return normalized;
     }
     return override;
   }

@@ -16,6 +16,17 @@ interface ContentSheetConfig {
   isActiveColumn?: number;
 }
 
+/** Serialize mutations that participate in the content active/revision invariant. */
+function withContentMutationLock<T>(operation: () => T): T {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return operation();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /**
  * Compare-and-set content write shared by memos/projects/cases/tasks.
  * The script lock is intentionally held only for the row lookup + write.
@@ -27,9 +38,7 @@ function saveRevisionedContent(
   baseRevision: number,
   mutationId: string,
 ): ContentSaveResult {
-  const lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
+  return withContentMutationLock(() => {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(config.sheetName)!;
     const lastRow = sheet.getLastRow();
     if (lastRow <= 1) return { status: "notFound" };
@@ -93,7 +102,5 @@ function saveRevisionedContent(
       };
     }
     return { status: "notFound" };
-  } finally {
-    lock.releaseLock();
-  }
+  });
 }

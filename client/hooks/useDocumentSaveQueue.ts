@@ -162,12 +162,14 @@ export function useDocumentSaveQueue({
   }, [flushPendingSaveInternal]);
 
   const clear = useCallback((key: string) => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
     const pending = pendingRef.current;
-    if (pending && documentKey(pending.scope, pending.id) === key) pendingRef.current = null;
+    if (pending && documentKey(pending.scope, pending.id) === key) {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      pendingRef.current = null;
+    }
     failedRef.current.delete(key);
   }, []);
 

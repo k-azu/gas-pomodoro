@@ -58,21 +58,23 @@ function getMemos(): MemoMetadata[] {
 function getMemoContent(
   memoId: string,
 ): { id: string; content: string; updatedAt: string; contentRevision: number } | null {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Memos")!;
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return null;
+  return withContentMutationLock(() => {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("Memos")!;
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return null;
 
-  const data = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
-  for (let i = data.length - 1; i >= 0; i--) {
-    if (String(data[i][0]) === memoId) {
-      const content = String(data[i][2]);
-      const updatedAt = String(data[i][5]);
-      const contentRevision = Math.max(1, Number(data[i][8]) || 1);
-      return { id: memoId, content, updatedAt, contentRevision };
+    const data = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
+    for (let i = data.length - 1; i >= 0; i--) {
+      if (String(data[i][0]) === memoId) {
+        const content = String(data[i][2]);
+        const updatedAt = String(data[i][5]);
+        const contentRevision = Math.max(1, Number(data[i][8]) || 1);
+        return { id: memoId, content, updatedAt, contentRevision };
+      }
     }
-  }
-  return null;
+    return null;
+  });
 }
 
 function saveMemo(memo: { id?: string; name: string; content: string; tags?: string[] }): {
@@ -113,20 +115,22 @@ function saveMemo(memo: { id?: string; name: string; content: string; tags?: str
 }
 
 function deleteMemo(memoId: string): { success: boolean } {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Memos")!;
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return { success: false };
+  return withContentMutationLock(() => {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("Memos")!;
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { success: false };
 
-  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  for (let i = ids.length - 1; i >= 0; i--) {
-    if (String(ids[i][0]) === memoId) {
-      sheet.getRange(i + 2, 8).setValue(false); // isActive = false
-      invalidateMemoCache();
-      return { success: true };
+    const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    for (let i = ids.length - 1; i >= 0; i--) {
+      if (String(ids[i][0]) === memoId) {
+        sheet.getRange(i + 2, 8).setValue(false); // isActive = false
+        invalidateMemoCache();
+        return { success: true };
+      }
     }
-  }
-  return { success: false };
+    return { success: false };
+  });
 }
 
 function renameMemo(memoId: string, newName: string): { success: boolean } {

@@ -9,10 +9,14 @@ import {
   documentKey,
   ensureDocumentResolved,
   getResolveStatus,
-  type ContentConflictSnapshot,
   type ResolveDocument,
 } from "../lib/documentSync";
-import { getDocumentSyncError, subscribeDocumentSyncError } from "../lib/documentSyncErrors";
+import {
+  clearDocumentSyncError,
+  getDocumentSyncError,
+  isDocumentSyncErrorCurrent,
+  subscribeDocumentSyncError,
+} from "../lib/documentSyncErrors";
 import {
   useDocumentSaveQueue,
   type PendingDocumentSave,
@@ -73,7 +77,7 @@ export function useDocumentController({
   const operationGuardRef = useRef(new DocumentOperationGuard());
   const ownsEditLeaseRef = useRef(ownsEditLease);
   const refreshCurrentRef = useRef<() => Promise<void>>(() => Promise.resolve());
-  const loadedDocKeysRef = useRef(new Set<string>());
+  const lifecycleRef = useRef<{ key: string; run: () => Promise<void> } | null>(null);
   ownsEditLeaseRef.current = ownsEditLease;
 
   const currentDocKey = documentKey(scope, id);
@@ -171,8 +175,24 @@ export function useDocumentController({
       });
     };
 
+    const reconcileSyncError = (snapshot: DocumentContentReadModel) => {
+      const syncError = getDocumentSyncError(scope, id);
+      if (!syncError) return;
+      if (isDocumentSyncErrorCurrent(syncError, snapshot)) {
+        dispatchSession({ type: "operationFailed", reason: "save", hasLocalChanges: true });
+      } else {
+        // A different tab or a newer mutation may have replaced the failed Draft.
+        // The canonical snapshot, not a page-local error flag, decides relevance.
+        clearDocumentSyncError(scope, id);
+      }
+    };
+
     const applySnapshot = async (snapshot: DocumentContentReadModel | null) => {
-      if (!isCurrent() || !snapshot || snapshot.versionToken === lastAppliedVersionToken) return;
+      if (!isCurrent() || !snapshot) return;
+      if (snapshot.versionToken === lastAppliedVersionToken) {
+        reconcileSyncError(snapshot);
+        return;
+      }
 
       let displayContent = snapshot.content;
       let transformError: unknown;
@@ -225,9 +245,7 @@ export function useDocumentController({
         dirty: ownsEditLeaseRef.current && snapshot.source === "draft",
         ...(snapshot.conflict ? { conflict: snapshot.conflict } : {}),
       });
-      if (getDocumentSyncError(scope, id) !== undefined) {
-        dispatchSession({ type: "operationFailed", reason: "save", hasLocalChanges: true });
-      }
+      reconcileSyncError(snapshot);
       if (contentChanged || restoreCachedEditor) {
         setContentVersion((version) => version + 1);
       }
@@ -259,27 +277,12 @@ export function useDocumentController({
     };
     refreshCurrentRef.current = refresh;
 
-    const unsubscribeContent = subscribeDocumentContent(scope, id, (snapshot) => {
-      void enqueueSnapshot(snapshot);
-    });
-    const unsubscribeSyncError = subscribeDocumentSyncError((event) => {
-      if (event.storeName !== scope || event.id !== id || !isCurrent()) return;
-      dispatchSession({ type: "operationFailed", reason: "save", hasLocalChanges: true });
-    });
-
-    const refreshOnFocus = () => {
-      if (document.visibilityState !== "hidden") void refresh().catch(markLoadError);
-    };
-    window.addEventListener("focus", refreshOnFocus);
-    document.addEventListener("visibilitychange", refreshOnFocus);
-
-    void (async () => {
+    const loadAndResolve = async () => {
       try {
         await refresh();
-        loadedDocKeysRef.current.add(key);
       } catch (error) {
         markLoadError(error);
-        return;
+        throw error;
       }
 
       if (!resolveContent || !needsResolve) {
@@ -293,9 +296,31 @@ export function useDocumentController({
         suppressSaveRef.current = false;
         dispatchSession({ type: "resolveSucceeded" });
       } catch (error) {
+        // Server resolution failure does not invalidate the canonical local
+        // snapshot, so editing may continue and CAS will detect a later conflict.
         markResolveError(error);
       }
-    })();
+    };
+    lifecycleRef.current = { key, run: loadAndResolve };
+
+    const unsubscribeContent = subscribeDocumentContent(scope, id, (snapshot) => {
+      void enqueueSnapshot(snapshot);
+    });
+    const unsubscribeSyncError = subscribeDocumentSyncError((event) => {
+      if (event.storeName !== scope || event.id !== id || !isCurrent()) return;
+      // A late failure may belong to a mutation that has already been replaced.
+      // Refreshing also handles same-version snapshots because applySnapshot
+      // reconciles errors before returning for an unchanged versionToken.
+      void refresh().catch(markLoadError);
+    });
+
+    const refreshOnFocus = () => {
+      if (document.visibilityState !== "hidden") void refresh().catch(markLoadError);
+    };
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnFocus);
+
+    void loadAndResolve().catch(() => undefined);
 
     return () => {
       const captured = editor.captureState();
@@ -304,6 +329,7 @@ export function useDocumentController({
         content: latestContentRef.current,
       });
       operationGuardRef.current.finish(operation);
+      if (lifecycleRef.current?.key === key) lifecycleRef.current = null;
       unsubscribeContent();
       unsubscribeSyncError();
       window.removeEventListener("focus", refreshOnFocus);
@@ -405,8 +431,15 @@ export function useDocumentController({
 
   const prepareForEditing = useCallback(async () => {
     const key = documentKey(scope, id);
-    if (loadedDocKeysRef.current.has(key)) {
+    const lifecycle = lifecycleRef.current;
+    if (lifecycle?.key === key) {
+      await lifecycle.run();
+    } else {
+      // The lease effect is registered before the controller effect. Seed the
+      // canonical cache, then use the lifecycle installed later in the effect cycle.
       await refreshDocumentContent(scope, id);
+      const installed = lifecycleRef.current;
+      if (installed?.key === key) await installed.run();
     }
     flushSync?.(id);
   }, [flushSync, id, scope]);

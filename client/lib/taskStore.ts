@@ -100,30 +100,6 @@ export function init(serverData?: {
       serverCall("saveTaskContent", id, content, baseRevision, mutationId) as Promise<any>,
   });
 
-  EntityStore.register("documentDrafts", {
-    entityType: "documentDraft",
-    keyPath: "key",
-    indexes: [],
-  });
-
-  EntityStore.register("documentBodies", {
-    entityType: "documentBody",
-    keyPath: "key",
-    indexes: [],
-  });
-
-  EntityStore.register("activeDocumentDrafts", {
-    entityType: "activeDocumentDraft",
-    keyPath: "key",
-    indexes: [],
-  });
-
-  EntityStore.register("recoveryDocumentDrafts", {
-    entityType: "recoveryDocumentDraft",
-    keyPath: "recoveryId",
-    indexes: [{ name: "documentKey", keyPath: "documentKey", options: { unique: false } }],
-  });
-
   if (serverData) {
     _serverData = {
       projects: serverData.projects || [],
@@ -216,12 +192,24 @@ export function archiveProject(id: string): Promise<void> {
   return EntityStore.setInactive("projects", id)
     .then(() =>
       EntityStore.getByIndex("cases", "projectId", id).then((cases) =>
-        Promise.all(cases.map((c) => EntityStore.setInactive("cases", c.id))),
+        Promise.all(
+          cases.map((c) =>
+            EntityStore.setInactive("cases", c.id).then(() => {
+              EntityStore.syncArchiveToServer("cases", c.id);
+            }),
+          ),
+        ),
       ),
     )
     .then(() =>
       EntityStore.getByIndex("tasks", "projectId", id).then((tasks) =>
-        Promise.all(tasks.map((t) => EntityStore.setInactive("tasks", t.id))),
+        Promise.all(
+          tasks.map((t) =>
+            EntityStore.setInactive("tasks", t.id).then(() => {
+              EntityStore.syncArchiveToServer("tasks", t.id);
+            }),
+          ),
+        ),
       ),
     )
     .then(() => {
@@ -234,7 +222,13 @@ export function archiveCase(id: string): Promise<void> {
   return EntityStore.setInactive("cases", id)
     .then(() =>
       EntityStore.getByIndex("tasks", "caseId", id).then((tasks) =>
-        Promise.all(tasks.map((t) => EntityStore.setInactive("tasks", t.id))),
+        Promise.all(
+          tasks.map((t) =>
+            EntityStore.setInactive("tasks", t.id).then(() => {
+              EntityStore.syncArchiveToServer("tasks", t.id);
+            }),
+          ),
+        ),
       ),
     )
     .then(() => {

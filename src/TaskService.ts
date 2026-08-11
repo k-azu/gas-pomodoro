@@ -164,63 +164,42 @@ function getAllTaskData(): {
 function getProjectContent(
   id: string,
 ): { id: string; content: string; updatedAt: string; contentRevision: number } | null {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Projects")!;
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return null;
-
-  const data = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
-  for (let i = data.length - 1; i >= 0; i--) {
-    if (String(data[i][0]) === id) {
-      return {
-        id,
-        content: String(data[i][2]),
-        updatedAt: String(data[i][7]),
-        contentRevision: Math.max(1, Number(data[i][8]) || 1),
-      };
-    }
-  }
-  return null;
+  return withContentMutationLock(() => getTaskEntityContentUnlocked("Projects", 3, 8, 9, id));
 }
 
 function getCaseContent(
   id: string,
 ): { id: string; content: string; updatedAt: string; contentRevision: number } | null {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Cases")!;
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return null;
-
-  const data = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
-  for (let i = data.length - 1; i >= 0; i--) {
-    if (String(data[i][0]) === id) {
-      return {
-        id,
-        content: String(data[i][3]),
-        updatedAt: String(data[i][7]),
-        contentRevision: Math.max(1, Number(data[i][8]) || 1),
-      };
-    }
-  }
-  return null;
+  return withContentMutationLock(() => getTaskEntityContentUnlocked("Cases", 4, 8, 9, id));
 }
 
 function getTaskContent(
   id: string,
 ): { id: string; content: string; updatedAt: string; contentRevision: number } | null {
+  return withContentMutationLock(() => getTaskEntityContentUnlocked("Tasks", 5, 13, 14, id));
+}
+
+function getTaskEntityContentUnlocked(
+  sheetName: string,
+  contentColumn: number,
+  updatedAtColumn: number,
+  revisionColumn: number,
+  id: string,
+): { id: string; content: string; updatedAt: string; contentRevision: number } | null {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Tasks")!;
+  const sheet = ss.getSheetByName(sheetName)!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return null;
 
-  const data = sheet.getRange(2, 1, lastRow - 1, 15).getValues();
+  const width = Math.max(contentColumn, updatedAtColumn, revisionColumn);
+  const data = sheet.getRange(2, 1, lastRow - 1, width).getValues();
   for (let i = data.length - 1; i >= 0; i--) {
     if (String(data[i][0]) === id) {
       return {
         id,
-        content: String(data[i][4]),
-        updatedAt: String(data[i][12]),
-        contentRevision: Math.max(1, Number(data[i][13]) || 1),
+        content: String(data[i][contentColumn - 1]),
+        updatedAt: String(data[i][updatedAtColumn - 1]),
+        contentRevision: Math.max(1, Number(data[i][revisionColumn - 1]) || 1),
       };
     }
   }
@@ -375,6 +354,16 @@ function updateCase(
   id: string,
   fields: { name?: string; isActive?: boolean },
 ): { success: boolean; updatedAt?: string } {
+  if (fields.isActive !== undefined) {
+    return withContentMutationLock(() => updateCaseUnlocked(id, fields));
+  }
+  return updateCaseUnlocked(id, fields);
+}
+
+function updateCaseUnlocked(
+  id: string,
+  fields: { name?: string; isActive?: boolean },
+): { success: boolean; updatedAt?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Cases")!;
   const lastRow = sheet.getLastRow();
@@ -396,6 +385,22 @@ function updateCase(
 }
 
 function updateTask(
+  id: string,
+  fields: {
+    name?: string;
+    status?: string;
+    startedAt?: string;
+    dueDate?: string;
+    isActive?: boolean;
+  },
+): { success: boolean; updatedAt?: string } {
+  if (fields.isActive !== undefined) {
+    return withContentMutationLock(() => updateTaskUnlocked(id, fields));
+  }
+  return updateTaskUnlocked(id, fields);
+}
+
+function updateTaskUnlocked(
   id: string,
   fields: {
     name?: string;
@@ -437,49 +442,31 @@ function updateTask(
 }
 
 function archiveProject(id: string): { success: boolean } {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Projects")!;
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return { success: false };
-
-  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  for (let i = ids.length - 1; i >= 0; i--) {
-    if (String(ids[i][0]) === id) {
-      sheet.getRange(i + 2, 6).setValue(false);
-      invalidateTaskCache();
-      return { success: true };
-    }
-  }
-  return { success: false };
+  return withContentMutationLock(() => archiveTaskEntityUnlocked("Projects", 6, id));
 }
 
 function archiveCase(id: string): { success: boolean } {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Cases")!;
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return { success: false };
-
-  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  for (let i = ids.length - 1; i >= 0; i--) {
-    if (String(ids[i][0]) === id) {
-      sheet.getRange(i + 2, 6).setValue(false);
-      invalidateTaskCache();
-      return { success: true };
-    }
-  }
-  return { success: false };
+  return withContentMutationLock(() => archiveTaskEntityUnlocked("Cases", 6, id));
 }
 
 function archiveTask(id: string): { success: boolean } {
+  return withContentMutationLock(() => archiveTaskEntityUnlocked("Tasks", 8, id));
+}
+
+function archiveTaskEntityUnlocked(
+  sheetName: string,
+  isActiveColumn: number,
+  id: string,
+): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Tasks")!;
+  const sheet = ss.getSheetByName(sheetName)!;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return { success: false };
 
   const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
   for (let i = ids.length - 1; i >= 0; i--) {
     if (String(ids[i][0]) === id) {
-      sheet.getRange(i + 2, 8).setValue(false);
+      sheet.getRange(i + 2, isActiveColumn).setValue(false);
       invalidateTaskCache();
       return { success: true };
     }

@@ -298,7 +298,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     expect(record.content).toContain("ロード失敗前の内容");
   });
 
-  test("C11: IDB load 失敗時は編集不可のまま IDB 内容を上書きしない", async ({ page }) => {
+  test("C11: 一時的なIDB load失敗から再読込し、内容を上書きしない", async ({ page }) => {
     await gotoApp(page);
     await waitForSyncComplete(page);
     await selectMemo(page, "開発メモ");
@@ -311,7 +311,8 @@ test.describe("C. サーバー同期と競合解決", () => {
 
     const editor = page.locator(".ProseMirror");
     await expect(page.locator('[data-status="error"]')).toBeVisible({ timeout: 5_000 });
-    await expect(editor).toHaveAttribute("contenteditable", "false", { timeout: 3_000 });
+    await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 5_000 });
+    await expect(editor).toContainText("IDBロード失敗前の内容");
 
     const record = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(record.content).toContain("IDBロード失敗前の内容");

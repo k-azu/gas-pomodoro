@@ -54,6 +54,26 @@ const retryState = new Map<string, { storeName: string; id: string; attempt: num
 const localMutationIds = new Set<string>();
 const SERVER_SYNC_DELAY_MS = 30_000;
 const MAX_RETRY_DELAY_MS = 30_000;
+const CONTENT_REQUEST_TIMEOUT_MS = 45_000;
+
+function withContentRequestTimeout<T>(operation: Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("Document content request timed out")),
+      CONTENT_REQUEST_TIMEOUT_MS,
+    );
+    operation.then(
+      (result) => {
+        clearTimeout(timer);
+        resolve(result);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 function isDev(): boolean {
   return Boolean((import.meta as any).env?.DEV);
@@ -162,11 +182,8 @@ async function performDocumentSync(storeName: string, id: string): Promise<void>
   rememberLocalMutation(pending.mutationId);
 
   try {
-    const result = await transport.save(
-      id,
-      pending.content,
-      pending.baseRevision,
-      pending.mutationId,
+    const result = await withContentRequestTimeout(
+      transport.save(id, pending.content, pending.baseRevision, pending.mutationId),
     );
     if (result.status === "saved") {
       const revision = Number(result.revision);
@@ -212,10 +229,12 @@ async function performDocumentSync(storeName: string, id: string): Promise<void>
       storeName,
       id,
       error: new Error(`Content save rejected: ${result.status}`),
+      mutationId: pending.mutationId,
+      terminal: true,
     });
   } catch (error) {
     console.error("[DocumentCoordinator] Content sync failed:", storeName, id, error);
-    publishDocumentSyncError({ storeName, id, error });
+    publishDocumentSyncError({ storeName, id, error, mutationId: pending.mutationId });
     scheduleRetry(storeName, id);
   }
 }
@@ -289,7 +308,7 @@ export async function getDocumentContentSnapshot(storeName: string, id: string) 
 export async function resolveDocumentWithServer(storeName: string, id: string) {
   const transport = transports.get(storeName);
   if (!transport) return null;
-  const remoteResult = await transport.load(id);
+  const remoteResult = await withContentRequestTimeout(transport.load(id));
   if (!remoteResult) return { useServer: false };
   const remote = {
     content: String(remoteResult.content || ""),

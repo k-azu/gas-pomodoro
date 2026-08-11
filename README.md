@@ -23,6 +23,10 @@ scripts/         ビルドスクリプト
 - Node.js
 - [pnpm](https://pnpm.io/installation)（`corepack enable` で自動インストール可能）
 - Google アカウント
+- 本文を編集する場合は Web Locks API 対応ブラウザ
+
+文書編集の複数タブ排他には Web Locks API を使用する。非対応ブラウザでは同一文書の
+下書きを安全に保護できないため、本文エディタは読み取り専用になる。
 
 ### 1. 依存パッケージのインストール
 
@@ -98,11 +102,11 @@ pnpm run deploy
 
 リッチテキストエディタとして `@hitomd/editor-core` を使用する。
 
-| 状況                                                           | 解決方法                                                                                 |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| 通常の install / build / deploy                              | npm package `@hitomd/editor-core` を使用                                               |
-| `pnpm run dev` かつ `../hitomd/packages/editor-core` が存在 | Vite alias でローカル source を使用                                                    |
-| GAS build                                                      | npm package を `EditorVendor.html` に IIFE 化し、`window.HitomdEditorCore` として使用 |
+| 状況                                                        | 解決方法                                                                              |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 通常の install / build / deploy                             | npm package `@hitomd/editor-core` を使用                                              |
+| `pnpm run dev` かつ `../hitomd/packages/editor-core` が存在 | Vite alias でローカル source を使用                                                   |
+| GAS build                                                   | npm package を `EditorVendor.html` に IIFE 化し、`window.HitomdEditorCore` として使用 |
 
 gas-pomodoro 側では [client/editor/hitomdEditor.ts](client/editor/hitomdEditor.ts) を adapter として使う。アプリ内の editor import はここに集約し、`onResolveLink` から editor-core の `onResolveLinkTitle` への変換もここで吸収する。
 

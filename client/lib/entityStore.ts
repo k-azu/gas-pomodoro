@@ -8,16 +8,6 @@
 
 import { serverCall } from "./serverCall";
 
-let debugSync = false;
-
-export function setDebugSync(enabled: boolean): void {
-  debugSync = enabled;
-}
-
-function logSync(tag: string, ...args: unknown[]): void {
-  if (debugSync) console.log(`[EntityStore] ${tag}`, ...args);
-}
-
 export interface StoreIndex {
   name: string;
   keyPath: string;
@@ -400,12 +390,20 @@ function syncCreateToServer(storeName: string, id: string): void {
       ).then((result: any) =>
         withLock(storeName, id, async () => {
           const latest = await get(storeName, id);
-          if (!latest) return;
+          if (!latest) return false;
           latest._pendingCreate = false;
           latest._serverUpdatedAt = result?.updatedAt;
-          if (latest.updatedAt === capturedUpdatedAt) latest._dirty = false;
+          const archivedBeforeCreateFinished = latest.isActive === false;
+          // An archive is a separate durable intent. Keep it dirty until the
+          // archive endpoint acknowledges it, even when metadata did not change.
+          if (latest.updatedAt === capturedUpdatedAt && !archivedBeforeCreateFinished) {
+            latest._dirty = false;
+          }
           await put(storeName, latest);
-          syncMetadataToServer(storeName, id);
+          return archivedBeforeCreateFinished;
+        }).then((archivedBeforeCreateFinished) => {
+          if (archivedBeforeCreateFinished) syncArchiveToServer(storeName, id);
+          else syncMetadataToServer(storeName, id);
         }),
       );
     })
@@ -456,15 +454,20 @@ function syncMetadataToServer(storeName: string, id: string): void {
 export function syncArchiveToServer(storeName: string, id: string): void {
   void get(storeName, id)
     .then((entity) => {
-      if (!entity || entity._pendingCreate) return;
+      if (!entity || entity._pendingCreate || entity.isActive !== false) return;
       const config = registrations[storeName];
       if (!config?.serverFns?.archive) return;
       return retryWithBackoff(() => serverCall(config.serverFns!.archive!, id)).then(() =>
         withLock(storeName, id, async () => {
           const latest = await get(storeName, id);
-          if (!latest) return;
-          latest._dirty = false;
+          if (!latest) return false;
+          const reactivatedWhileSaving = latest.isActive !== false;
+          if (!reactivatedWhileSaving) latest._dirty = false;
           await put(storeName, latest);
+          return reactivatedWhileSaving;
+        }).then((reactivatedWhileSaving) => {
+          // A late archive acknowledgement must not erase a newer unarchive.
+          if (reactivatedWhileSaving) syncMetadataToServer(storeName, id);
         }),
       );
     })
@@ -554,9 +557,10 @@ export async function mergeServerData(storeName: string, serverEntities: any[]):
           if (!latest) return;
           latest._serverUpdatedAt = serverEntity.updatedAt;
           await put(storeName, latest);
+          if (latest.isActive === false) syncArchiveToServer(storeName, serverEntity.id);
+          else scheduleMetadataSync(storeName, serverEntity.id);
         }),
       );
-      scheduleMetadataSync(storeName, serverEntity.id);
       return;
     }
 
@@ -620,7 +624,11 @@ export function requeueDirtyRecords(storeName: string, _options?: { content?: bo
       entities.forEach((entity) => {
         rememberEntity(storeName, entity.id);
         if (entity._pendingCreate) syncCreateToServer(storeName, entity.id);
-        else if (entity._dirty) scheduleMetadataSync(storeName, entity.id);
+        else if (entity._dirty && entity.isActive === false) {
+          syncArchiveToServer(storeName, entity.id);
+        } else if (entity._dirty) {
+          scheduleMetadataSync(storeName, entity.id);
+        }
       });
     })
     .catch((error) => {

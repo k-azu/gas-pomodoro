@@ -9,6 +9,7 @@ import { serverCall } from "../lib/serverCall";
 import * as TaskStore from "../lib/taskStore";
 import * as MemoStore from "../lib/memoStore";
 import * as RecordCache from "../lib/recordCache";
+import { registerDocumentRepositoryStores } from "../lib/documentRepository";
 
 interface AppContextValue {
   timer: UseTimerReturn;
@@ -93,11 +94,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         timer.setInterruptionCategories(d.interruptionCategories);
         setSpreadsheetUrl(d.spreadsheetUrl || "");
 
-        // Initialize stores: MemoStore.init registers "memos" store,
-        // RecordCache.registerStores registers record stores,
-        // then TaskStore.init registers task stores + opens IDB (EntityStore.init)
+        // Register every IndexedDB schema before TaskStore opens the shared database.
         MemoStore.init(d.memos || [], d.memoTags || []);
         RecordCache.registerStores();
+        registerDocumentRepositoryStores();
         await TaskStore.init({ projects: d.projects, cases: d.cases, tasks: d.tasks });
 
         // Load all stores in parallel (MemoStore, TaskStore, RecordCache are independent IDB stores)

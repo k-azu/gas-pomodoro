@@ -46,6 +46,7 @@ export interface DocumentContentReadModel {
   revision: number;
   source: "committed" | "draft";
   versionToken: string;
+  mutationId?: string;
   conflict?: CommittedDocumentBody;
 }
 
@@ -106,6 +107,7 @@ export function selectDocumentContent(state: DocumentContentState): DocumentCont
       revision: draft.baseRevision,
       source: "draft",
       versionToken: `pending:${draft.localVersion}:${draft.mutationId}:${draft.baseRevision}`,
+      mutationId: draft.mutationId,
     };
   }
   return {

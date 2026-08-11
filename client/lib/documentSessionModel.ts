@@ -128,7 +128,9 @@ export function documentSessionReducer(
 }
 
 export function isDocumentReadOnly(state: DocumentSessionState): boolean {
-  return state.phase !== "editable";
+  return (
+    state.phase !== "editable" || (state.sync.kind === "conflict" && Boolean(state.sync.resolution))
+  );
 }
 
 export type DocumentSyncStatus = "idle" | "syncing" | "conflict" | "error";
