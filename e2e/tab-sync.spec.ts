@@ -646,6 +646,43 @@ test.describe("文書本文のタブ間調停", () => {
     await expect(page.getByLabel("回復用の本文")).toHaveCount(0);
   });
 
+  test("新規作成の応答喪失後も同じIDで冪等に再試行する", async ({ page }) => {
+    await gotoApp(page);
+    await page.getByRole("button", { name: "タスク", exact: true }).click();
+    await page.evaluate(() => {
+      window.__mockCreateShouldLoseResponseOnce = true;
+    });
+    const projectName = `idempotent create ${Date.now()}`;
+    page.once("dialog", (dialog) => void dialog.accept(projectName));
+    await page.locator("[class*='sidebar-header']:visible button", { hasText: "+" }).click();
+
+    await expect
+      .poll(async () => {
+        const projects = await idbGetAll(page, "projects");
+        return projects.find((item) => item.name === projectName) ?? null;
+      })
+      .not.toBeNull();
+
+    await expect
+      .poll(
+        async () => {
+          const projects = await idbGetAll(page, "projects");
+          return projects.find(
+            (item) => item.name === projectName && item._pendingCreate === false,
+          );
+        },
+        { timeout: 10_000 },
+      )
+      .not.toBeUndefined();
+
+    const projects = await idbGetAll(page, "projects");
+    const projectId = String(projects.find((item) => item.name === projectName)?.id || "");
+    expect(projectId).not.toBe("");
+    await expect
+      .poll(() => page.evaluate((id) => window.__mockCreateCallCounts?.[id] ?? 0, projectId))
+      .toBe(2);
+  });
+
   test("新規メモ作成後に本文をrevision 1から保存する", async ({ page }) => {
     await gotoApp(page);
     const content = `new-memo-content-${Date.now()}`;

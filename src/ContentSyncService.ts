@@ -16,6 +16,17 @@ interface ContentSheetConfig {
   isActiveColumn?: number;
 }
 
+interface EntityCreateSheetConfig {
+  sheetName: string;
+  idColumn: number;
+  updatedAtColumn: number;
+}
+
+interface EntityCreateResult {
+  id: string;
+  updatedAt: string;
+}
+
 /** Serialize mutations that participate in the content active/revision invariant. */
 function withContentMutationLock<T>(operation: () => T): T {
   const lock = LockService.getScriptLock();
@@ -25,6 +36,41 @@ function withContentMutationLock<T>(operation: () => T): T {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * Append an entity row at most once for a caller-generated UUID.
+ *
+ * Create requests are retried when the client cannot observe their response,
+ * and multiple tabs may adopt the same pending local entity. The server must
+ * therefore treat an existing ID as the acknowledgement of the original
+ * create without overwriting any metadata or content written afterwards.
+ */
+function createEntityRowOnce(
+  config: EntityCreateSheetConfig,
+  id: string,
+  buildRow: (updatedAt: string, sortOrder: number) => unknown[],
+): EntityCreateResult {
+  return withContentMutationLock(() => {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(config.sheetName)!;
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      const width = Math.max(config.idColumn, config.updatedAtColumn);
+      const data = sheet.getRange(2, 1, lastRow - 1, width).getValues();
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (String(data[i][config.idColumn - 1]) !== id) continue;
+        return {
+          id,
+          updatedAt: String(data[i][config.updatedAtColumn - 1] || new Date().toISOString()),
+        };
+      }
+    }
+
+    const updatedAt = new Date().toISOString();
+    sheet.appendRow(buildRow(updatedAt, lastRow));
+    SpreadsheetApp.flush();
+    return { id, updatedAt };
+  });
 }
 
 /**

@@ -82,36 +82,27 @@ function saveMemo(memo: { id?: string; name: string; content: string; tags?: str
   id: string;
   updatedAt: string;
 } {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Memos")!;
-  const now = new Date().toISOString();
-  const tagsJson = JSON.stringify(memo.tags || []);
-
-  if (memo.id) {
-    // Update existing
-    const lastRow = sheet.getLastRow();
-    if (lastRow > 1) {
-      const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-      for (let i = ids.length - 1; i >= 0; i--) {
-        if (String(ids[i][0]) === memo.id) {
-          const row = i + 2;
-          sheet.getRange(row, 2).setValue(memo.name);
-          sheet.getRange(row, 4).setValue(tagsJson);
-          sheet.getRange(row, 6).setValue(now);
-          invalidateMemoCache();
-          return { success: true, id: memo.id, updatedAt: now };
-        }
-      }
-    }
-  }
-
-  // Insert new
   const id = memo.id || Utilities.getUuid();
-  const lastRow = sheet.getLastRow();
-  const nextOrder = lastRow; // 1-based after header
-  sheet.appendRow([id, memo.name, memo.content, tagsJson, now, now, nextOrder, true, 1, ""]);
+  const tagsJson = JSON.stringify(memo.tags || []);
+  const result = createEntityRowOnce(
+    { sheetName: "Memos", idColumn: 1, updatedAtColumn: 6 },
+    id,
+    (updatedAt, sortOrder) => [
+      id,
+      memo.name,
+      memo.content,
+      tagsJson,
+      updatedAt,
+      updatedAt,
+      sortOrder,
+      true,
+      1,
+      "",
+    ],
+  );
+  // Also clear a stale cache when this call is acknowledging an earlier create.
   invalidateMemoCache();
-  return { success: true, id, updatedAt: now };
+  return { success: true, id: result.id, updatedAt: result.updatedAt };
 }
 
 function deleteMemo(memoId: string): { success: boolean } {

@@ -8,6 +8,8 @@ import type { DocumentSearchFilter } from "../types/search";
 declare global {
   interface Window {
     __mockDocumentSearchCallCount?: number;
+    __mockCreateShouldLoseResponseOnce?: boolean;
+    __mockCreateCallCounts?: Record<string, number>;
     google?: {
       script: {
         run: {
@@ -47,6 +49,7 @@ function readMockParams(): {
 }
 
 const mockParams = readMockParams();
+const CREATE_FUNCTIONS = new Set(["addProject", "addCase", "addTask", "saveMemo"]);
 
 // =========================================================
 // Mock data helpers
@@ -1019,9 +1022,24 @@ export function serverCall(functionName: string, ...args: unknown[]): Promise<un
       });
     }
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       setTimeout(() => {
+        const isCreate = CREATE_FUNCTIONS.has(functionName);
+        if (isCreate) {
+          const id = String(
+            functionName === "saveMemo"
+              ? ((args[0] as { id?: string } | undefined)?.id ?? "")
+              : (args[0] ?? ""),
+          );
+          window.__mockCreateCallCounts ??= {};
+          window.__mockCreateCallCounts[id] = (window.__mockCreateCallCounts[id] ?? 0) + 1;
+        }
         const result = getMockResponse(functionName, args);
+        if (isCreate && window.__mockCreateShouldLoseResponseOnce) {
+          window.__mockCreateShouldLoseResponseOnce = false;
+          reject(new Error("Mock: create succeeded but its response was lost"));
+          return;
+        }
         resolve(result);
       }, baseDelay + extraDelay);
     });

@@ -269,14 +269,13 @@ function addProject(
   name: string,
   color: string,
 ): { success: boolean; id: string; updatedAt: string } {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Projects")!;
-  const now = new Date().toISOString();
-  const lastRow = sheet.getLastRow();
-  const nextOrder = lastRow;
-  sheet.appendRow([id, name, "", color, nextOrder, true, now, now, 1, ""]);
+  const result = createEntityRowOnce(
+    { sheetName: "Projects", idColumn: 1, updatedAtColumn: 8 },
+    id,
+    (updatedAt, sortOrder) => [id, name, "", color, sortOrder, true, updatedAt, updatedAt, 1, ""],
+  );
   invalidateTaskCache();
-  return { success: true, id, updatedAt: now };
+  return { success: true, id: result.id, updatedAt: result.updatedAt };
 }
 
 function addCase(
@@ -284,14 +283,24 @@ function addCase(
   projectId: string,
   name: string,
 ): { success: boolean; id: string; updatedAt: string } {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Cases")!;
-  const now = new Date().toISOString();
-  const lastRow = sheet.getLastRow();
-  const nextOrder = lastRow;
-  sheet.appendRow([id, projectId, name, "", nextOrder, true, now, now, 1, ""]);
+  const result = createEntityRowOnce(
+    { sheetName: "Cases", idColumn: 1, updatedAtColumn: 8 },
+    id,
+    (updatedAt, sortOrder) => [
+      id,
+      projectId,
+      name,
+      "",
+      sortOrder,
+      true,
+      updatedAt,
+      updatedAt,
+      1,
+      "",
+    ],
+  );
   invalidateTaskCache();
-  return { success: true, id, updatedAt: now };
+  return { success: true, id: result.id, updatedAt: result.updatedAt };
 }
 
 function addTask(
@@ -300,30 +309,29 @@ function addTask(
   caseId: string,
   name: string,
 ): { success: boolean; id: string; updatedAt: string } {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Tasks")!;
-  const now = new Date().toISOString();
-  const lastRow = sheet.getLastRow();
-  const nextOrder = lastRow;
-  sheet.appendRow([
+  const result = createEntityRowOnce(
+    { sheetName: "Tasks", idColumn: 1, updatedAtColumn: 13 },
     id,
-    projectId,
-    caseId || "",
-    name,
-    "",
-    "todo",
-    nextOrder,
-    true,
-    now,
-    "",
-    "",
-    "",
-    now,
-    1,
-    "",
-  ]);
+    (updatedAt, sortOrder) => [
+      id,
+      projectId,
+      caseId || "",
+      name,
+      "",
+      "todo",
+      sortOrder,
+      true,
+      updatedAt,
+      "",
+      "",
+      "",
+      updatedAt,
+      1,
+      "",
+    ],
+  );
   invalidateTaskCache();
-  return { success: true, id, updatedAt: now };
+  return { success: true, id: result.id, updatedAt: result.updatedAt };
 }
 
 function updateProject(
