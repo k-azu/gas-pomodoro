@@ -21,13 +21,15 @@ interface UseDocumentSaveQueueOptions {
   currentDocIdRef: RefObject<string>;
   saveContent: SaveDocumentContent;
   flushSync?: (id: string) => void;
-  onError: () => void;
+  onStart?: (pending: PendingDocumentSave) => void;
+  onError: (pending: PendingDocumentSave) => void;
 }
 
 export function useDocumentSaveQueue({
   currentDocIdRef,
   saveContent,
   flushSync,
+  onStart,
   onError,
 }: UseDocumentSaveQueueOptions) {
   const saveContentRef = useRef(saveContent);
@@ -43,25 +45,25 @@ export function useDocumentSaveQueue({
   }, [saveContent, flushSync]);
 
   const saveNow = useCallback(
-    (pending: PendingDocumentSave, opts?: ContentSaveOptions) => {
+    (pending: PendingDocumentSave, opts?: ContentSaveOptions, notifyStart = true) => {
       const saveSeq = ++savingSeqRef.current;
       const key = documentKey(pending.scope, pending.id);
-      return pending
-        .saveContent(pending.id, pending.content, {
-          ...opts,
-          baseRevision: pending.baseRevision,
-          mutationId: pending.mutationId,
-        })
-        .catch((error) => {
-          console.error("[useDocumentEditor] Failed to save content:", error);
-          const latest = pendingRef.current;
-          if (!latest || documentKey(latest.scope, latest.id) !== key) {
-            failedRef.current.set(key, pending);
-          }
-          if (savingSeqRef.current === saveSeq) onError();
-        });
+      const saving = pending.saveContent(pending.id, pending.content, {
+        ...opts,
+        baseRevision: pending.baseRevision,
+        mutationId: pending.mutationId,
+      });
+      if (notifyStart) onStart?.(pending);
+      return saving.catch((error) => {
+        console.error("[useDocumentEditor] Failed to save content:", error);
+        const latest = pendingRef.current;
+        if (!latest || documentKey(latest.scope, latest.id) !== key) {
+          failedRef.current.set(key, pending);
+        }
+        if (savingSeqRef.current === saveSeq) onError(pending);
+      });
     },
-    [onError],
+    [onError, onStart],
   );
 
   const flushQueuedSave = useCallback(() => {
@@ -90,25 +92,33 @@ export function useDocumentSaveQueue({
     [saveNow],
   );
 
-  const flushPendingSave = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    const pending = pendingRef.current;
-    if (pending) {
-      pendingRef.current = null;
-      void saveNow(pending, { immediateSync: true });
-    }
+  const flushPendingSaveInternal = useCallback(
+    (notifyStart: boolean) => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      const pending = pendingRef.current;
+      if (pending) {
+        pendingRef.current = null;
+        void saveNow(pending, { immediateSync: true }, notifyStart);
+      }
 
-    const failedSaves = Array.from(failedRef.current.values());
-    failedRef.current.clear();
-    failedSaves.forEach((failed) => void saveNow(failed, { immediateSync: true }));
+      const failedSaves = Array.from(failedRef.current.values());
+      failedRef.current.clear();
+      failedSaves.forEach((failed) => void saveNow(failed, { immediateSync: true }, notifyStart));
 
-    if (!pending && failedSaves.length === 0) {
-      flushSyncRef.current?.(currentDocIdRef.current);
-    }
-  }, [currentDocIdRef, saveNow]);
+      if (!pending && failedSaves.length === 0) {
+        flushSyncRef.current?.(currentDocIdRef.current);
+      }
+    },
+    [currentDocIdRef, saveNow],
+  );
+
+  const flushPendingSave = useCallback(
+    () => flushPendingSaveInternal(true),
+    [flushPendingSaveInternal],
+  );
 
   const clear = useCallback((key: string) => {
     if (timerRef.current) {
@@ -129,7 +139,9 @@ export function useDocumentSaveQueue({
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       const pending = pendingRef.current !== null || failedRef.current.size > 0;
-      flushPendingSave();
+      // Keep the unload path persistence-only. Scheduling a React status update
+      // here can prevent the IndexedDB transaction from finishing before reload.
+      flushPendingSaveInternal(false);
       if (pending) {
         event.preventDefault();
         event.returnValue = "";
@@ -137,7 +149,7 @@ export function useDocumentSaveQueue({
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [flushPendingSave]);
+  }, [flushPendingSaveInternal]);
 
   return {
     queueSave,

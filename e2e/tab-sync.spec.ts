@@ -263,6 +263,81 @@ test.describe("複数タブの本文同期", () => {
     await expect(pageA.locator(".ProseMirror")).not.toContainText(remoteMarker);
   });
 
+  test("競合中の追加入力を保持し、解決保存の失敗後も再試行できる", async ({ context }) => {
+    const pageA = await context.newPage();
+    const pageB = await context.newPage();
+
+    await gotoApp(pageA);
+    await gotoApp(pageB, { params: { mockDelay: "1500" } });
+    await Promise.all([selectMemo(pageA, "開発メモ"), selectMemo(pageB, "開発メモ")]);
+    await Promise.all([waitForSyncComplete(pageA), waitForSyncComplete(pageB)]);
+
+    const localMarker = `conflict-edit-${Date.now()}`;
+    const addedMarker = `conflict-added-${Date.now()}`;
+    const remoteMarker = `conflict-remote-${Date.now()}`;
+    await typeInEditor(pageB, localMarker);
+    await pageB.waitForTimeout(300);
+    await typeInEditor(pageA, remoteMarker);
+
+    const conflict = pageB.locator('[data-status="conflict"]');
+    await expect(conflict).toBeVisible({ timeout: 10_000 });
+    const editor = pageB.locator(".ProseMirror");
+    await editor.focus();
+    await editor.press("Control+End");
+    await pageB.keyboard.insertText(addedMarker);
+    await expect(conflict).toBeVisible();
+
+    await pageB.evaluate(() => {
+      (window as any).__mockLocalSaveShouldFailOnce = true;
+    });
+    await conflict.getByRole("button", { name: "この内容を保存" }).click();
+
+    // The remote snapshot remains available after the failed resolution save.
+    await expect(conflict).toBeVisible({ timeout: 5_000 });
+    await expect(editor).toContainText(localMarker);
+    await expect(editor).toContainText(addedMarker);
+
+    await conflict.getByRole("button", { name: "この内容を保存" }).click();
+    await expect(pageA.locator(".ProseMirror")).toContainText(localMarker, { timeout: 10_000 });
+    await expect(pageA.locator(".ProseMirror")).toContainText(addedMarker);
+    await expect(pageA.locator(".ProseMirror")).not.toContainText(remoteMarker);
+  });
+
+  test("競合解決保存中の追加入力を保持し、別の解決操作を開始させない", async ({
+    context,
+  }) => {
+    const pageA = await context.newPage();
+    const pageB = await context.newPage();
+
+    await gotoApp(pageA);
+    await gotoApp(pageB, { params: { mockDelay: "1500" } });
+    await Promise.all([selectMemo(pageA, "開発メモ"), selectMemo(pageB, "開発メモ")]);
+    await Promise.all([waitForSyncComplete(pageA), waitForSyncComplete(pageB)]);
+
+    const localMarker = `resolution-local-${Date.now()}`;
+    const addedMarker = `resolution-added-${Date.now()}`;
+    const remoteMarker = `resolution-remote-${Date.now()}`;
+    await typeInEditor(pageB, localMarker);
+    await pageB.waitForTimeout(300);
+    await typeInEditor(pageA, remoteMarker);
+
+    const conflict = pageB.locator('[data-status="conflict"]');
+    await expect(conflict).toBeVisible({ timeout: 10_000 });
+    await conflict.getByRole("button", { name: "この内容を保存" }).click();
+
+    const syncing = pageB.locator('[data-status="syncing"]');
+    await expect(syncing).toBeVisible();
+    const editor = pageB.locator(".ProseMirror");
+    await editor.focus();
+    await editor.press("Control+End");
+    await pageB.keyboard.insertText(addedMarker);
+
+    await expect(syncing).toBeVisible();
+    await expect(pageB.locator('[data-status="conflict"]')).toHaveCount(0);
+    await expect(pageA.locator(".ProseMirror")).toContainText(addedMarker, { timeout: 12_000 });
+    await expect(pageA.locator(".ProseMirror")).not.toContainText(remoteMarker);
+  });
+
   test("別文書の表示中に届いた競合を再選択時に復元する", async ({ context }) => {
     const pageB = await context.newPage();
     await gotoApp(pageB, { params: { mockDelay: "1500" } });

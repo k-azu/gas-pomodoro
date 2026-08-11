@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch } from "react";
 import type { EditorState } from "../editor/hitomdEditor";
+import { DocumentOperationGuard } from "../lib/documentOperationGuard";
+import { getDocumentConflict } from "../lib/documentSessionModel";
 import {
   acceptCommittedContent,
   documentKey,
@@ -12,8 +14,12 @@ import {
   type ContentSnapshot,
   type ResolveDocument,
 } from "../lib/documentSync";
-import { useDocumentSaveQueue, type SaveDocumentContent } from "./useDocumentSaveQueue";
-import type { DocumentSessionAction, DocumentSessionState } from "./useDocumentSession";
+import {
+  useDocumentSaveQueue,
+  type PendingDocumentSave,
+  type SaveDocumentContent,
+} from "./useDocumentSaveQueue";
+import type { DocumentSessionEvent, DocumentSessionState } from "./useDocumentSession";
 import type { DocumentViewCache } from "./useDocumentViewCache";
 
 export interface DocumentEditorPort {
@@ -35,7 +41,7 @@ interface UseDocumentControllerOptions {
   forceReadOnly: boolean;
   editor: DocumentEditorPort;
   session: DocumentSessionState;
-  dispatchSession: Dispatch<DocumentSessionAction>;
+  dispatchSession: Dispatch<DocumentSessionEvent>;
   viewCache: DocumentViewCache;
 }
 
@@ -69,11 +75,29 @@ export function useDocumentController({
   const editorDirtyRef = useRef(false);
   const latestContentRef = useRef("");
   const transformErrorDocKeysRef = useRef(new Set<string>());
+  const operationGuardRef = useRef(new DocumentOperationGuard());
   const currentDocKey = documentKey(scope, id);
+  const conflict = getDocumentConflict(session);
+  const conflictResolutionInProgress =
+    session.sync.kind === "conflict" && Boolean(session.sync.resolution);
 
-  const reportSaveError = useCallback(() => {
-    dispatchSession({ type: "syncError" });
-  }, [dispatchSession]);
+  const reportSaveStart = useCallback(
+    (pending: PendingDocumentSave) => {
+      if (pending.scope === scope && pending.id === currentDocIdRef.current) {
+        dispatchSession({ type: "saveStarted" });
+      }
+    },
+    [dispatchSession, scope],
+  );
+
+  const reportSaveError = useCallback(
+    (pending: PendingDocumentSave) => {
+      if (pending.scope === scope && pending.id === currentDocIdRef.current) {
+        dispatchSession({ type: "operationFailed", reason: "save", hasLocalChanges: true });
+      }
+    },
+    [dispatchSession, scope],
+  );
 
   const {
     queueSave,
@@ -87,6 +111,7 @@ export function useDocumentController({
     currentDocIdRef,
     saveContent,
     flushSync,
+    onStart: reportSaveStart,
     onError: reportSaveError,
   });
 
@@ -101,7 +126,7 @@ export function useDocumentController({
       editorDirtyRef.current = true;
       latestContentRef.current = content;
       viewCache.update(key, { content });
-      dispatchSession({ type: "clearConflict" });
+      dispatchSession({ type: "localEdited" });
       queueSave({
         scope,
         id: docId,
@@ -116,17 +141,17 @@ export function useDocumentController({
   useEffect(() => {
     if (!id) return;
 
-    let cancelled = false;
     const key = documentKey(scope, id);
+    const operation = operationGuardRef.current.start(key);
+    const isCurrentOperation = () => operationGuardRef.current.isCurrent(operation);
     const isSwitch = prevDocKeyRef.current !== null && prevDocKeyRef.current !== key;
     prevDocKeyRef.current = key;
 
     const resolveStatus = resolveContent ? getResolveStatus(scope, id) : undefined;
-    if (!resolveContent || resolveStatus === "synced") {
-      dispatchSession({ type: "ready" });
-    } else {
-      dispatchSession({ type: "resolving" });
-    }
+    dispatchSession({
+      type: "documentOpened",
+      needsResolve: Boolean(resolveContent && resolveStatus !== "synced"),
+    });
 
     const transformLoadedContent = async (
       raw: string,
@@ -158,9 +183,6 @@ export function useDocumentController({
       };
     };
 
-    const restoreConflictState = (conflict?: ContentConflictSnapshot) =>
-      dispatchSession({ type: "restoreConflict", conflict });
-
     const rememberLoadedSnapshot = (
       content: string,
       revision: number,
@@ -175,40 +197,49 @@ export function useDocumentController({
         revision,
         dirty,
       });
-      restoreConflictState(restoredConflict);
+      dispatchSession({
+        type: "localSnapshotLoaded",
+        dirty,
+        ...(restoredConflict ? { conflict: restoredConflict } : {}),
+      });
     };
 
     let applyingResolvedContent = false;
     let resolveCompleteReceived = false;
 
     const markResolveComplete = () => {
-      if (cancelled) return;
+      if (!isCurrentOperation()) return;
       suppressSaveRef.current = false;
-      dispatchSession({ type: "resolveComplete" });
-      setTimeout(() => {
-        if (!cancelled) dispatchSession({ type: "settleSynced" });
-      }, 400);
+      dispatchSession({ type: "resolveSucceeded" });
     };
 
     const markResolveError = () => {
-      if (cancelled) return;
+      if (!isCurrentOperation()) return;
       suppressSaveRef.current = false;
-      dispatchSession({ type: "resolveError" });
+      dispatchSession({
+        type: "operationFailed",
+        reason: "resolve",
+        hasLocalChanges: editorDirtyRef.current || hasPending(),
+      });
     };
 
     const markLoadError = (error: unknown) => {
       console.error("[useDocumentController] Failed to load content:", error);
-      if (cancelled) return;
+      if (!isCurrentOperation()) return;
       suppressSaveRef.current = false;
-      dispatchSession({ type: "loadError" });
+      dispatchSession({ type: "operationFailed", reason: "load", hasLocalChanges: false });
     };
 
     const markTransformError = (error: unknown) => {
       console.error("[useDocumentController] Failed to transform loaded content:", error);
-      if (cancelled) return;
+      if (!isCurrentOperation()) return;
       transformErrorDocKeysRef.current.add(key);
       suppressSaveRef.current = false;
-      dispatchSession({ type: "transformError" });
+      dispatchSession({
+        type: "operationFailed",
+        reason: "transform",
+        hasLocalChanges: editorDirtyRef.current || hasPending(),
+      });
     };
 
     const applyLoadedSnapshot = (
@@ -229,7 +260,6 @@ export function useDocumentController({
       }
       if (!resolveContent || getResolveStatus(scope, id) === "synced") {
         suppressSaveRef.current = false;
-        if (!transformError) dispatchSession({ type: "editable" });
       }
       if (resolveContent) ensureDocumentResolved(scope, id, resolveContent);
     };
@@ -261,13 +291,18 @@ export function useDocumentController({
           latestContentRef.current = cached.content;
           baseRevisionRef.current = cached.revision;
           editorDirtyRef.current = cached.dirty;
-          restoreConflictState();
+          dispatchSession({ type: "localSnapshotLoaded", dirty: cached.dirty });
           setContentVersion((version) => version + 1);
         }
 
         void loadContentSnapshot(id)
           .then((snapshot) => {
-            if (!cancelled && snapshot?.conflict) restoreConflictState(snapshot.conflict);
+            if (isCurrentOperation() && snapshot?.conflict) {
+              dispatchSession({
+                type: "remoteConflictDetected",
+                remote: snapshot.conflict,
+              });
+            }
           })
           .catch((error) => {
             console.warn("[useDocumentController] Failed to restore persisted conflict:", error);
@@ -276,17 +311,13 @@ export function useDocumentController({
         if (resolveContent) ensureDocumentResolved(scope, id, resolveContent);
       } else {
         if (hasCachedEditor) viewCache.invalidate(key);
-        dispatchSession({ type: "loading" });
         currentDocIdRef.current = id;
         currentDocKeyRef.current = key;
         suppressSaveRef.current = true;
 
         void load(id)
           .then(({ content, revision, dirty, conflict, transformError }) => {
-            if (cancelled) {
-              suppressSaveRef.current = false;
-              return;
-            }
+            if (!isCurrentOperation()) return;
             applyLoadedSnapshot(content, revision, dirty, conflict, transformError);
           })
           .catch(markLoadError);
@@ -295,10 +326,7 @@ export function useDocumentController({
       if (resolveContent && resolveStatus !== "synced") suppressSaveRef.current = true;
       void load(id)
         .then(({ content, revision, dirty, conflict, transformError }) => {
-          if (cancelled) {
-            suppressSaveRef.current = false;
-            return;
-          }
+          if (!isCurrentOperation()) return;
           currentDocIdRef.current = id;
           currentDocKeyRef.current = key;
           applyLoadedSnapshot(content, revision, dirty, conflict, transformError);
@@ -312,11 +340,21 @@ export function useDocumentController({
       content: string;
       revision?: number;
     }) => {
-      if (event.storeName !== scope || event.id !== id || cancelled) return;
+      if (event.storeName !== scope || event.id !== id || !isCurrentOperation()) return;
       applyingResolvedContent = true;
       try {
+        if (editorDirtyRef.current || hasPending()) {
+          applyingResolvedContent = false;
+          if (resolveCompleteReceived) markResolveComplete();
+          return;
+        }
         const transformed = await transformLoadedContent(event.content);
-        if (cancelled) return;
+        if (!isCurrentOperation()) return;
+        if (editorDirtyRef.current || hasPending()) {
+          applyingResolvedContent = false;
+          if (resolveCompleteReceived) markResolveComplete();
+          return;
+        }
         suppressSaveRef.current = true;
         editor.applyContent(transformed.content, { addToHistory: true });
         const revision = Math.max(1, event.revision || 1);
@@ -340,6 +378,7 @@ export function useDocumentController({
         transformErrorDocKeysRef.current.delete(key);
         if (resolveCompleteReceived) markResolveComplete();
       } catch (error) {
+        if (!isCurrentOperation()) return;
         console.error("[useDocumentController] Failed to apply resolved content:", error);
         applyingResolvedContent = false;
         invalidateResolveStatus(scope, id);
@@ -348,7 +387,7 @@ export function useDocumentController({
     };
 
     const onResolveComplete = (event: { scope?: string; id: string; revision?: number }) => {
-      if (event.scope !== scope || event.id !== id || cancelled) return;
+      if (event.scope !== scope || event.id !== id || !isCurrentOperation()) return;
       if (transformErrorDocKeysRef.current.has(key)) return;
       if (applyingResolvedContent) {
         resolveCompleteReceived = true;
@@ -362,19 +401,25 @@ export function useDocumentController({
     };
 
     const onResolveError = (event: { scope?: string; id: string }) => {
-      if (event.scope === scope && event.id === id && !cancelled) markResolveError();
+      if (event.scope === scope && event.id === id && isCurrentOperation()) markResolveError();
     };
 
     const applyRemoteSnapshot = async (content: string, revision: number, updatedAt: string) => {
-      if (cancelled || revision <= baseRevisionRef.current) return;
+      if (!isCurrentOperation() || revision <= baseRevisionRef.current) return;
       if (editorDirtyRef.current || hasPending()) {
-        dispatchSession({ type: "conflict", conflict: { content, revision, updatedAt } });
+        dispatchSession({
+          type: "remoteConflictDetected",
+          remote: { content, revision, updatedAt },
+        });
         return;
       }
       const transformed = await transformLoadedContent(content);
-      if (cancelled || revision <= baseRevisionRef.current) return;
+      if (!isCurrentOperation() || revision <= baseRevisionRef.current) return;
       if (editorDirtyRef.current || hasPending()) {
-        dispatchSession({ type: "conflict", conflict: { content, revision, updatedAt } });
+        dispatchSession({
+          type: "remoteConflictDetected",
+          remote: { content, revision, updatedAt },
+        });
         return;
       }
       if (transformed.transformError) {
@@ -394,10 +439,7 @@ export function useDocumentController({
         dirty: false,
       });
       setContentVersion((version) => version + 1);
-      dispatchSession({ type: "synced" });
-      setTimeout(() => {
-        if (!cancelled) dispatchSession({ type: "settleSynced" });
-      }, 400);
+      dispatchSession({ type: "remoteApplied" });
       suppressSaveRef.current = false;
     };
 
@@ -407,17 +449,14 @@ export function useDocumentController({
       content: string;
       revision: number;
     }) => {
-      if (event.storeName !== scope || event.id !== id || cancelled) return;
+      if (event.storeName !== scope || event.id !== id || !isCurrentOperation()) return;
       baseRevisionRef.current = event.revision;
       viewCache.update(key, { revision: event.revision });
       advancePendingRevision(event.revision);
       if (event.content === latestContentRef.current && !hasPending()) {
         editorDirtyRef.current = false;
         viewCache.update(key, { dirty: false });
-        dispatchSession({ type: "synced" });
-        setTimeout(() => {
-          if (!cancelled) dispatchSession({ type: "settleSynced" });
-        }, 400);
+        dispatchSession({ type: "saveCommitted" });
       }
     };
 
@@ -428,14 +467,23 @@ export function useDocumentController({
       revision: number;
       updatedAt: string;
     }) => {
-      if (event.storeName !== scope || event.id !== id || cancelled) return;
+      if (event.storeName !== scope || event.id !== id || !isCurrentOperation()) return;
       dispatchSession({
-        type: "conflict",
-        conflict: {
+        type: "remoteConflictDetected",
+        remote: {
           content: event.content,
           revision: event.revision,
           updatedAt: event.updatedAt,
         },
+      });
+    };
+
+    const onContentSyncError = (event: { storeName: string; id: string }) => {
+      if (event.storeName !== scope || event.id !== id || !isCurrentOperation()) return;
+      dispatchSession({
+        type: "operationFailed",
+        reason: "save",
+        hasLocalChanges: true,
       });
     };
 
@@ -445,7 +493,7 @@ export function useDocumentController({
       revision: number;
       updatedAt: string;
     }) => {
-      if (message.storeName !== scope || message.id !== id || cancelled) return;
+      if (message.storeName !== scope || message.id !== id || !isCurrentOperation()) return;
       void getCommittedContentSnapshot(scope, id).then((snapshot) => {
         if (!snapshot || snapshot.revision < message.revision) return;
         return applyRemoteSnapshot(snapshot.content, snapshot.revision, message.updatedAt);
@@ -462,6 +510,7 @@ export function useDocumentController({
     const unsubscribeSync = subscribeDocumentSync({
       contentCommitted: onContentCommitted,
       contentConflict: onContentConflict,
+      contentSyncError: onContentSyncError,
       tabCommit: onTabCommit,
       ...(resolveContent
         ? {
@@ -475,7 +524,7 @@ export function useDocumentController({
     document.addEventListener("visibilitychange", checkForMissedCommit);
 
     return () => {
-      cancelled = true;
+      operationGuardRef.current.finish(operation);
       unsubscribeSync();
       window.removeEventListener("focus", checkForMissedCommit);
       document.removeEventListener("visibilitychange", checkForMissedCommit);
@@ -527,7 +576,10 @@ export function useDocumentController({
       if (message.storeName !== scope) return;
       const eventDocKey = documentKey(scope, message.id);
       if (eventDocKey === currentDocKey) return;
+      const operation = operationGuardRef.current.capture(currentDocKey);
+      if (!operation) return;
       void getCommittedContentSnapshot(scope, message.id).then((snapshot) => {
+        if (!operationGuardRef.current.isCurrent(operation)) return;
         if (!snapshot || snapshot.revision < message.revision) return;
         handleBackgroundCommit({
           storeName: scope,
@@ -559,10 +611,13 @@ export function useDocumentController({
   }, [currentDocKey, resolveContent, scope, viewCache]);
 
   const acceptRemoteContent = useCallback(async () => {
-    const conflict = session.conflict;
-    if (!conflict) return;
+    if (!conflict || conflictResolutionInProgress) return;
+    const operation = operationGuardRef.current.capture(currentDocKey);
+    if (!operation) return;
     const acceptingDocId = currentDocIdRef.current;
     clearPendingSave(currentDocKey);
+    dispatchSession({ type: "conflictResolutionStarted", choice: "remote" });
+    let failureReason: "save" | "transform" = "save";
     try {
       const accepted = await acceptCommittedContent(
         scope,
@@ -571,24 +626,34 @@ export function useDocumentController({
         conflict.revision,
         conflict.updatedAt,
       );
-      if (!accepted || currentDocIdRef.current !== acceptingDocId) return;
+      if (!operationGuardRef.current.isCurrent(operation)) return;
+      if (!accepted) {
+        dispatchSession({ type: "operationFailed", reason: "save", hasLocalChanges: true });
+        return;
+      }
 
       baseRevisionRef.current = accepted.revision;
       editorDirtyRef.current = false;
       viewCache.update(currentDocKey, { revision: accepted.revision, dirty: false });
-      dispatchSession({ type: "clearConflict" });
-      dispatchSession({ type: "syncing" });
 
+      failureReason = "transform";
       const transformed = transformOnLoad
         ? await transformOnLoad(accepted.content)
         : accepted.content;
 
-      if (currentDocIdRef.current !== acceptingDocId) return;
-      if (accepted.revision < baseRevisionRef.current) return;
+      if (!operationGuardRef.current.isCurrent(operation)) return;
+      if (accepted.revision < baseRevisionRef.current) {
+        dispatchSession({
+          type: "operationFailed",
+          reason: "save",
+          hasLocalChanges: editorDirtyRef.current || hasPending(),
+        });
+        return;
+      }
       if (editorDirtyRef.current || hasPending()) {
         dispatchSession({
-          type: "conflict",
-          conflict: {
+          type: "remoteConflictDetected",
+          remote: {
             content: accepted.content,
             revision: accepted.revision,
             updatedAt: conflict.updatedAt,
@@ -602,34 +667,38 @@ export function useDocumentController({
       latestContentRef.current = transformOnSave ? transformOnSave(transformed) : transformed;
       viewCache.update(currentDocKey, { content: latestContentRef.current });
       setContentVersion((version) => version + 1);
-      dispatchSession({ type: "idle" });
+      dispatchSession({ type: "remoteApplied" });
     } catch (error) {
+      if (!operationGuardRef.current.isCurrent(operation)) return;
       console.error("[useDocumentController] Failed to accept remote content:", error);
-      dispatchSession({ type: "syncError" });
+      dispatchSession({
+        type: "operationFailed",
+        reason: failureReason,
+        hasLocalChanges: editorDirtyRef.current || hasPending(),
+      });
     } finally {
-      suppressSaveRef.current = false;
+      if (operationGuardRef.current.isCurrent(operation)) suppressSaveRef.current = false;
     }
   }, [
     clearPendingSave,
+    conflictResolutionInProgress,
     currentDocKey,
     dispatchSession,
     editor,
     hasPending,
     scope,
-    session.conflict,
+    conflict,
     transformOnLoad,
     transformOnSave,
     viewCache,
   ]);
 
   const keepLocalContent = useCallback(() => {
-    const conflict = session.conflict;
-    if (!conflict) return;
+    if (!conflict || conflictResolutionInProgress) return;
     clearPendingSave(currentDocKey);
     baseRevisionRef.current = conflict.revision;
     viewCache.update(currentDocKey, { revision: conflict.revision });
-    dispatchSession({ type: "clearConflict" });
-    dispatchSession({ type: "syncing" });
+    dispatchSession({ type: "conflictResolutionStarted", choice: "local" });
     void saveImmediately(
       {
         scope,
@@ -642,11 +711,12 @@ export function useDocumentController({
     );
   }, [
     clearPendingSave,
+    conflictResolutionInProgress,
     currentDocKey,
     dispatchSession,
     saveImmediately,
     scope,
-    session.conflict,
+    conflict,
     viewCache,
   ]);
 

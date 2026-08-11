@@ -7,6 +7,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MentionTrigger } from "../editor/hitomdEditor";
 import { documentKey, type ContentSnapshot, type ResolveDocument } from "../lib/documentSync";
+import {
+  getDocumentConflict,
+  getDocumentSyncStatus,
+  isDocumentReadOnly,
+} from "../lib/documentSessionModel";
 import { useDocumentController } from "./useDocumentController";
 import type { SaveDocumentContent } from "./useDocumentSaveQueue";
 import { useDocumentSession } from "./useDocumentSession";
@@ -52,6 +57,7 @@ export function useDocumentEditor({
   const [charCount, setCharCount] = useState(0);
   const [session, dispatchSession] = useDocumentSession();
   const viewCache = useDocumentViewCache();
+  const readOnly = isDocumentReadOnly(session) || forceReadOnly;
 
   // The editor and controller depend on each other. A stable relay keeps the
   // editor instance independent while always forwarding to the latest controller.
@@ -74,7 +80,7 @@ export function useDocumentEditor({
     initialContent: "",
     onChange: handleEditorChange,
     onCharCount: setCharCount,
-    readOnly: session.readOnly || forceReadOnly,
+    readOnly,
     onImageUpload,
     onResolveLink,
     mentions,
@@ -157,11 +163,11 @@ export function useDocumentEditor({
     setRawMarkdown,
     charCount,
     scrollRef,
-    readOnly: session.readOnly || forceReadOnly,
-    syncStatus: session.syncStatus,
+    readOnly,
+    syncStatus: getDocumentSyncStatus(session),
     contentVersion: controller.contentVersion,
     flushPendingSave: controller.flushPendingSave,
-    conflict: session.conflict,
+    conflict: getDocumentConflict(session),
     acceptRemoteContent: controller.acceptRemoteContent,
     keepLocalContent: controller.keepLocalContent,
   };

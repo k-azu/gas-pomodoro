@@ -40,12 +40,19 @@ export interface ContentConflictEvent {
   updatedAt: string;
 }
 
+export interface ContentSyncErrorEvent {
+  storeName: string;
+  id: string;
+  error: unknown;
+}
+
 export interface DocumentSyncHandlers {
   contentResolved?: (event: ContentResolvedEvent) => void;
   resolveComplete?: (event: ResolveCompleteEvent) => void;
   resolveError?: (event: ResolveErrorEvent) => void;
   contentCommitted?: (event: ContentCommittedEvent) => void;
   contentConflict?: (event: ContentConflictEvent) => void;
+  contentSyncError?: (event: ContentSyncErrorEvent) => void;
   tabCommit?: (event: DocumentCommitMessage) => void;
 }
 
@@ -98,6 +105,7 @@ export function subscribeDocumentSync(handlers: DocumentSyncHandlers): () => voi
   subscribe("resolveError", handlers.resolveError);
   subscribe("contentCommitted", handlers.contentCommitted);
   subscribe("contentConflict", handlers.contentConflict);
+  subscribe("contentSyncError", handlers.contentSyncError);
   const unsubscribeTabCommit = handlers.tabCommit
     ? onDocumentCommit(handlers.tabCommit)
     : () => undefined;

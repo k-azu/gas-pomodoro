@@ -1,6 +1,6 @@
 import s from "./SyncIndicator.module.css";
 
-export type SyncStatus = "idle" | "syncing" | "synced" | "conflict" | "error";
+export type SyncStatus = "idle" | "syncing" | "conflict" | "error";
 
 export function SyncIndicator({
   status,
@@ -11,7 +11,7 @@ export function SyncIndicator({
   onAcceptRemote: () => void;
   onKeepLocal: () => void;
 }) {
-  if (status === "idle" || status === "synced") return null;
+  if (status === "idle") return null;
 
   return (
     <span className={s["sync-indicator"]} data-status={status}>

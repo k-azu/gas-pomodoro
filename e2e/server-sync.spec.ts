@@ -324,4 +324,36 @@ test.describe("C. サーバー同期と競合解決", () => {
     const record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
     expect(record.content).toContain("エラーテスト");
   });
+
+  test("E2: 保存の終端エラーを表示し、拒否された本文を保持する", async ({ page }) => {
+    await gotoApp(page);
+    await selectMemo(page, "開発メモ");
+    await waitForSyncComplete(page);
+
+    const before = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    await page.evaluate(
+      ({ content, revision }) => {
+        localStorage.setItem(
+          "gas_pomodoro_mock_server_content_mock-memo-1",
+          JSON.stringify({
+            content,
+            contentRevision: revision,
+            updatedAt: new Date().toISOString(),
+            isActive: false,
+          }),
+        );
+      },
+      {
+        content: String(before._serverContent ?? before.content ?? ""),
+        revision: Math.max(1, Number(before.contentRevision) || 1),
+      },
+    );
+
+    const marker = `terminal-save-error-${Date.now()}`;
+    await typeInEditor(page, marker);
+
+    await expect(page.locator('[data-status="error"]')).toBeVisible({ timeout: 5_000 });
+    const after = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    expect(after.content).toContain(marker);
+  });
 });
