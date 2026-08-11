@@ -3,7 +3,7 @@
  * F. IDB 書き込みデバウンス
  */
 import { test, expect } from "@playwright/test";
-import { idbGet } from "./helpers/idb";
+import { idbGetDocumentContent } from "./helpers/idb";
 import {
   gotoApp,
   selectMemo,
@@ -24,10 +24,10 @@ test.describe("D. コンテンツ永続化", () => {
     await typeInEditor(page, "永続化テスト");
     await page.waitForTimeout(2500); // 2s debounce + margin
 
-    const record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const record = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(record.content).toContain("永続化テスト");
-    expect(record.contentRevision).toBeGreaterThanOrEqual(2);
-    expect(record._contentDirtyAt).toBeNull();
+    expect(record.body.revision).toBeGreaterThanOrEqual(2);
+    expect(record.draft).toBeNull();
   });
 
   test("D2: リロード後 IDB から復元", async ({ page }) => {
@@ -42,7 +42,7 @@ test.describe("D. コンテンツ永続化", () => {
     await page.waitForSelector("[class*='sidebar']", { timeout: 10_000 });
 
     // Verify IDB preserved
-    const record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const record = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(record.content).toContain("リロード生存テスト");
 
     // Verify editor displays it
@@ -62,12 +62,12 @@ test.describe("F. IDB 書き込みデバウンス", () => {
     await typeInEditor(page, "デバウンステスト");
 
     // 直後 → IDB にはまだ反映されていない
-    const before = await idbGet(page, MEMO_STORE, MEMO_1_ID);
-    expect(before.content || "").not.toContain("デバウンステスト");
+    const before = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
+    expect(before.content).not.toContain("デバウンステスト");
 
     // 2.5秒後 → IDB に反映
     await page.waitForTimeout(2500);
-    const after = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const after = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(after.content).toContain("デバウンステスト");
   });
 
@@ -79,14 +79,14 @@ test.describe("F. IDB 書き込みデバウンス", () => {
     await typeInEditor(page, "切替フラッシュ");
 
     // 直後 → まだ IDB にない
-    const before = await idbGet(page, MEMO_STORE, MEMO_1_ID);
-    expect(before.content || "").not.toContain("切替フラッシュ");
+    const before = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
+    expect(before.content).not.toContain("切替フラッシュ");
 
     // ドキュメント切替 → 即座にフラッシュ
     await selectMemo(page, "議事録");
     await page.waitForTimeout(500); // async IDB chain の完了待ち
 
-    const after = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const after = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(after.content).toContain("切替フラッシュ");
   });
 
@@ -98,14 +98,14 @@ test.describe("F. IDB 書き込みデバウンス", () => {
     await typeInEditor(page, "リロードフラッシュ");
 
     // 直後 → まだ IDB にない
-    const before = await idbGet(page, MEMO_STORE, MEMO_1_ID);
-    expect(before.content || "").not.toContain("リロードフラッシュ");
+    const before = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
+    expect(before.content).not.toContain("リロードフラッシュ");
 
     // リロード → beforeunload でフラッシュ
     await page.reload();
     await page.waitForSelector("[class*='sidebar']", { timeout: 10_000 });
 
-    const after = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const after = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(after.content).toContain("リロードフラッシュ");
   });
 });

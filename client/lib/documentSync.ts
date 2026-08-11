@@ -1,123 +1,61 @@
-import * as EntityStore from "./entityStore";
-import { onDocumentCommit, type DocumentCommitMessage } from "./tabSync";
+import { acceptCommittedDocument } from "./documentCoordinator";
+import { toDocumentKey } from "./documentRepository";
 
-export type ContentSnapshot = EntityStore.ContentSnapshot;
-export type ContentConflictSnapshot = EntityStore.ContentConflictSnapshot;
-export type ContentSaveOptions = EntityStore.ContentSaveOptions;
-
-export interface ContentResolvedEvent {
-  storeName?: string;
-  id: string;
-  content: string;
-  revision?: number;
-}
-
-export interface ResolveCompleteEvent {
-  scope?: string;
-  id: string;
-  revision?: number;
-}
-
-export interface ResolveErrorEvent {
-  scope?: string;
-  id: string;
-}
-
-export interface ContentCommittedEvent {
-  storeName: string;
-  id: string;
-  content: string;
-  revision: number;
-  updatedAt: string;
-  mutationId: string;
-}
-
-export interface ContentConflictEvent {
-  storeName: string;
-  id: string;
+export interface ContentConflictSnapshot {
   content: string;
   revision: number;
   updatedAt: string;
 }
 
-export interface ContentSyncErrorEvent {
-  storeName: string;
-  id: string;
-  error: unknown;
-}
-
-export interface DocumentSyncHandlers {
-  contentResolved?: (event: ContentResolvedEvent) => void;
-  resolveComplete?: (event: ResolveCompleteEvent) => void;
-  resolveError?: (event: ResolveErrorEvent) => void;
-  contentCommitted?: (event: ContentCommittedEvent) => void;
-  contentConflict?: (event: ContentConflictEvent) => void;
-  contentSyncError?: (event: ContentSyncErrorEvent) => void;
-  tabCommit?: (event: DocumentCommitMessage) => void;
+export interface ContentSaveOptions {
+  immediateSync?: boolean;
+  resolveConflict?: boolean;
+  baseRevision?: number;
+  mutationId?: string;
 }
 
 export type ResolveDocument = (
   id: string,
 ) => Promise<{ useServer: boolean; content?: string; revision?: number } | null>;
 
-const resolveStatus = new Map<string, "resolving" | "synced">();
+const resolvedDocuments = new Set<string>();
+const resolvingDocuments = new Map<
+  string,
+  Promise<{ useServer: boolean; content?: string; revision?: number } | null>
+>();
 
 export const documentKey = (scope: string, id: string | undefined) => `${scope}:${id ?? ""}`;
 
 export function getResolveStatus(scope: string, id: string): "resolving" | "synced" | undefined {
-  return resolveStatus.get(documentKey(scope, id));
+  const key = documentKey(scope, id);
+  if (resolvingDocuments.has(key)) return "resolving";
+  return resolvedDocuments.has(key) ? "synced" : undefined;
 }
 
 export function invalidateResolveStatus(scope: string, id: string): void {
-  resolveStatus.delete(documentKey(scope, id));
+  resolvedDocuments.delete(documentKey(scope, id));
 }
 
-/** Resolve once per document in this page session; results are delivered as typed events. */
+/** Resolve once per document in this page session and share the in-flight Promise. */
 export function ensureDocumentResolved(
   scope: string,
   id: string,
   resolveContent: ResolveDocument,
-): void {
+): Promise<{ useServer: boolean; content?: string; revision?: number } | null> {
   const key = documentKey(scope, id);
-  if (resolveStatus.has(key)) return;
-  resolveStatus.set(key, "resolving");
-  resolveContent(id)
+  if (resolvedDocuments.has(key)) return Promise.resolve(null);
+  const existing = resolvingDocuments.get(key);
+  if (existing) return existing;
+  const resolving = resolveContent(id)
     .then((result) => {
-      resolveStatus.set(key, "synced");
-      EntityStore.emit("resolveComplete", { scope, id, revision: result?.revision });
+      resolvedDocuments.add(key);
+      return result;
     })
-    .catch(() => {
-      resolveStatus.delete(key);
-      EntityStore.emit("resolveError", { scope, id });
+    .finally(() => {
+      resolvingDocuments.delete(key);
     });
-}
-
-export function subscribeDocumentSync(handlers: DocumentSyncHandlers): () => void {
-  const subscriptions: Array<[string, (event: any) => void]> = [];
-  const subscribe = (event: string, handler: ((event: any) => void) | undefined) => {
-    if (!handler) return;
-    EntityStore.on(event, handler);
-    subscriptions.push([event, handler]);
-  };
-
-  subscribe("contentResolved", handlers.contentResolved);
-  subscribe("resolveComplete", handlers.resolveComplete);
-  subscribe("resolveError", handlers.resolveError);
-  subscribe("contentCommitted", handlers.contentCommitted);
-  subscribe("contentConflict", handlers.contentConflict);
-  subscribe("contentSyncError", handlers.contentSyncError);
-  const unsubscribeTabCommit = handlers.tabCommit
-    ? onDocumentCommit(handlers.tabCommit)
-    : () => undefined;
-
-  return () => {
-    subscriptions.forEach(([event, handler]) => EntityStore.off(event, handler));
-    unsubscribeTabCommit();
-  };
-}
-
-export function getCommittedContentSnapshot(scope: string, id: string) {
-  return EntityStore.getCommittedContentSnapshot(scope, id);
+  resolvingDocuments.set(key, resolving);
+  return resolving;
 }
 
 export function acceptCommittedContent(
@@ -127,5 +65,10 @@ export function acceptCommittedContent(
   revision: number,
   updatedAt: string,
 ) {
-  return EntityStore.acceptCommittedContent(scope, id, content, revision, updatedAt);
+  return acceptCommittedDocument(scope, id, {
+    key: toDocumentKey(scope, id),
+    content,
+    revision,
+    updatedAt,
+  });
 }

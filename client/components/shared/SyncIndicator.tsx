@@ -1,6 +1,6 @@
 import s from "./SyncIndicator.module.css";
 
-export type SyncStatus = "idle" | "syncing" | "conflict" | "error";
+export type SyncStatus = "idle" | "syncing" | "conflict" | "error" | "locked";
 
 export function SyncIndicator({
   status,
@@ -22,6 +22,7 @@ export function SyncIndicator({
         </>
       )}
       {status === "error" && "同期エラー"}
+      {status === "locked" && "別のタブで編集中・読み取り専用"}
       {status === "conflict" && (
         <>
           <span>別のタブで更新されました</span>

@@ -6,13 +6,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MentionTrigger } from "../editor/hitomdEditor";
-import { documentKey, type ContentSnapshot, type ResolveDocument } from "../lib/documentSync";
+import { documentKey, type ResolveDocument } from "../lib/documentSync";
 import {
   getDocumentConflict,
   getDocumentSyncStatus,
   isDocumentReadOnly,
 } from "../lib/documentSessionModel";
 import { useDocumentController } from "./useDocumentController";
+import { useDocumentEditLease } from "./useDocumentEditLease";
 import type { SaveDocumentContent } from "./useDocumentSaveQueue";
 import { useDocumentSession } from "./useDocumentSession";
 import { useDocumentViewCache } from "./useDocumentViewCache";
@@ -21,7 +22,6 @@ import { useMarkdownEditor } from "./useMarkdownEditor";
 interface UseDocumentEditorOptions {
   scope: string;
   id: string;
-  loadContentSnapshot: (id: string) => Promise<ContentSnapshot | null>;
   saveContent: SaveDocumentContent;
   /** Flush server sync for the given id (bypass 30s debounce) */
   flushSync?: (id: string) => void;
@@ -42,7 +42,6 @@ interface UseDocumentEditorOptions {
 export function useDocumentEditor({
   scope,
   id,
-  loadContentSnapshot,
   saveContent,
   flushSync,
   resolveContent,
@@ -57,7 +56,16 @@ export function useDocumentEditor({
   const [charCount, setCharCount] = useState(0);
   const [session, dispatchSession] = useDocumentSession();
   const viewCache = useDocumentViewCache();
-  const readOnly = isDocumentReadOnly(session) || forceReadOnly;
+  const currentDocKey = documentKey(scope, id);
+  const beforeLeaseAcquireRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const beforeLeaseReleaseRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const editLeaseStatus = useDocumentEditLease(
+    currentDocKey,
+    Boolean(id) && !forceReadOnly,
+    beforeLeaseAcquireRef,
+    beforeLeaseReleaseRef,
+  );
+  const readOnly = isDocumentReadOnly(session) || forceReadOnly || editLeaseStatus !== "owned";
 
   // The editor and controller depend on each other. A stable relay keeps the
   // editor instance independent while always forwarding to the latest controller.
@@ -94,21 +102,22 @@ export function useDocumentEditor({
   const controller = useDocumentController({
     scope,
     id,
-    loadContentSnapshot,
     saveContent,
     flushSync,
     resolveContent,
     transformOnLoad,
     transformOnSave,
     forceReadOnly,
+    ownsEditLease: editLeaseStatus === "owned",
     editor: editorPort,
     session,
     dispatchSession,
     viewCache,
   });
   onChangeRef.current = controller.handleChange;
+  beforeLeaseAcquireRef.current = controller.prepareForEditing;
+  beforeLeaseReleaseRef.current = controller.flushPendingSave;
 
-  const currentDocKey = documentKey(scope, id);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevScrollDocKeyRef = useRef(currentDocKey);
   const prevHasAfterMetaRef = useRef(hasAfterMeta);
@@ -155,6 +164,9 @@ export function useDocumentEditor({
     };
   }, [currentDocKey, hasAfterMeta, id, viewCache]);
 
+  const syncStatus =
+    editLeaseStatus === "owned" ? getDocumentSyncStatus(session) : ("locked" as const);
+
   return {
     editor,
     mode,
@@ -164,7 +176,7 @@ export function useDocumentEditor({
     charCount,
     scrollRef,
     readOnly,
-    syncStatus: getDocumentSyncStatus(session),
+    syncStatus,
     contentVersion: controller.contentVersion,
     flushPendingSave: controller.flushPendingSave,
     conflict: getDocumentConflict(session),

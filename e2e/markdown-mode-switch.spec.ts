@@ -5,7 +5,7 @@
  * Markdown モードでの編集内容はキャッシュに正しく保存される。
  */
 import { test, expect } from "@playwright/test";
-import { idbGet, idbSeedDirtyContent } from "./helpers/idb";
+import { idbGetDocumentContent, idbSeedDirtyContent } from "./helpers/idb";
 import {
   gotoApp,
   selectMemo,
@@ -114,7 +114,7 @@ test.describe("Markdown モードとドキュメント切り替え", () => {
     await page.waitForTimeout(500);
 
     // IDB に保存されているか確認
-    const rec = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const rec = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(rec.content).toContain("初期テキスト");
     expect(rec.content).toContain("追加行");
   });

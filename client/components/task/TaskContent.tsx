@@ -118,10 +118,6 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
   } = useDocumentEditor({
     scope: storeName,
     id,
-    loadContentSnapshot: useCallback(
-      (id: string) => TaskStore.getContentSnapshot(id, storeName),
-      [storeName],
-    ),
     saveContent: useCallback(
       (id: string, md: string, opts?: Parameters<typeof TaskStore.saveContent>[3]) =>
         TaskStore.saveContent(id, md, storeName, opts),

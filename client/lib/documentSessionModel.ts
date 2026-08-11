@@ -37,8 +37,6 @@ export type DocumentSessionEvent =
   | { type: "resolveSucceeded" }
   | { type: "localEdited" }
   | { type: "saveStarted" }
-  | { type: "saveCommitted" }
-  | { type: "remoteApplied" }
   | { type: "remoteConflictDetected"; remote: ContentConflictSnapshot }
   | { type: "conflictResolutionStarted"; choice: "remote" | "local" }
   | {
@@ -79,9 +77,6 @@ export function documentSessionReducer(
         : { ...state, sync: { kind: "dirty" } };
     case "saveStarted":
       return state.sync.kind === "conflict" ? state : { ...state, sync: { kind: "saving" } };
-    case "saveCommitted":
-    case "remoteApplied":
-      return { ...state, sync: { kind: "clean" } };
     case "remoteConflictDetected":
       return {
         ...state,

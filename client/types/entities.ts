@@ -3,10 +3,6 @@ export interface EntityInternals {
   _dirty?: boolean;
   _pendingCreate?: boolean;
   _serverUpdatedAt?: string;
-  _contentDirtyAt?: string | null;
-  _contentDirtyOwner?: string;
-  _draftBaseRevision?: number;
-  _serverContent?: string;
 }
 
 export interface BaseEntity extends EntityInternals {

@@ -4,6 +4,14 @@
  */
 
 import * as EntityStore from "./entityStore";
+import {
+  flushDocumentContentSync,
+  getDocumentContentSnapshot,
+  registerDocumentTransport,
+  requeueDocumentDrafts,
+  resolveDocumentWithServer,
+  saveDocumentContent,
+} from "./documentCoordinator";
 import { serverCall } from "./serverCall";
 import type { MemoTag, MemoMetadata } from "../types";
 
@@ -25,11 +33,13 @@ export function init(serverMemos: MemoMetadata[], serverMemoTags: MemoTag[]): vo
     serverFns: {
       add: "saveMemo",
       archive: "deleteMemo",
-      getContent: "getMemoContent",
       reorder: "updateMemoSortOrders",
     },
     addServerArgs: (e: any) => [{ id: e.id, name: e.name, content: "", tags: e.tags || [] }],
-    contentSyncFn: (id: string, content: string, baseRevision: number, mutationId: string) =>
+  });
+  registerDocumentTransport("memos", {
+    load: (id) => serverCall("getMemoContent", id) as Promise<any>,
+    save: (id, content, baseRevision, mutationId) =>
       serverCall("saveMemoContent", id, content, baseRevision, mutationId) as Promise<any>,
   });
 }
@@ -43,7 +53,8 @@ export function loadData(): Promise<void> {
   _serverMemos = null;
   return EntityStore.mergeServerData("memos", serverMemos)
     .then(() => {
-      EntityStore.requeueDirtyRecords("memos");
+      EntityStore.requeueDirtyRecords("memos", { content: false });
+      requeueDocumentDrafts("memos");
       return migrateFromLocalStorage(serverMemos);
     })
     .then(() => {
@@ -74,10 +85,10 @@ function migrateFromLocalStorage(serverMemos: MemoMetadata[]): Promise<void> {
     if (!lsContent) return;
 
     ops.push(
-      EntityStore.getContent("memos", id)
+      getContent(id)
         .then((idbContent) => {
           if (idbContent) return;
-          return EntityStore.saveContent("memos", id, lsContent!).then(() => {
+          return saveContent(id, lsContent!).then(() => {
             console.log("[MemoStore] Migrated memo from localStorage:", id);
           });
         })
@@ -179,23 +190,19 @@ export function getTags(): MemoTag[] {
 export function saveContent(
   id: string,
   content: string,
-  opts?: EntityStore.ContentSaveOptions,
+  opts?: import("./documentSync").ContentSaveOptions,
 ): Promise<void> {
-  return EntityStore.saveContent("memos", id, content, opts);
+  return saveDocumentContent("memos", id, content, opts);
 }
 
 export function getContent(id: string): Promise<string | null> {
-  return EntityStore.getContent("memos", id);
-}
-
-export function getContentSnapshot(id: string) {
-  return EntityStore.getContentSnapshot("memos", id);
+  return getDocumentContentSnapshot("memos", id).then((snapshot) => snapshot?.content ?? null);
 }
 
 export function resolveWithServer(id: string) {
-  return EntityStore.resolveWithServer("memos", id);
+  return resolveDocumentWithServer("memos", id);
 }
 
 export function flushContentSync(id: string): void {
-  EntityStore.flushContentSync("memos", id);
+  flushDocumentContentSync("memos", id);
 }

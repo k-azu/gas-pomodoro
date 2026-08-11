@@ -53,29 +53,6 @@ test("競合中の追加編集でもリモートスナップショットを失�
   assert.equal(getDocumentSyncStatus(conflicted), "conflict");
 });
 
-test("同期イベントはresolve中の読み取り専用状態を変更しない", () => {
-  const resolving: DocumentSessionState = {
-    phase: "resolving",
-    sync: { kind: "saving" },
-  };
-
-  const committed = documentSessionReducer(resolving, { type: "saveCommitted" });
-  assert.equal(committed.phase, "resolving");
-  assert.equal(isDocumentReadOnly(committed), true);
-
-  const applied = documentSessionReducer(resolving, { type: "remoteApplied" });
-  assert.equal(applied.phase, "resolving");
-  assert.equal(isDocumentReadOnly(applied), true);
-
-  const conflicted = documentSessionReducer(resolving, {
-    type: "remoteConflictDetected",
-    remote,
-  });
-  assert.equal(conflicted.phase, "resolving");
-  assert.equal(isDocumentReadOnly(conflicted), true);
-  assert.deepEqual(getDocumentConflict(conflicted), remote);
-});
-
 test("競合解決は処理成功まで競合スナップショットを保持する", () => {
   const conflicted = reduce(
     { phase: "editable", sync: { kind: "clean" } },
@@ -94,7 +71,10 @@ test("競合解決は処理成功まで競合スナップショットを保持�
   assert.equal(getDocumentSyncStatus(failed), "conflict");
   assert.deepEqual(getDocumentConflict(failed), remote);
 
-  const committed = documentSessionReducer(failed, { type: "saveCommitted" });
+  const committed = documentSessionReducer(failed, {
+    type: "localSnapshotLoaded",
+    dirty: false,
+  });
   assert.deepEqual(committed, { phase: "editable", sync: { kind: "clean" } });
 });
 
@@ -151,7 +131,7 @@ test("リモート適用成功時に競合を解消する", () => {
     { phase: "editable", sync: { kind: "clean" } },
     { type: "remoteConflictDetected", remote },
     { type: "conflictResolutionStarted", choice: "remote" },
-    { type: "remoteApplied" },
+    { type: "localSnapshotLoaded", dirty: false },
   );
 
   assert.deepEqual(applied, { phase: "editable", sync: { kind: "clean" } });
@@ -167,6 +147,9 @@ test("編集・保存開始・確定をdirtyからcleanへ遷移させる", () =
   assert.deepEqual(saving.sync, { kind: "saving" });
   assert.equal(getDocumentSyncStatus(saving), "syncing");
 
-  const committed = documentSessionReducer(saving, { type: "saveCommitted" });
+  const committed = documentSessionReducer(saving, {
+    type: "localSnapshotLoaded",
+    dirty: false,
+  });
   assert.deepEqual(committed, { phase: "editable", sync: { kind: "clean" } });
 });

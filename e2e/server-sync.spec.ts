@@ -2,8 +2,14 @@
  * C. サーバー同期と競合解決 — resolveContent → resolveContentConflict
  * E1. サーバーエラー
  */
-import { test, expect } from "@playwright/test";
-import { idbGet, idbDelete, clearDirtyAt, idbSeedDirtyContent } from "./helpers/idb";
+import { test, expect, type Page } from "@playwright/test";
+import {
+  idbGetAll,
+  idbGetDocumentContent,
+  idbDelete,
+  clearDirtyAt,
+  idbSeedDirtyContent,
+} from "./helpers/idb";
 import {
   gotoApp,
   selectMemo,
@@ -20,6 +26,18 @@ import {
 const MEMO_STORE = "memos";
 const MEMO_1_ID = "mock-memo-1"; // "開発メモ"
 
+async function waitForCommittedContent(page: Page, expected: string): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const record = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
+        return record.draft === null && record.content.includes(expected);
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+}
+
 test.describe("C. サーバー同期と競合解決", () => {
   test("C1: サーバー null → ローカル維持", async ({ page }) => {
     // Seed content
@@ -27,7 +45,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await waitForSyncComplete(page);
     await selectMemo(page, "開発メモ");
     await typeInEditor(page, "ローカルコンテンツ");
-    await page.waitForTimeout(2500); // Wait for debounce flush
+    await waitForCommittedContent(page, "ローカルコンテンツ");
 
     // Clear dirty flag + set mock to null
     await clearDirtyAt(page, MEMO_STORE, MEMO_1_ID);
@@ -39,7 +57,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await selectMemo(page, "開発メモ");
     await waitForSyncComplete(page);
 
-    const record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const record = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(record.content).toContain("ローカルコンテンツ");
   });
 
@@ -48,7 +66,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await waitForSyncComplete(page);
     await selectMemo(page, "開発メモ");
     await typeInEditor(page, "ローカル内容");
-    await page.waitForTimeout(2500); // 2s debounce + margin
+    await waitForCommittedContent(page, "ローカル内容");
 
     // Clear dirty flag
     await clearDirtyAt(page, MEMO_STORE, MEMO_1_ID);
@@ -64,7 +82,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await selectMemo(page, "開発メモ");
     await waitForSyncComplete(page);
 
-    const record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const record = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(record.content).toBe("サーバーコンテンツ");
     const text = await getEditorText(page);
     expect(text).toContain("サーバーコンテンツ");
@@ -89,7 +107,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await selectMemo(page, "開発メモ");
     await waitForSyncComplete(page);
 
-    const record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const record = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(record.content).toContain("ローカル未同期");
   });
 
@@ -98,10 +116,10 @@ test.describe("C. サーバー同期と競合解決", () => {
     await waitForSyncComplete(page);
     await selectMemo(page, "開発メモ");
     await typeInEditor(page, "同一コンテンツ");
-    await page.waitForTimeout(2500); // 2s debounce + margin
+    await waitForCommittedContent(page, "同一コンテンツ");
 
     // Get exact content from IDB
-    const before = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const before = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     const localContent = before.content;
     await clearDirtyAt(page, MEMO_STORE, MEMO_1_ID);
 
@@ -117,9 +135,9 @@ test.describe("C. サーバー同期と競合解決", () => {
     await selectMemo(page, "開発メモ");
     await waitForSyncComplete(page);
 
-    const after = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const after = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(after.content).toBe(localContent);
-    expect(after._serverUpdatedAt).toBe(serverTs);
+    expect(after.body.updatedAt).toBe(serverTs);
   });
 
   test("C5: リロード → セッションリセット → 再 resolve", async ({ page }) => {
@@ -160,7 +178,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await waitForSyncComplete(page);
     await selectMemo(page, "開発メモ");
     await typeInEditor(page, "ローカルの内容");
-    await page.waitForTimeout(2500); // debounce flush
+    await waitForCommittedContent(page, "ローカルの内容");
 
     // Clear dirty flag so resolve applies server content
     await clearDirtyAt(page, MEMO_STORE, MEMO_1_ID);
@@ -229,18 +247,19 @@ test.describe("C. サーバー同期と競合解決", () => {
     await typeInEditor(page, "保存失敗後も残る");
     await page.waitForTimeout(2500);
 
-    let record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    let record = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(record.content).not.toContain("保存失敗後も残る");
 
     await typeInEditor(page, " 再保存");
-    await page.waitForTimeout(2500);
-
-    record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
-    expect(record.content).toContain("保存失敗後も残る");
-    expect(record.content).toContain("再保存");
+    await expect
+      .poll(async () => {
+        record = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
+        return record.content.includes("保存失敗後も残る") && record.content.includes("再保存");
+      })
+      .toBe(true);
   });
 
-  test("C9b: 非表示メモの保存失敗も次回 flush で再保存される", async ({ page }) => {
+  test("C9b: 文書切替時の保存失敗を自動再試行する", async ({ page }) => {
     await setMockLocalSaveShouldFailOnce(page);
     await gotoApp(page);
     await waitForSyncComplete(page);
@@ -248,16 +267,12 @@ test.describe("C. サーバー同期と競合解決", () => {
 
     await typeInEditor(page, "非表示でも再送される");
     await selectMemo(page, "議事録");
-    await page.waitForTimeout(200);
-
-    let record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
-    expect(record.content).not.toContain("非表示でも再送される");
-
-    await selectMemo(page, "設計ドキュメント");
-    await page.waitForTimeout(500);
-
-    record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
-    expect(record.content).toContain("非表示でも再送される");
+    await expect
+      .poll(async () => {
+        const record = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
+        return record.content;
+      })
+      .toContain("非表示でも再送される");
   });
 
   test("C10: load 変換失敗時は raw 内容を表示し IDB 内容も消えない", async ({ page }) => {
@@ -265,7 +280,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await waitForSyncComplete(page);
     await selectMemo(page, "開発メモ");
     await typeInEditor(page, "ロード失敗前の内容");
-    await page.waitForTimeout(2500);
+    await waitForCommittedContent(page, "ロード失敗前の内容");
 
     await setMockTransformOnLoadShouldFailOnce(page);
     await page.reload();
@@ -279,7 +294,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await page.waitForTimeout(1000);
     await expect(page.locator('[data-status="error"]')).toBeVisible();
 
-    const record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const record = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(record.content).toContain("ロード失敗前の内容");
   });
 
@@ -288,7 +303,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await waitForSyncComplete(page);
     await selectMemo(page, "開発メモ");
     await typeInEditor(page, "IDBロード失敗前の内容");
-    await page.waitForTimeout(2500);
+    await waitForCommittedContent(page, "IDBロード失敗前の内容");
 
     await setMockLocalLoadShouldFailOnce(page);
     await page.reload();
@@ -298,7 +313,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await expect(page.locator('[data-status="error"]')).toBeVisible({ timeout: 5_000 });
     await expect(editor).toHaveAttribute("contenteditable", "false", { timeout: 3_000 });
 
-    const record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const record = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(record.content).toContain("IDBロード失敗前の内容");
   });
 
@@ -308,7 +323,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await waitForSyncComplete(page);
     await selectMemo(page, "開発メモ");
     await typeInEditor(page, "エラーテスト");
-    await page.waitForTimeout(2500); // Wait for debounce flush
+    await waitForCommittedContent(page, "エラーテスト");
 
     // Force error on reload
     await setMockContentShouldFail(page, true);
@@ -321,7 +336,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await expect(errorIndicator).toBeVisible({ timeout: 10_000 });
 
     // Content should still be in IDB
-    const record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const record = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(record.content).toContain("エラーテスト");
   });
 
@@ -330,7 +345,7 @@ test.describe("C. サーバー同期と競合解決", () => {
     await selectMemo(page, "開発メモ");
     await waitForSyncComplete(page);
 
-    const before = await idbGet(page, MEMO_STORE, MEMO_1_ID);
+    const before = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     await page.evaluate(
       ({ content, revision }) => {
         localStorage.setItem(
@@ -344,8 +359,8 @@ test.describe("C. サーバー同期と競合解決", () => {
         );
       },
       {
-        content: String(before._serverContent ?? before.content ?? ""),
-        revision: Math.max(1, Number(before.contentRevision) || 1),
+        content: String(before.body.content || ""),
+        revision: Math.max(1, Number(before.body.revision) || 1),
       },
     );
 
@@ -353,7 +368,26 @@ test.describe("C. サーバー同期と競合解決", () => {
     await typeInEditor(page, marker);
 
     await expect(page.locator('[data-status="error"]')).toBeVisible({ timeout: 5_000 });
-    const after = await idbGet(page, MEMO_STORE, MEMO_1_ID);
-    expect(after.content).toContain(marker);
+    const recoveryDrafts = await idbGetAll(page, "recoveryDocumentDrafts");
+    expect(recoveryDrafts.some((draft) => String(draft.content).includes(marker))).toBe(true);
+  });
+
+  test("E3: 一時的な送信失敗後に追加入力なしで自動再試行する", async ({ page }) => {
+    await gotoApp(page);
+    await selectMemo(page, "開発メモ");
+    await waitForSyncComplete(page);
+
+    await page.evaluate(() => {
+      (window as any).__mockContentShouldFail = true;
+    });
+    const marker = `retry-after-transient-error-${Date.now()}`;
+    await typeInEditor(page, marker);
+    await expect(page.locator('[data-status="error"]')).toBeVisible({ timeout: 5_000 });
+
+    await page.evaluate(() => {
+      (window as any).__mockContentShouldFail = false;
+    });
+    await waitForCommittedContent(page, marker);
+    await expect(page.locator('[data-status="error"]')).toHaveCount(0);
   });
 });

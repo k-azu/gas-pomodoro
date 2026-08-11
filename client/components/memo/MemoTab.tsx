@@ -72,7 +72,6 @@ export function MemoTab() {
   } = useDocumentEditor({
     scope: "memos",
     id: memo.activeId || "",
-    loadContentSnapshot: useCallback((id: string) => MemoStore.getContentSnapshot(id), []),
     saveContent: useCallback(
       (id: string, md: string, opts?: Parameters<typeof MemoStore.saveContent>[2]) =>
         MemoStore.saveContent(id, md, opts),

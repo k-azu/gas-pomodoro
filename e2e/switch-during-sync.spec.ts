@@ -8,7 +8,7 @@
  * 検証方法: mockDelay で resolve を遅延させ、切替直後のエディタ内容を確認する。
  */
 import { test, expect } from "@playwright/test";
-import { idbGet } from "./helpers/idb";
+import { idbGetDocumentContent } from "./helpers/idb";
 import { gotoApp, selectMemo, typeInEditor, waitForSyncComplete } from "./helpers/app";
 
 const SYNC_TIMEOUT = 15_000;
@@ -167,8 +167,8 @@ test.describe("同期中のドキュメント切替", () => {
     await page.waitForTimeout(1500);
 
     // Verify IDB is NOT corrupted
-    const idb1 = await idbGet(page, MEMO_STORE, MEMO_1_ID);
-    const idb2 = await idbGet(page, MEMO_STORE, MEMO_2_ID);
+    const idb1 = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
+    const idb2 = await idbGetDocumentContent(page, MEMO_STORE, MEMO_2_ID);
     expect(idb1.content).toContain("DISTINCT_A");
     expect(idb2.content).toContain("DISTINCT_B");
     expect(idb1.content).not.toBe(idb2.content);

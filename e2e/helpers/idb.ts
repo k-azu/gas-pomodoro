@@ -8,7 +8,7 @@ export async function idbGet(page: Page, storeName: string, id: string): Promise
   return page.evaluate(
     ({ storeName, id }) => {
       return new Promise((resolve, reject) => {
-        const req = indexedDB.open("gas_pomodoro", 5);
+        const req = indexedDB.open("gas_pomodoro", 6);
         req.onsuccess = () => {
           const db = req.result;
           const tx = db.transaction(storeName, "readonly");
@@ -27,7 +27,7 @@ export async function idbPut(page: Page, storeName: string, data: any): Promise<
   await page.evaluate(
     ({ storeName, data }) => {
       return new Promise<void>((resolve, reject) => {
-        const req = indexedDB.open("gas_pomodoro", 5);
+        const req = indexedDB.open("gas_pomodoro", 6);
         req.onsuccess = () => {
           const db = req.result;
           const tx = db.transaction(storeName, "readwrite");
@@ -52,20 +52,46 @@ export async function idbSeedDirtyContent(
   id: string,
   content: string,
 ): Promise<void> {
-  const record = await idbGet(page, storeName, id);
-  if (!record) {
+  const key = `${storeName}:${id}`;
+  const body = await idbGet(page, "documentBodies", key);
+  if (!body) {
     throw new Error(`Cannot seed missing IndexedDB record: ${storeName}/${id}`);
   }
-  record.content = content;
-  record._contentDirtyAt = new Date().toISOString();
-  await idbPut(page, storeName, record);
+  const updatedAt = new Date().toISOString();
+  await idbPut(page, "activeDocumentDrafts", {
+    kind: "pending",
+    key,
+    content,
+    baseRevision: body.revision,
+    mutationId: crypto.randomUUID(),
+    localVersion: Date.now(),
+    updatedAt,
+  });
+}
+
+export async function idbGetDocumentContent(
+  page: Page,
+  storeName: string,
+  id: string,
+): Promise<{ body: any; draft: any; content: string }> {
+  const key = `${storeName}:${id}`;
+  const [body, draft] = await Promise.all([
+    idbGet(page, "documentBodies", key),
+    idbGet(page, "activeDocumentDrafts", key),
+  ]);
+  const content = draft
+    ? draft.kind === "conflict"
+      ? String(draft.localContent || "")
+      : String(draft.content || "")
+    : String(body?.content || "");
+  return { body, draft, content };
 }
 
 export async function idbGetAll(page: Page, storeName: string): Promise<any[]> {
   return page.evaluate(
     ({ storeName }) => {
       return new Promise((resolve, reject) => {
-        const req = indexedDB.open("gas_pomodoro", 5);
+        const req = indexedDB.open("gas_pomodoro", 6);
         req.onsuccess = () => {
           const db = req.result;
           const tx = db.transaction(storeName, "readonly");
@@ -84,7 +110,7 @@ export async function idbDelete(page: Page, storeName: string, id: string): Prom
   await page.evaluate(
     ({ storeName, id }) => {
       return new Promise<void>((resolve, reject) => {
-        const req = indexedDB.open("gas_pomodoro", 5);
+        const req = indexedDB.open("gas_pomodoro", 6);
         req.onsuccess = () => {
           const db = req.result;
           const tx = db.transaction(storeName, "readwrite");
@@ -100,31 +126,5 @@ export async function idbDelete(page: Page, storeName: string, id: string): Prom
 }
 
 export async function clearDirtyAt(page: Page, storeName: string, id: string): Promise<void> {
-  await page.evaluate(
-    ({ storeName, id }) => {
-      return new Promise<void>((resolve, reject) => {
-        const req = indexedDB.open("gas_pomodoro", 5);
-        req.onsuccess = () => {
-          const db = req.result;
-          const tx = db.transaction(storeName, "readwrite");
-          const store = tx.objectStore(storeName);
-          const getReq = store.get(id);
-          getReq.onsuccess = () => {
-            const record = getReq.result;
-            if (!record) {
-              resolve();
-              return;
-            }
-            record._contentDirtyAt = null;
-            store.put(record);
-            tx.oncomplete = () => resolve();
-          };
-          getReq.onerror = () => reject(getReq.error);
-          tx.onerror = () => reject(tx.error);
-        };
-        req.onerror = () => reject(req.error);
-      });
-    },
-    { storeName, id },
-  );
+  await idbDelete(page, "activeDocumentDrafts", `${storeName}:${id}`);
 }

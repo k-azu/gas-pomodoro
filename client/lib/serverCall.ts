@@ -901,6 +901,13 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
       createMockRevisionedContent(String(args[0] || ""));
       return { success: true };
 
+    case "saveMemo": {
+      const memo = args[0] as { id?: string } | undefined;
+      const id = String(memo?.id || "");
+      createMockRevisionedContent(id);
+      return { success: true, id, updatedAt: new Date().toISOString() };
+    }
+
     case "updateProject":
     case "updateCase":
     case "updateTask":
@@ -912,9 +919,14 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
       archiveMockRevisionedContent(String(args[0] || ""));
       return { success: true };
 
+    case "deleteMemo":
+      archiveMockRevisionedContent(String(args[0] || ""));
+      return { success: true };
+
     case "reorderProjects":
     case "reorderCases":
     case "reorderTasks":
+    case "updateMemoSortOrders":
       return { success: true };
 
     case "getProjectContent":

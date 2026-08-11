@@ -4,8 +4,6 @@ import type { EditorState } from "../editor/hitomdEditor";
 export interface CachedDocumentView {
   editorState?: EditorState;
   content: string;
-  revision: number;
-  dirty: boolean;
 }
 
 export interface DocumentViewCache {

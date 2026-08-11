@@ -2,7 +2,7 @@
  * B. ドキュメント切り替え — キャッシュ or IDB → switchDocument
  */
 import { test, expect } from "@playwright/test";
-import { idbGet, idbPut, idbSeedDirtyContent } from "./helpers/idb";
+import { idbGet, idbGetDocumentContent, idbPut, idbSeedDirtyContent } from "./helpers/idb";
 import {
   gotoApp,
   selectMemo,
@@ -36,7 +36,7 @@ test.describe("B. ドキュメント切り替え", () => {
     expect(text).toContain("IDB直接書き込み");
   });
 
-  test("B2: キャッシュあり → IDB スキップ + キャッシュ復元", async ({ page }) => {
+  test("B2: キャッシュありでも新しいIDB本文を正本として反映", async ({ page }) => {
     await gotoApp(page);
     await waitForSyncComplete(page);
 
@@ -51,19 +51,21 @@ test.describe("B. ドキュメント切り替え", () => {
     await waitForSyncComplete(page);
 
     // Modify memo1 content directly in IDB (simulate external change)
-    const record = await idbGet(page, MEMO_STORE, MEMO_1_ID);
-    record.content = "IDB上書き内容";
-    await idbPut(page, MEMO_STORE, record);
-
-    // Switch back to memo1 (cache hit → IDB skipped)
-    await selectMemo(page, "開発メモ");
-    await expect(page.locator(".ProseMirror")).toContainText("キャッシュ内容", {
-      timeout: 3_000,
+    const bodyKey = `${MEMO_STORE}:${MEMO_1_ID}`;
+    const body = await idbGet(page, "documentBodies", bodyKey);
+    await idbPut(page, "documentBodies", {
+      ...body,
+      content: "IDB上書き内容",
+      revision: body.revision + 1,
     });
 
-    // Verify IDB-modified content is NOT shown
+    // Switch back to memo1 (the newer persisted body invalidates the cache)
+    await selectMemo(page, "開発メモ");
+    await expect(page.locator(".ProseMirror")).toContainText("IDB上書き内容", {
+      timeout: 3_000,
+    });
     const text = await getEditorText(page);
-    expect(text).not.toContain("IDB上書き内容");
+    expect(text).not.toContain("キャッシュ内容");
   });
 
   test("B3: 往復で両ドキュメントの内容保持", async ({ page }) => {
@@ -90,8 +92,8 @@ test.describe("B. ドキュメント切り替え", () => {
 
     // Verify both in IDB (switch flushes memo2, debounce already flushed too)
     await page.waitForTimeout(500);
-    const rec1 = await idbGet(page, MEMO_STORE, MEMO_1_ID);
-    const rec2 = await idbGet(page, MEMO_STORE, MEMO_2_ID);
+    const rec1 = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
+    const rec2 = await idbGetDocumentContent(page, MEMO_STORE, MEMO_2_ID);
     expect(rec1.content).toContain("メモ1の内容");
     expect(rec2.content).toContain("メモ2の内容");
   });

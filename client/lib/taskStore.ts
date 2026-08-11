@@ -4,6 +4,14 @@
  */
 
 import * as EntityStore from "./entityStore";
+import {
+  flushDocumentContentSync,
+  getDocumentContentSnapshot,
+  registerDocumentTransport,
+  requeueDocumentDrafts,
+  resolveDocumentWithServer,
+  saveDocumentContent,
+} from "./documentCoordinator";
 import { serverCall } from "./serverCall";
 import type { TaskStatus } from "../types/entities";
 
@@ -35,12 +43,14 @@ export function init(serverData?: {
       add: "addProject",
       update: "updateProject",
       archive: "archiveProject",
-      getContent: "getProjectContent",
       reorder: "reorderProjects",
     },
     addServerArgs: (e: any) => [e.id, e.name, e.color || "#4285f4"],
-    contentSyncFn: (id, content, baseRevision, mutationId) =>
-      serverCall("saveProjectContent", id, content, baseRevision, mutationId),
+  });
+  registerDocumentTransport("projects", {
+    load: (id) => serverCall("getProjectContent", id) as Promise<any>,
+    save: (id, content, baseRevision, mutationId) =>
+      serverCall("saveProjectContent", id, content, baseRevision, mutationId) as Promise<any>,
   });
 
   EntityStore.register("cases", {
@@ -51,12 +61,14 @@ export function init(serverData?: {
       add: "addCase",
       update: "updateCase",
       archive: "archiveCase",
-      getContent: "getCaseContent",
       reorder: "reorderCases",
     },
     addServerArgs: (e: any) => [e.id, e.projectId, e.name],
-    contentSyncFn: (id, content, baseRevision, mutationId) =>
-      serverCall("saveCaseContent", id, content, baseRevision, mutationId),
+  });
+  registerDocumentTransport("cases", {
+    load: (id) => serverCall("getCaseContent", id) as Promise<any>,
+    save: (id, content, baseRevision, mutationId) =>
+      serverCall("saveCaseContent", id, content, baseRevision, mutationId) as Promise<any>,
   });
 
   EntityStore.register("tasks", {
@@ -71,12 +83,9 @@ export function init(serverData?: {
       add: "addTask",
       update: "updateTask",
       archive: "archiveTask",
-      getContent: "getTaskContent",
       reorder: "reorderTasks",
     },
     addServerArgs: (e: any) => [e.id, e.projectId, e.caseId || "", e.name],
-    contentSyncFn: (id, content, baseRevision, mutationId) =>
-      serverCall("saveTaskContent", id, content, baseRevision, mutationId),
     onUpdateHook: (item: any, fields: Record<string, any>) => {
       if (fields.status === "done" && item.status !== "done") {
         fields.completedAt = new Date().toISOString();
@@ -85,11 +94,34 @@ export function init(serverData?: {
       }
     },
   });
+  registerDocumentTransport("tasks", {
+    load: (id) => serverCall("getTaskContent", id) as Promise<any>,
+    save: (id, content, baseRevision, mutationId) =>
+      serverCall("saveTaskContent", id, content, baseRevision, mutationId) as Promise<any>,
+  });
 
   EntityStore.register("documentDrafts", {
     entityType: "documentDraft",
     keyPath: "key",
     indexes: [],
+  });
+
+  EntityStore.register("documentBodies", {
+    entityType: "documentBody",
+    keyPath: "key",
+    indexes: [],
+  });
+
+  EntityStore.register("activeDocumentDrafts", {
+    entityType: "activeDocumentDraft",
+    keyPath: "key",
+    indexes: [],
+  });
+
+  EntityStore.register("recoveryDocumentDrafts", {
+    entityType: "recoveryDocumentDraft",
+    keyPath: "recoveryId",
+    indexes: [{ name: "documentKey", keyPath: "documentKey", options: { unique: false } }],
   });
 
   if (serverData) {
@@ -100,7 +132,7 @@ export function init(serverData?: {
     };
   }
 
-  return EntityStore.init("gas_pomodoro", 5, {
+  return EntityStore.init("gas_pomodoro", 6, {
     onUpgrade: (db) => {
       if (db.objectStoreNames.contains("contents")) db.deleteObjectStore("contents");
       if (db.objectStoreNames.contains("syncMeta")) db.deleteObjectStore("syncMeta");
@@ -121,9 +153,12 @@ export function loadData(): Promise<void> {
     EntityStore.mergeServerData("cases", data.cases),
     EntityStore.mergeServerData("tasks", data.tasks),
   ]).then(() => {
-    EntityStore.requeueDirtyRecords("projects");
-    EntityStore.requeueDirtyRecords("cases");
-    EntityStore.requeueDirtyRecords("tasks");
+    EntityStore.requeueDirtyRecords("projects", { content: false });
+    EntityStore.requeueDirtyRecords("cases", { content: false });
+    EntityStore.requeueDirtyRecords("tasks", { content: false });
+    requeueDocumentDrafts("projects");
+    requeueDocumentDrafts("cases");
+    requeueDocumentDrafts("tasks");
     EntityStore.emit("dataChanged", { entityType: "all", op: "serverSync" });
   });
 }
@@ -346,25 +381,21 @@ export function saveContent(
   id: string,
   content: string,
   storeName: string,
-  opts?: EntityStore.ContentSaveOptions,
+  opts?: import("./documentSync").ContentSaveOptions,
 ): Promise<void> {
-  return EntityStore.saveContent(storeName, id, content, opts);
+  return saveDocumentContent(storeName, id, content, opts);
 }
 
 export function getContent(id: string, storeName: string): Promise<string | null> {
-  return EntityStore.getContent(storeName, id);
-}
-
-export function getContentSnapshot(id: string, storeName: string) {
-  return EntityStore.getContentSnapshot(storeName, id);
+  return getDocumentContentSnapshot(storeName, id).then((snapshot) => snapshot?.content ?? null);
 }
 
 export function resolveWithServer(id: string, storeName: string) {
-  return EntityStore.resolveWithServer(storeName, id);
+  return resolveDocumentWithServer(storeName, id);
 }
 
 export function flushContentSync(storeName: string, id: string): void {
-  EntityStore.flushContentSync(storeName, id);
+  flushDocumentContentSync(storeName, id);
 }
 
 // Re-export EntityStore methods used by TaskTab
