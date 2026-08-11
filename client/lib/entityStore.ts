@@ -50,6 +50,21 @@ const metadataDebounces: Record<string, ReturnType<typeof setTimeout>> = {};
 const reorderState: Record<string, { pending: unknown[] | null; saving: boolean }> = {};
 const reorderDebounces: Record<string, ReturnType<typeof setTimeout>> = {};
 const pendingOperations: Record<string, Promise<any>> = {};
+const DATA_CHANGED_CHANNEL = "gas-pomodoro:entity-data-changed";
+let dataChangedChannel: BroadcastChannel | null | undefined;
+
+function getDataChangedChannel(): BroadcastChannel | null {
+  if (dataChangedChannel !== undefined) return dataChangedChannel;
+  if (typeof BroadcastChannel === "undefined") {
+    dataChangedChannel = null;
+    return null;
+  }
+  dataChangedChannel = new BroadcastChannel(DATA_CHANGED_CHANNEL);
+  dataChangedChannel.onmessage = (event: MessageEvent<DataChangedEvent>) => {
+    emitLocally("dataChanged", event.data);
+  };
+  return dataChangedChannel;
+}
 
 function scopedKey(storeName: string, id: string): string {
   return `${storeName}:${id}`;
@@ -99,6 +114,7 @@ export function init(
   dbVersion = version;
   onUpgrade = options?.onUpgrade ?? null;
   return openDatabase().then(() => {
+    getDataChangedChannel();
     window.addEventListener("beforeunload", (event) => {
       const pending = hasPendingChanges();
       flushAllSyncs();
@@ -259,6 +275,11 @@ export function off(event: string, callback: EventCallback): void {
 }
 
 export function emit(event: string, data?: any): void {
+  emitLocally(event, data);
+  if (event === "dataChanged" && data) getDataChangedChannel()?.postMessage(data);
+}
+
+function emitLocally(event: string, data?: any): void {
   (listeners[event] || []).slice().forEach((callback) => {
     try {
       callback(data);
@@ -278,6 +299,7 @@ export function addEntity(storeName: string, entityData: Record<string, any>): P
     contentRevision: 1,
     _dirty: true,
     _pendingCreate: true,
+    _metadataVersion: 0,
     ...entityData,
   };
   rememberEntity(storeName, item.id);
@@ -300,7 +322,11 @@ export function updateEntityFields(
     if (!item) return;
     const config = registrations[storeName];
     config?.onUpdateHook?.(item, fields);
-    Object.assign(item, fields, { updatedAt: new Date().toISOString(), _dirty: true });
+    Object.assign(item, fields, {
+      updatedAt: new Date().toISOString(),
+      _dirty: true,
+      _metadataVersion: metadataVersion(item) + 1,
+    });
     await put(storeName, item);
     emit("dataChanged", { entityType: config?.entityType || storeName, op: "update", id });
     scheduleMetadataSync(storeName, id);
@@ -364,6 +390,11 @@ function stripLocalFields(entity: Record<string, any>): Record<string, any> {
   return Object.fromEntries(Object.entries(entity).filter(([key]) => !key.startsWith("_")));
 }
 
+function metadataVersion(entity: Record<string, any>): number {
+  const version = Number(entity._metadataVersion);
+  return Number.isSafeInteger(version) && version >= 0 ? version : 0;
+}
+
 function retryWithBackoff(operation: () => Promise<any>, maxRetries = 5): Promise<any> {
   const attempt = (retry: number): Promise<any> =>
     operation().catch((error) => {
@@ -384,7 +415,7 @@ function syncCreateToServer(storeName: string, id: string): void {
       if (!entity?._pendingCreate) return;
       const config = registrations[storeName];
       if (!config?.serverFns?.add || !config.addServerArgs) return;
-      const capturedUpdatedAt = entity.updatedAt;
+      const capturedMetadataVersion = metadataVersion(entity);
       return retryWithBackoff(() =>
         serverCall(config.serverFns!.add!, ...config.addServerArgs!(entity)),
       ).then((result: any) =>
@@ -396,7 +427,10 @@ function syncCreateToServer(storeName: string, id: string): void {
           const archivedBeforeCreateFinished = latest.isActive === false;
           // An archive is a separate durable intent. Keep it dirty until the
           // archive endpoint acknowledges it, even when metadata did not change.
-          if (latest.updatedAt === capturedUpdatedAt && !archivedBeforeCreateFinished) {
+          if (
+            metadataVersion(latest) === capturedMetadataVersion &&
+            !archivedBeforeCreateFinished
+          ) {
             latest._dirty = false;
           }
           await put(storeName, latest);
@@ -412,39 +446,44 @@ function syncCreateToServer(storeName: string, id: string): void {
     });
 }
 
-function scheduleMetadataSync(storeName: string, id: string): void {
+function scheduleMetadataSync(storeName: string, id: string, delay = 1000): void {
   const key = rememberEntity(storeName, id);
   if (metadataDebounces[key]) clearTimeout(metadataDebounces[key]);
   metadataDebounces[key] = setTimeout(() => {
     delete metadataDebounces[key];
     syncMetadataToServer(storeName, id);
-  }, 1000);
+  }, delay);
 }
 
 function syncMetadataToServer(storeName: string, id: string): void {
-  void get(storeName, id)
-    .then((entity) => {
-      if (!entity || entity._pendingCreate || !entity._dirty) return;
-      const config = registrations[storeName];
-      if (!config?.serverFns?.update) return;
-      const capturedUpdatedAt = entity.updatedAt;
-      const clean = stripLocalFields(entity);
-      delete clean.id;
-      delete clean.createdAt;
-      delete clean.content;
-      delete clean.contentRevision;
-      return retryWithBackoff(() => serverCall(config.serverFns!.update!, id, clean)).then(
-        (result: any) => {
-          if (!result?.updatedAt) return;
-          return withLock(storeName, id, async () => {
-            const latest = await get(storeName, id);
-            if (!latest) return;
-            latest._serverUpdatedAt = result.updatedAt;
-            if (latest.updatedAt === capturedUpdatedAt) latest._dirty = false;
-            await put(storeName, latest);
-          });
-        },
-      );
+  void withLock(storeName, id, async () => {
+    const entity = await get(storeName, id);
+    if (!entity || entity._pendingCreate || !entity._dirty) return;
+    const config = registrations[storeName];
+    if (!config?.serverFns?.update) return;
+    const capturedMetadataVersion = metadataVersion(entity);
+    const clean = stripLocalFields(entity);
+    delete clean.id;
+    delete clean.createdAt;
+    delete clean.content;
+    delete clean.contentRevision;
+    const result = (await retryWithBackoff(async () => {
+      const response = (await serverCall(config.serverFns!.update!, id, clean)) as any;
+      if (!response?.updatedAt) {
+        throw new Error(`${config.serverFns!.update!} did not acknowledge metadata update`);
+      }
+      return response;
+    })) as any;
+    const latest = await get(storeName, id);
+    if (!latest) return;
+    latest._serverUpdatedAt = result.updatedAt;
+    const needsResync = metadataVersion(latest) !== capturedMetadataVersion;
+    if (!needsResync) latest._dirty = false;
+    await put(storeName, latest);
+    return needsResync;
+  })
+    .then((needsResync) => {
+      if (needsResync) scheduleMetadataSync(storeName, id, 0);
     })
     .catch((error) => {
       console.error("[EntityStore] metadata sync failed:", storeName, id, error);
@@ -532,59 +571,54 @@ export function flushAllSyncs(): void {
 
 export async function mergeServerData(storeName: string, serverEntities: any[]): Promise<void> {
   const localEntities = await getAll(storeName);
-  const localById = new Map(localEntities.map((entity) => [entity.id, entity]));
   const serverById = new Map(serverEntities.map((entity) => [entity.id, entity]));
   const operations: Promise<unknown>[] = [];
 
   serverEntities.forEach((serverEntity) => {
-    const local = localById.get(serverEntity.id);
-    if (!local) {
-      operations.push(
-        put(storeName, {
-          ...serverEntity,
-          _serverUpdatedAt: serverEntity.updatedAt,
-          _dirty: false,
-        }),
-      );
-      return;
-    }
-
     rememberEntity(storeName, serverEntity.id);
-    if (local._dirty) {
-      operations.push(
-        withLock(storeName, serverEntity.id, async () => {
-          const latest = await get(storeName, serverEntity.id);
-          if (!latest) return;
+    operations.push(
+      withLock(storeName, serverEntity.id, async () => {
+        const latest = await get(storeName, serverEntity.id);
+        if (!latest) {
+          await put(storeName, {
+            ...serverEntity,
+            _serverUpdatedAt: serverEntity.updatedAt,
+            _dirty: false,
+          });
+          return;
+        }
+
+        if (latest._dirty) {
           latest._serverUpdatedAt = serverEntity.updatedAt;
           await put(storeName, latest);
           if (latest.isActive === false) syncArchiveToServer(storeName, serverEntity.id);
           else scheduleMetadataSync(storeName, serverEntity.id);
-        }),
-      );
-      return;
-    }
+          return;
+        }
 
-    const privateFields = Object.fromEntries(
-      Object.entries(local).filter(([key]) => key.startsWith("_") && !key.startsWith("_cached")),
-    );
-    const legacyBodyFields =
-      local.content !== undefined || local._serverContent !== undefined
-        ? {
-            content: local.content,
-            _serverContent: local._serverContent,
-            _contentDirtyAt: local._contentDirtyAt,
-            _contentDirtyOwner: local._contentDirtyOwner,
-            _draftBaseRevision: local._draftBaseRevision,
-            contentRevision: local.contentRevision,
-          }
-        : {};
-    operations.push(
-      put(storeName, {
-        ...serverEntity,
-        ...privateFields,
-        ...legacyBodyFields,
-        _serverUpdatedAt: serverEntity.updatedAt,
-        _dirty: false,
+        const privateFields = Object.fromEntries(
+          Object.entries(latest).filter(
+            ([key]) => key.startsWith("_") && !key.startsWith("_cached"),
+          ),
+        );
+        const legacyBodyFields =
+          latest.content !== undefined || latest._serverContent !== undefined
+            ? {
+                content: latest.content,
+                _serverContent: latest._serverContent,
+                _contentDirtyAt: latest._contentDirtyAt,
+                _contentDirtyOwner: latest._contentDirtyOwner,
+                _draftBaseRevision: latest._draftBaseRevision,
+                contentRevision: latest.contentRevision,
+              }
+            : {};
+        await put(storeName, {
+          ...serverEntity,
+          ...privateFields,
+          ...legacyBodyFields,
+          _serverUpdatedAt: serverEntity.updatedAt,
+          _dirty: false,
+        });
       }),
     );
   });

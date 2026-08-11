@@ -10,6 +10,7 @@ declare global {
     __mockDocumentSearchCallCount?: number;
     __mockCreateShouldLoseResponseOnce?: boolean;
     __mockCreateCallCounts?: Record<string, number>;
+    __mockMetadataDelayMs?: number;
     google?: {
       script: {
         run: {
@@ -50,6 +51,35 @@ function readMockParams(): {
 
 const mockParams = readMockParams();
 const CREATE_FUNCTIONS = new Set(["addProject", "addCase", "addTask", "saveMemo"]);
+const METADATA_FUNCTIONS = new Set([
+  "updateProject",
+  "updateCase",
+  "updateTask",
+  "updateMemoMetadata",
+]);
+const MOCK_METADATA_LOG_KEY = "gas_pomodoro_mock_server_metadata_log";
+
+function recordMockMetadataEvent(
+  phase: "start" | "complete",
+  functionName: string,
+  args: unknown[],
+): void {
+  if (!METADATA_FUNCTIONS.has(functionName)) return;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(MOCK_METADATA_LOG_KEY) || "[]");
+    const events = Array.isArray(parsed) ? parsed.slice(-99) : [];
+    events.push({
+      phase,
+      functionName,
+      id: String(args[0] || ""),
+      fields: args[1] || {},
+      at: Date.now(),
+    });
+    localStorage.setItem(MOCK_METADATA_LOG_KEY, JSON.stringify(events));
+  } catch {
+    // Optional diagnostics must not affect mock server behavior.
+  }
+}
 
 // =========================================================
 // Mock data helpers
@@ -935,7 +965,8 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
     case "updateProject":
     case "updateCase":
     case "updateTask":
-      return { success: true };
+    case "updateMemoMetadata":
+      return { success: true, updatedAt: new Date().toISOString() };
 
     case "archiveProject":
     case "archiveCase":
@@ -1009,12 +1040,15 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
 export function serverCall(functionName: string, ...args: unknown[]): Promise<unknown> {
   if (isDev) {
     console.log(`[mock] serverCall: ${functionName}`, args);
+    recordMockMetadataEvent("start", functionName, args);
     const baseDelay = 100;
     const extraDelay = CONTENT_FUNCTIONS.has(functionName)
       ? mockParams.delay
-      : functionName === "getImageBase64"
-        ? mockParams.imageDelay
-        : 0;
+      : METADATA_FUNCTIONS.has(functionName)
+        ? Math.max(0, Number(window.__mockMetadataDelayMs) || 0)
+        : functionName === "getImageBase64"
+          ? mockParams.imageDelay
+          : 0;
 
     if (CONTENT_FUNCTIONS.has(functionName) && (window as any).__mockContentShouldFail) {
       return new Promise((_, reject) => {
@@ -1035,6 +1069,7 @@ export function serverCall(functionName: string, ...args: unknown[]): Promise<un
           window.__mockCreateCallCounts[id] = (window.__mockCreateCallCounts[id] ?? 0) + 1;
         }
         const result = getMockResponse(functionName, args);
+        recordMockMetadataEvent("complete", functionName, args);
         if (isCreate && window.__mockCreateShouldLoseResponseOnce) {
           window.__mockCreateShouldLoseResponseOnce = false;
           reject(new Error("Mock: create succeeded but its response was lost"));

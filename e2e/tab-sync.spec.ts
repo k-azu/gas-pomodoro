@@ -48,6 +48,148 @@ test.describe("文書本文のタブ間調停", () => {
     await expect(waiting.locator(".ProseMirror")).toHaveAttribute("contenteditable", "true");
   });
 
+  test("待機タブでは選択中メモの名称・タグ・コンテキスト操作も読み取り専用にする", async ({
+    context,
+  }) => {
+    const { owner, waiting } = await openSameMemo(context);
+    const ownerName = owner.locator("[class*='meta-title-row'] input");
+    const waitingName = waiting.locator("[class*='meta-title-row'] input");
+
+    await ownerName.click();
+    await expect(ownerName).not.toHaveAttribute("readonly", "");
+    await waitingName.click();
+    await expect(waitingName).toHaveAttribute("readonly", "");
+    await expect(waiting.locator("[class*='readonly-tags']")).toBeVisible();
+    await expect(waiting.getByText("アーカイブ済み・読み取り専用", { exact: true })).toHaveCount(0);
+
+    const activeSidebarItem = waiting.locator("[class*='sidebar-item'][class*='active']");
+    await activeSidebarItem.click({ button: "right" });
+    await expect(waiting.getByText("名前変更", { exact: true })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await expect(waiting.getByText("削除", { exact: true })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
+  test("待機タブでは選択中プロジェクトの名称・色・サイドバー操作も読み取り専用にする", async ({
+    context,
+  }) => {
+    const pageA = await context.newPage();
+    const pageB = await context.newPage();
+    await Promise.all([gotoApp(pageA), gotoApp(pageB)]);
+    await Promise.all([
+      pageA.getByRole("button", { name: "タスク", exact: true }).click(),
+      pageB.getByRole("button", { name: "タスク", exact: true }).click(),
+    ]);
+    const selectProject = async (page: Page) => {
+      const project = page.locator('[data-type="project"][data-id="mock-proj-1"]');
+      await project.locator(":scope > [class*='task-tree-item']").click();
+      await page.waitForSelector(".ProseMirror:visible", { timeout: 5_000 });
+    };
+    await Promise.all([selectProject(pageA), selectProject(pageB)]);
+    await expect
+      .poll(async () => {
+        const [aLocked, bLocked] = await Promise.all([
+          pageA.locator('[data-status="locked"]:visible').isVisible(),
+          pageB.locator('[data-status="locked"]:visible').isVisible(),
+        ]);
+        return Number(aLocked) + Number(bLocked);
+      })
+      .toBe(1);
+    const waiting = (await pageA.locator('[data-status="locked"]:visible').isVisible())
+      ? pageA
+      : pageB;
+
+    const name = waiting.locator("[class*='meta-title-row'] input:visible");
+    await name.click();
+    await expect(name).toHaveAttribute("readonly", "");
+    await expect(waiting.locator('input[type="color"]:visible')).toBeDisabled();
+
+    const activeProject = waiting.locator(
+      '[data-type="project"][data-id="mock-proj-1"] > [class*="task-tree-item"]',
+    );
+    await activeProject.click({ button: "right" });
+    await expect(waiting.getByText("名前変更", { exact: true })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await expect(waiting.getByText("アーカイブ", { exact: true })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await expect(waiting.getByText("案件を追加", { exact: true })).not.toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
+  test("同一メタデータの送信とACKをタブ間で直列化し、新しい更新をdirtyのまま失わない", async ({
+    context,
+  }) => {
+    const { owner, waiting } = await openSameMemo(context);
+    const metadataMemoId = "mock-memo-2";
+    const logKey = "gas_pomodoro_mock_server_metadata_log";
+    const firstName = `metadata-first-${Date.now()}`;
+    const latestName = `metadata-latest-${Date.now()}`;
+    const renameFromSidebar = async (page: Page, currentName: string, nextName: string) => {
+      await page.locator("[class*='sidebar-item']", { hasText: currentName }).click({
+        button: "right",
+      });
+      await page.getByText("名前変更", { exact: true }).click();
+      const input = page.locator("input[class*='sidebar-rename-input']");
+      await input.fill(nextName);
+      await input.press("Enter");
+    };
+
+    await owner.evaluate((key) => {
+      localStorage.removeItem(key);
+      window.__mockMetadataDelayMs = 1_200;
+    }, logKey);
+    await waiting.evaluate(() => {
+      window.__mockMetadataDelayMs = 0;
+    });
+
+    await renameFromSidebar(owner, "議事録", firstName);
+    await expect
+      .poll(() =>
+        owner.evaluate(
+          ({ key, name }) => {
+            const events = JSON.parse(localStorage.getItem(key) || "[]");
+            return events.some(
+              (event: any) => event.phase === "start" && event.fields?.name === name,
+            );
+          },
+          { key: logKey, name: firstName },
+        ),
+      )
+      .toBe(true);
+
+    await expect(waiting.locator("[class*='sidebar-item']", { hasText: firstName })).toBeVisible();
+    await renameFromSidebar(waiting, firstName, latestName);
+
+    await expect
+      .poll(
+        async () => {
+          const entity = await idbGet(waiting, MEMO_STORE, metadataMemoId);
+          return { name: entity?.name, dirty: entity?._dirty };
+        },
+        { timeout: 8_000 },
+      )
+      .toEqual({ name: latestName, dirty: false });
+
+    const completedNames = await waiting.evaluate((key) => {
+      const events = JSON.parse(localStorage.getItem(key) || "[]");
+      return events
+        .filter((event: any) => event.phase === "complete")
+        .map((event: any) => event.fields?.name)
+        .filter(Boolean);
+    }, logKey);
+    expect(completedNames).toEqual([firstName, latestName]);
+  });
+
   test("Web Locks非対応ではDraft競合を避けるため読み取り専用にする", async ({ page }) => {
     await page.addInitScript(() => {
       Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });

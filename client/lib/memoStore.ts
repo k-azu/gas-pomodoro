@@ -32,6 +32,7 @@ export function init(serverMemos: MemoMetadata[], serverMemoTags: MemoTag[]): vo
     indexes: [],
     serverFns: {
       add: "saveMemo",
+      update: "updateMemoMetadata",
       archive: "deleteMemo",
       reorder: "updateMemoSortOrders",
     },
@@ -140,7 +141,6 @@ export function addMemo(name: string): Promise<string> {
 }
 
 export function renameMemo(id: string, name: string): Promise<void> {
-  serverCall("renameMemo", id, name).catch(() => {});
   return EntityStore.updateEntityFields("memos", id, { name });
 }
 
@@ -161,7 +161,6 @@ export function reorderMemos(orderedIds: string[]): Promise<void> {
 // =========================================================
 
 export function updateTags(id: string, tags: string[]): Promise<void> {
-  serverCall("updateMemoTags", id, tags).catch(() => {});
   return EntityStore.updateEntityFields("memos", id, { tags });
 }
 

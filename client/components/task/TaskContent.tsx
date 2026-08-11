@@ -33,6 +33,7 @@ interface TaskContentProps {
   tasks: UseTasksReturn;
   sidebarCollapsed?: boolean;
   onExpandSidebar?: () => void;
+  onReadOnlyChange?: (readOnly: boolean) => void;
 }
 
 function storeNameFor(type: string): string {
@@ -83,7 +84,12 @@ function AllTasksContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskConte
   );
 }
 
-function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskContentProps) {
+function TaskDocumentContent({
+  tasks,
+  sidebarCollapsed,
+  onExpandSidebar,
+  onReadOnlyChange,
+}: TaskContentProps) {
   const { selectedNode } = tasks;
   const nav = useNavigation();
   const editorConfig = useEditorConfig();
@@ -133,6 +139,11 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
     forceReadOnly: isArchivedSearchDocument,
     hasAfterMeta: !showingDoc && isContainerType,
   });
+
+  useEffect(() => {
+    onReadOnlyChange?.(readOnly || isArchivedSearchDocument);
+    return () => onReadOnlyChange?.(true);
+  }, [isArchivedSearchDocument, onReadOnlyChange, readOnly]);
 
   const searchNavigation = useDocumentSearchNavigation({
     tab: "task",
@@ -207,6 +218,7 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
             id={id}
             tasks={tasks}
             syncStatus={syncStatus}
+            readOnly={readOnly}
             onAcceptRemote={acceptRemoteContent}
             onKeepLocal={keepLocalContent}
           />
@@ -217,6 +229,7 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
             id={id}
             tasks={tasks}
             syncStatus={syncStatus}
+            readOnly={readOnly}
             onAcceptRemote={acceptRemoteContent}
             onKeepLocal={keepLocalContent}
           />
@@ -227,7 +240,8 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
             id={id}
             tasks={tasks}
             syncStatus={syncStatus}
-            readOnly={isArchivedSearchDocument}
+            readOnly={readOnly || isArchivedSearchDocument}
+            archived={isArchivedSearchDocument}
             onAcceptRemote={acceptRemoteContent}
             onKeepLocal={keepLocalContent}
           />
@@ -295,12 +309,14 @@ function ProjectMeta({
   id,
   tasks,
   syncStatus,
+  readOnly,
   onAcceptRemote,
   onKeepLocal,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
+  readOnly: boolean;
   onAcceptRemote: () => void;
   onKeepLocal: () => void;
 }) {
@@ -313,10 +329,11 @@ function ProjectMeta({
     <>
       <div className={s["meta-status-row"]}>
         <span
-          className={s["meta-color-folder"]}
+          className={`${s["meta-color-folder"]}${readOnly ? ` ${s["meta-color-folder-readonly"]}` : ""}`}
+          aria-disabled={readOnly}
           onClick={(e) => {
             e.stopPropagation();
-            colorRef.current?.click();
+            if (!readOnly) colorRef.current?.click();
           }}
         >
           <FolderIcon size={24} color={entity.color || "#4285f4"} />
@@ -324,6 +341,7 @@ function ProjectMeta({
             ref={colorRef}
             type="color"
             value={entity.color || "#4285f4"}
+            disabled={readOnly}
             onChange={(e) => tasks.updateProjectFields(id, { color: e.target.value })}
             style={{
               position: "absolute",
@@ -344,10 +362,14 @@ function ProjectMeta({
       <MetaTitle>
         <ContentHeaderName
           name={entity.name}
-          onRename={(name) => {
-            setEntity((prev: any) => ({ ...prev, name }));
-            tasks.rename("project", id, name);
-          }}
+          onRename={
+            readOnly
+              ? undefined
+              : (name) => {
+                  setEntity((prev: any) => ({ ...prev, name }));
+                  tasks.rename("project", id, name);
+                }
+          }
         />
       </MetaTitle>
     </>
@@ -358,12 +380,14 @@ function CaseMeta({
   id,
   tasks,
   syncStatus,
+  readOnly,
   onAcceptRemote,
   onKeepLocal,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
+  readOnly: boolean;
   onAcceptRemote: () => void;
   onKeepLocal: () => void;
 }) {
@@ -383,10 +407,14 @@ function CaseMeta({
       <MetaTitle>
         <ContentHeaderName
           name={entity.name}
-          onRename={(name) => {
-            setEntity((prev: any) => ({ ...prev, name }));
-            tasks.rename("case", id, name);
-          }}
+          onRename={
+            readOnly
+              ? undefined
+              : (name) => {
+                  setEntity((prev: any) => ({ ...prev, name }));
+                  tasks.rename("case", id, name);
+                }
+          }
         />
       </MetaTitle>
     </>
@@ -398,6 +426,7 @@ function TaskMeta({
   tasks,
   syncStatus,
   readOnly = false,
+  archived = false,
   onAcceptRemote,
   onKeepLocal,
 }: {
@@ -405,6 +434,7 @@ function TaskMeta({
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
   readOnly?: boolean;
+  archived?: boolean;
   onAcceptRemote: () => void;
   onKeepLocal: () => void;
 }) {
@@ -417,7 +447,7 @@ function TaskMeta({
   return (
     <>
       <div className={s["meta-status-row"]}>
-        {readOnly ? (
+        {archived ? (
           <span className={s["archived-label"]}>アーカイブ済み・読み取り専用</span>
         ) : (
           <SyncIndicator

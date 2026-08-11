@@ -250,7 +250,7 @@ function documentSearchBuildSnippet(content: string, tokens: string[]): string {
 
   const halfLength = Math.floor(SAVED_DOCUMENT_SEARCH_SNIPPET_LENGTH / 2);
   let start = Math.max(0, sourceIndex - halfLength);
-  let end = Math.min(plainText.length, start + SAVED_DOCUMENT_SEARCH_SNIPPET_LENGTH);
+  const end = Math.min(plainText.length, start + SAVED_DOCUMENT_SEARCH_SNIPPET_LENGTH);
   if (end === plainText.length) {
     start = Math.max(0, end - SAVED_DOCUMENT_SEARCH_SNIPPET_LENGTH);
   }

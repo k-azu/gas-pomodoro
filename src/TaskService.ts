@@ -338,6 +338,13 @@ function updateProject(
   id: string,
   fields: { name?: string; color?: string },
 ): { success: boolean; updatedAt?: string } {
+  return withContentMutationLock(() => updateProjectUnlocked(id, fields));
+}
+
+function updateProjectUnlocked(
+  id: string,
+  fields: { name?: string; color?: string },
+): { success: boolean; updatedAt?: string } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Projects")!;
   const lastRow = sheet.getLastRow();
@@ -362,10 +369,7 @@ function updateCase(
   id: string,
   fields: { name?: string; isActive?: boolean },
 ): { success: boolean; updatedAt?: string } {
-  if (fields.isActive !== undefined) {
-    return withContentMutationLock(() => updateCaseUnlocked(id, fields));
-  }
-  return updateCaseUnlocked(id, fields);
+  return withContentMutationLock(() => updateCaseUnlocked(id, fields));
 }
 
 function updateCaseUnlocked(
@@ -402,10 +406,7 @@ function updateTask(
     isActive?: boolean;
   },
 ): { success: boolean; updatedAt?: string } {
-  if (fields.isActive !== undefined) {
-    return withContentMutationLock(() => updateTaskUnlocked(id, fields));
-  }
-  return updateTaskUnlocked(id, fields);
+  return withContentMutationLock(() => updateTaskUnlocked(id, fields));
 }
 
 function updateTaskUnlocked(

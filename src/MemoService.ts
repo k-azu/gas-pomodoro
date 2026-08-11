@@ -125,37 +125,39 @@ function deleteMemo(memoId: string): { success: boolean } {
 }
 
 function renameMemo(memoId: string, newName: string): { success: boolean } {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Memos")!;
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return { success: false };
-
-  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  for (let i = ids.length - 1; i >= 0; i--) {
-    if (String(ids[i][0]) === memoId) {
-      sheet.getRange(i + 2, 2).setValue(newName);
-      invalidateMemoCache();
-      return { success: true };
-    }
-  }
-  return { success: false };
+  return { success: updateMemoMetadata(memoId, { name: newName }).success };
 }
 
 function updateMemoTags(memoId: string, tags: string[]): { success: boolean } {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Memos")!;
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return { success: false };
+  return { success: updateMemoMetadata(memoId, { tags }).success };
+}
 
-  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  for (let i = ids.length - 1; i >= 0; i--) {
-    if (String(ids[i][0]) === memoId) {
-      sheet.getRange(i + 2, 4).setValue(JSON.stringify(tags));
-      invalidateMemoCache();
-      return { success: true };
+function updateMemoMetadata(
+  memoId: string,
+  fields: { name?: string; tags?: string[] },
+): { success: boolean; updatedAt?: string } {
+  return withContentMutationLock(() => {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("Memos")!;
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { success: false };
+
+    const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    for (let i = ids.length - 1; i >= 0; i--) {
+      if (String(ids[i][0]) === memoId) {
+        const row = i + 2;
+        if (fields.name !== undefined) sheet.getRange(row, 2).setValue(fields.name);
+        if (fields.tags !== undefined) {
+          sheet.getRange(row, 4).setValue(JSON.stringify(fields.tags));
+        }
+        const updatedAt = new Date().toISOString();
+        sheet.getRange(row, 6).setValue(updatedAt);
+        invalidateMemoCache();
+        return { success: true, updatedAt };
+      }
     }
-  }
-  return { success: false };
+    return { success: false };
+  });
 }
 
 function getMemoTags(): MemoTag[] {

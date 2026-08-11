@@ -1,7 +1,7 @@
 /**
  * TaskTab — Task sidebar tree + content panel
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useTasks, STATUS_CONFIG, STATUS_ITEMS, statusLabelToKey } from "../../hooks/useTasks";
 import type { EditableNodeType, ProjectItem, CaseItem, TaskItem } from "../../hooks/useTasks";
 import { ContextMenu } from "../shared/ContextMenu";
@@ -26,6 +26,21 @@ export function TaskTab() {
     type: EditableNodeType;
     data: ProjectItem | CaseItem | TaskItem;
   } | null>(null);
+  const [selectedDocumentReadOnly, setSelectedDocumentReadOnly] = useState(true);
+
+  const selectedDocumentKey = tasks.selectedNode
+    ? `${tasks.selectedNode.type}:${tasks.selectedNode.id}`
+    : "";
+  useEffect(() => {
+    setSelectedDocumentReadOnly(true);
+  }, [selectedDocumentKey]);
+
+  const contextItemReadOnly = Boolean(
+    contextMenu &&
+    tasks.selectedNode?.type === contextMenu.type &&
+    tasks.selectedNode.id === contextMenu.data.id &&
+    selectedDocumentReadOnly,
+  );
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
@@ -52,6 +67,7 @@ export function TaskTab() {
           items: [
             {
               label: "名前変更",
+              disabled: contextItemReadOnly,
               onClick: () => setRenamingNode({ type: contextMenu.type, id: contextMenu.data.id }),
             },
             ...(contextMenu.type === "project"
@@ -103,6 +119,7 @@ export function TaskTab() {
                   label: cfg.label,
                   dotColor: cfg.color,
                   checked: (contextMenu.data as TaskItem).status === key,
+                  disabled: contextItemReadOnly,
                   onClick: () => tasks.updateTaskFields(contextMenu.data.id, { status: key }),
                 })),
               },
@@ -113,6 +130,7 @@ export function TaskTab() {
             {
               label: "アーカイブ",
               danger: true,
+              disabled: contextItemReadOnly,
               onClick: () => {
                 tasks.archiveNode(contextMenu.type, contextMenu.data.id);
               },
@@ -168,6 +186,7 @@ export function TaskTab() {
             tasks={tasks}
             sidebarCollapsed={sidebarCollapsed}
             onExpandSidebar={toggleSidebar}
+            onReadOnlyChange={setSelectedDocumentReadOnly}
           />
         ) : (
           <ContentHeader

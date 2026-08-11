@@ -94,6 +94,9 @@ export function MemoTab() {
     scrollRef,
   });
 
+  const activeDocumentReadOnly = readOnly || isArchivedSearchDocument;
+  const contextItemReadOnly = contextMenu?.item.id === memo.activeId && activeDocumentReadOnly;
+
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
@@ -122,11 +125,13 @@ export function MemoTab() {
           items: [
             {
               label: "名前変更",
+              disabled: contextItemReadOnly,
               onClick: () => setRenamingId(contextMenu.item.id),
             },
             {
               label: "削除",
               danger: true,
+              disabled: contextItemReadOnly,
               onClick: () => {
                 if (confirm(`「${contextMenu.item.name}」を削除しますか？`)) {
                   memo.deleteMemo(contextMenu.item.id);
@@ -142,6 +147,7 @@ export function MemoTab() {
               label: tag.name,
               dotColor: tag.color,
               checked: contextMenu.item.tags.includes(tag.name),
+              disabled: contextItemReadOnly,
               onClick: () => {
                 if (contextMenu.item.tags.includes(tag.name)) {
                   memo.removeTagFromMemo(contextMenu.item.id, tag.name);
@@ -152,6 +158,7 @@ export function MemoTab() {
             })),
             {
               label: "+ 新しいタグ",
+              disabled: contextItemReadOnly,
               onClick: () => {
                 const name = prompt("タグ名:");
                 if (name?.trim()) {
@@ -230,7 +237,7 @@ export function MemoTab() {
             charCount={charCount}
             maxCharCount={50000}
             placeholder="メモを入力..."
-            readOnly={readOnly || isArchivedSearchDocument}
+            readOnly={activeDocumentReadOnly}
             onImageUpload={editorConfig.editorProps.onImageUpload}
             scrollRef={scrollRef}
             searchNavigation={
@@ -261,7 +268,7 @@ export function MemoTab() {
               <ContentHeaderName
                 name={activeMemo.name}
                 onRename={
-                  isArchivedSearchDocument
+                  activeDocumentReadOnly
                     ? undefined
                     : (name) => memo.renameMemo(activeMemo.id, name)
                 }
@@ -270,7 +277,7 @@ export function MemoTab() {
               />
             </MetaTitle>
             <RecordField label="タグ">
-              {isArchivedSearchDocument ? (
+              {activeDocumentReadOnly ? (
                 <span className={s["readonly-tags"]}>
                   {activeMemo.tags.length > 0
                     ? activeMemo.tags.map((tag) => <span key={tag}>#{tag}</span>)

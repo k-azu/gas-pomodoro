@@ -6,5 +6,12 @@
 .memo-context-item { padding: 6px 14px; font-size: 0.82rem; cursor: pointer; display: flex; align-items: center; gap: 6px; }
 .memo-context-item:hover { background: var(--bg); }
 .memo-context-danger { color: var(--work-color); }
+.memo-context-disabled,
+.memo-context-disabled:hover {
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: default;
+  opacity: 0.6;
+}
 .memo-context-separator { padding: 4px 14px 2px; font-size: 0.7rem; font-weight: 600; color: var(--text-secondary); border-top: 1px solid var(--border-subtle); margin-top: 2px; }
 .memo-context-check { margin-left: auto; display: flex; align-items: center; }

@@ -12,6 +12,7 @@ export interface ContextMenuItem {
   danger?: boolean;
   checked?: boolean;
   dotColor?: string;
+  disabled?: boolean;
   onClick: () => void;
 }
 
@@ -56,8 +57,10 @@ export function ContextMenu({
           {section.items.map((item, ii) => (
             <div
               key={ii}
-              className={`${s["memo-context-item"]}${item.danger ? ` ${s["memo-context-danger"]}` : ""}`}
+              className={`${s["memo-context-item"]}${item.danger ? ` ${s["memo-context-danger"]}` : ""}${item.disabled ? ` ${s["memo-context-disabled"]}` : ""}`}
+              aria-disabled={item.disabled}
               onClick={() => {
+                if (item.disabled) return;
                 onClose();
                 item.onClick();
               }}

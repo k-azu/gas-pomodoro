@@ -48,6 +48,13 @@
   transform: scale(1.1);
 }
 
+.meta-color-folder-readonly,
+.meta-color-folder-readonly:hover {
+  cursor: default;
+  opacity: 0.65;
+  transform: none;
+}
+
 .task-detail-time {
   font-size: 0.82rem;
   color: rgba(55, 53, 47, 0.65);
