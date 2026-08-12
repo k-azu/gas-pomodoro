@@ -22,6 +22,7 @@ interface ItemPickerProps {
   removable?: boolean;
   compact?: boolean;
   emptyLabel?: string;
+  disabled?: boolean;
 }
 
 export function ItemPicker({
@@ -35,6 +36,7 @@ export function ItemPicker({
   removable = true,
   compact = false,
   emptyLabel = "空",
+  disabled = false,
 }: ItemPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -54,6 +56,13 @@ export function ItemPicker({
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, [open]);
+
+  useEffect(() => {
+    if (disabled) {
+      setOpen(false);
+      setQuery("");
+    }
+  }, [disabled]);
 
   const toggleItem = useCallback(
     (name: string) => {
@@ -106,11 +115,16 @@ export function ItemPicker({
   };
 
   return (
-    <div className={`${s["item-picker"]}${compact ? ` ${s["compact"]}` : ""}`} ref={containerRef}>
+    <div
+      className={`${s["item-picker"]}${compact ? ` ${s["compact"]}` : ""}${disabled ? ` ${s.disabled}` : ""}`}
+      ref={containerRef}
+    >
       {/* Clickable area — badges + placeholder */}
       <div
         className={s["item-picker-trigger"]}
+        aria-disabled={disabled}
         onClick={() => {
+          if (disabled) return;
           if (open) {
             setOpen(false);
             setQuery("");

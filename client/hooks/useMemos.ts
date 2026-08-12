@@ -7,6 +7,7 @@ import * as EntityStore from "../lib/entityStore";
 import type { MemoTag } from "../types";
 import { STORAGE_KEYS, lsGet, lsSet, lsRemove } from "../lib/localStorage";
 import { useNavigation } from "../contexts/NavigationContext";
+import { isMetadataReadOnly } from "../lib/editPermissions";
 
 export interface MemoItem {
   id: string;
@@ -30,6 +31,7 @@ export interface UseMemosReturn {
   addTag: (name: string, color?: string) => void;
   updateTagColor: (name: string, color: string) => void;
   updateTags: (id: string, tags: string[]) => void;
+  metadataReadOnly: boolean;
   isLoading: boolean;
 }
 
@@ -39,6 +41,7 @@ export function useMemos(): UseMemosReturn {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [tags, setTags] = useState<MemoTag[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const metadataReadOnly = isMetadataReadOnly();
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
 
@@ -101,6 +104,7 @@ export function useMemos(): UseMemosReturn {
   );
 
   const createMemo = useCallback(async () => {
+    if (metadataReadOnly) return;
     setIsLoading(true);
     try {
       const id = await MemoStore.addMemo("新しいメモ");
@@ -111,10 +115,11 @@ export function useMemos(): UseMemosReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [refreshFromStore, nav]);
+  }, [metadataReadOnly, refreshFromStore, nav]);
 
   const deleteMemo = useCallback(
     async (id: string) => {
+      if (metadataReadOnly) return;
       setIsLoading(true);
       try {
         await MemoStore.deleteMemo(id);
@@ -129,61 +134,89 @@ export function useMemos(): UseMemosReturn {
         setIsLoading(false);
       }
     },
-    [refreshFromStore],
+    [metadataReadOnly, refreshFromStore],
   );
 
-  const renameMemo = useCallback((id: string, name: string) => {
-    MemoStore.renameMemo(id, name);
-    setMemos((prev) => prev.map((m) => (m.id === id ? { ...m, name } : m)));
-  }, []);
+  const renameMemo = useCallback(
+    (id: string, name: string) => {
+      if (metadataReadOnly) return;
+      MemoStore.renameMemo(id, name);
+      setMemos((prev) => prev.map((m) => (m.id === id ? { ...m, name } : m)));
+    },
+    [metadataReadOnly],
+  );
 
-  const reorderMemos = useCallback((ids: string[]) => {
-    MemoStore.reorderMemos(ids);
-    setMemos((prev) => {
-      const map = new Map(prev.map((m) => [m.id, m]));
-      return ids.map((id, i) => {
-        const m = map.get(id)!;
-        return { ...m, sortOrder: i + 1 };
+  const reorderMemos = useCallback(
+    (ids: string[]) => {
+      if (metadataReadOnly) return;
+      MemoStore.reorderMemos(ids);
+      setMemos((prev) => {
+        const map = new Map(prev.map((m) => [m.id, m]));
+        return ids.map((id, i) => {
+          const m = map.get(id)!;
+          return { ...m, sortOrder: i + 1 };
+        });
       });
-    });
-  }, []);
+    },
+    [metadataReadOnly],
+  );
 
-  const addTagToMemo = useCallback((id: string, tag: string) => {
-    setMemos((prev) =>
-      prev.map((m) => {
-        if (m.id !== id || m.tags.includes(tag)) return m;
-        const newTags = [...m.tags, tag];
-        MemoStore.updateTags(id, newTags);
-        return { ...m, tags: newTags };
-      }),
-    );
-  }, []);
+  const addTagToMemo = useCallback(
+    (id: string, tag: string) => {
+      if (metadataReadOnly) return;
+      setMemos((prev) =>
+        prev.map((m) => {
+          if (m.id !== id || m.tags.includes(tag)) return m;
+          const newTags = [...m.tags, tag];
+          MemoStore.updateTags(id, newTags);
+          return { ...m, tags: newTags };
+        }),
+      );
+    },
+    [metadataReadOnly],
+  );
 
-  const removeTagFromMemo = useCallback((id: string, tag: string) => {
-    setMemos((prev) =>
-      prev.map((m) => {
-        if (m.id !== id) return m;
-        const newTags = m.tags.filter((t) => t !== tag);
-        MemoStore.updateTags(id, newTags);
-        return { ...m, tags: newTags };
-      }),
-    );
-  }, []);
+  const removeTagFromMemo = useCallback(
+    (id: string, tag: string) => {
+      if (metadataReadOnly) return;
+      setMemos((prev) =>
+        prev.map((m) => {
+          if (m.id !== id) return m;
+          const newTags = m.tags.filter((t) => t !== tag);
+          MemoStore.updateTags(id, newTags);
+          return { ...m, tags: newTags };
+        }),
+      );
+    },
+    [metadataReadOnly],
+  );
 
-  const addTag = useCallback((name: string, color = "#757575") => {
-    MemoStore.addTag(name, color);
-    setTags(MemoStore.getTags());
-  }, []);
+  const addTag = useCallback(
+    (name: string, color = "#757575") => {
+      if (metadataReadOnly) return;
+      MemoStore.addTag(name, color);
+      setTags(MemoStore.getTags());
+    },
+    [metadataReadOnly],
+  );
 
-  const updateTagColor = useCallback((name: string, color: string) => {
-    MemoStore.updateTagColor(name, color);
-    setTags(MemoStore.getTags());
-  }, []);
+  const updateTagColor = useCallback(
+    (name: string, color: string) => {
+      if (metadataReadOnly) return;
+      MemoStore.updateTagColor(name, color);
+      setTags(MemoStore.getTags());
+    },
+    [metadataReadOnly],
+  );
 
-  const updateTagsAction = useCallback((id: string, newTags: string[]) => {
-    MemoStore.updateTags(id, newTags);
-    setMemos((prev) => prev.map((m) => (m.id === id ? { ...m, tags: newTags } : m)));
-  }, []);
+  const updateTagsAction = useCallback(
+    (id: string, newTags: string[]) => {
+      if (metadataReadOnly) return;
+      MemoStore.updateTags(id, newTags);
+      setMemos((prev) => prev.map((m) => (m.id === id ? { ...m, tags: newTags } : m)));
+    },
+    [metadataReadOnly],
+  );
 
   return {
     memos,
@@ -199,6 +232,7 @@ export function useMemos(): UseMemosReturn {
     addTag,
     updateTagColor,
     updateTags: updateTagsAction,
+    metadataReadOnly,
     isLoading,
   };
 }

@@ -335,16 +335,18 @@ function CaseTableGroup({ tasks, caseItem }: { tasks: UseTasksReturn; caseItem: 
             {caseItem.name}
           </span>
           <span className={s["task-table-group-count"]}>{caseTasks.length}件</span>
-          <button
-            className={s["task-table-edit-btn"]}
-            title="名前を変更"
-            onClick={(e) => {
-              e.stopPropagation();
-              setRenaming(true);
-            }}
-          >
-            <EditIcon />
-          </button>
+          {!tasks.metadataReadOnly && (
+            <button
+              className={s["task-table-edit-btn"]}
+              title="名前を変更"
+              onClick={(e) => {
+                e.stopPropagation();
+                setRenaming(true);
+              }}
+            >
+              <EditIcon />
+            </button>
+          )}
         </>
       )}
     </div>
@@ -452,7 +454,7 @@ function TaskTableGroup({
           アーカイブ済みを読み込む
         </div>
       )}
-      {allowAddTask && (
+      {allowAddTask && !tasks.metadataReadOnly && (
         <div
           className={s["task-table-add"]}
           onClick={() => {
@@ -514,16 +516,18 @@ function TaskTableRow({
         ) : (
           <>
             <span className={s["task-table-name"]}>{task.name}</span>
-            <button
-              className={s["task-table-edit-btn"]}
-              title="名前を変更"
-              onClick={(e) => {
-                e.stopPropagation();
-                setRenaming(true);
-              }}
-            >
-              <EditIcon />
-            </button>
+            {!tasks.metadataReadOnly && (
+              <button
+                className={s["task-table-edit-btn"]}
+                title="名前を変更"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRenaming(true);
+                }}
+              >
+                <EditIcon />
+              </button>
+            )}
           </>
         )}
       </td>
@@ -571,6 +575,7 @@ function TaskTableRow({
             selected={[sc.label]}
             removable={false}
             compact
+            disabled={tasks.metadataReadOnly}
             onSelect={(selected) => {
               if (selected.length > 0) {
                 const label = selected[0];
@@ -592,6 +597,7 @@ function TaskTableRow({
         <input
           type="date"
           className={s["task-table-date-input"]}
+          disabled={tasks.metadataReadOnly}
           value={task.startedAt ? task.startedAt.slice(0, 10) : ""}
           onChange={(e) => tasks.updateTaskFields(task.id, { startedAt: e.target.value || "" })}
         />
@@ -602,6 +608,7 @@ function TaskTableRow({
         <input
           type="date"
           className={s["task-table-date-input"]}
+          disabled={tasks.metadataReadOnly}
           value={task.dueDate ? task.dueDate.slice(0, 10) : ""}
           onChange={(e) => tasks.updateTaskFields(task.id, { dueDate: e.target.value || "" })}
         />
@@ -647,7 +654,11 @@ function ArchivedCaseGroup({ caseItem, tasks }: { caseItem: CaseItem; tasks: Use
         >
           {caseItem.name}
         </span>
-        <button className={s["archive-unarchive-btn"]} onClick={handleUnarchive}>
+        <button
+          className={s["archive-unarchive-btn"]}
+          onClick={handleUnarchive}
+          disabled={tasks.metadataReadOnly}
+        >
           アーカイブ解除
         </button>
       </div>
@@ -746,6 +757,7 @@ function ArchivedTaskRow({
             selected={[displayLabel]}
             removable={false}
             compact
+            disabled={tasks.metadataReadOnly}
             onSelect={(selected) => {
               if (selected.length === 0) return;
               const label = selected[0];

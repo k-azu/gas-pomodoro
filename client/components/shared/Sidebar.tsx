@@ -26,6 +26,8 @@ export interface SidebarProps<T extends { id: string; name: string }> {
   extraFilter?: (item: T) => boolean;
   /** Slot rendered between search and list (e.g. tag filter button) */
   filterSlot?: ReactNode;
+  /** Prevent add and reorder metadata mutations while keeping navigation available. */
+  readOnly?: boolean;
 }
 
 export function Sidebar<T extends { id: string; name: string }>({
@@ -43,12 +45,13 @@ export function Sidebar<T extends { id: string; name: string }>({
   emptyLabel = "アイテムがありません",
   extraFilter,
   filterSlot,
+  readOnly = false,
 }: SidebarProps<T>) {
   const [searchQuery, setSearchQuery] = useState("");
 
   const q = searchQuery.toLowerCase();
   const hasFilter = !!q || extraFilter != null;
-  const canReorder = !!onReorder && !hasFilter && items.length > 1;
+  const canReorder = !readOnly && !!onReorder && !hasFilter && items.length > 1;
 
   const visibleItems = items.filter((item) => {
     const matchSearch =
@@ -73,7 +76,9 @@ export function Sidebar<T extends { id: string; name: string }>({
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
       />
-      <SidebarAddButton onClick={onAdd}>{addLabel}</SidebarAddButton>
+      <SidebarAddButton onClick={onAdd} disabled={readOnly}>
+        {addLabel}
+      </SidebarAddButton>
     </>
   );
 

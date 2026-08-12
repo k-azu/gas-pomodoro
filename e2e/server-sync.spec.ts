@@ -310,9 +310,12 @@ test.describe("C. サーバー同期と競合解決", () => {
     await page.waitForSelector(".ProseMirror", { timeout: 10_000 });
 
     const editor = page.locator(".ProseMirror");
-    await expect(page.locator('[data-status="error"]')).toBeVisible({ timeout: 5_000 });
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__mockLocalLoadShouldFailOnce))
+      .toBe(false);
     await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 5_000 });
     await expect(editor).toContainText("IDBロード失敗前の内容");
+    await expect(page.locator('[data-status="error"]')).toHaveCount(0);
 
     const record = await idbGetDocumentContent(page, MEMO_STORE, MEMO_1_ID);
     expect(record.content).toContain("IDBロード失敗前の内容");

@@ -7,6 +7,7 @@
  */
 
 import { serverCall } from "./serverCall";
+import { requireMetadataMutationSupport } from "./editPermissions";
 
 export interface StoreIndex {
   name: string;
@@ -33,6 +34,16 @@ export interface DataChangedEvent {
   entityType: string;
   op: string;
   id?: string;
+  collectionSyncKey?: string;
+}
+
+interface CollectionSyncIntent {
+  key: string;
+  storeName: string;
+  entityIds: string[];
+  args: unknown[];
+  mutationId: string;
+  updatedAt: string;
 }
 
 type EventCallback = (data: any) => void;
@@ -47,10 +58,12 @@ const listeners: Record<string, EventCallback[]> = {};
 const registrations: Record<string, StoreRegistration> = {};
 const entityStoreMap: Record<string, { storeName: string; id: string }> = {};
 const metadataDebounces: Record<string, ReturnType<typeof setTimeout>> = {};
-const reorderState: Record<string, { pending: unknown[] | null; saving: boolean }> = {};
-const reorderDebounces: Record<string, ReturnType<typeof setTimeout>> = {};
+const collectionSyncDebounces: Record<string, ReturnType<typeof setTimeout>> = {};
+const pendingCollectionSyncKeys = new Set<string>();
+const syncingCollectionKeys = new Set<string>();
 const pendingOperations: Record<string, Promise<any>> = {};
 const DATA_CHANGED_CHANNEL = "gas-pomodoro:entity-data-changed";
+const COLLECTION_SYNC_STORE = "collectionSyncIntents";
 let dataChangedChannel: BroadcastChannel | null | undefined;
 
 function getDataChangedChannel(): BroadcastChannel | null {
@@ -61,6 +74,10 @@ function getDataChangedChannel(): BroadcastChannel | null {
   }
   dataChangedChannel = new BroadcastChannel(DATA_CHANGED_CHANNEL);
   dataChangedChannel.onmessage = (event: MessageEvent<DataChangedEvent>) => {
+    if (event.data.collectionSyncKey) {
+      pendingCollectionSyncKeys.add(event.data.collectionSyncKey);
+      scheduleCollectionSync(event.data.collectionSyncKey);
+    }
     emitLocally("dataChanged", event.data);
   };
   return dataChangedChannel;
@@ -100,7 +117,6 @@ export function withLock<T>(
 
 export function register(storeName: string, config: StoreRegistration): void {
   registrations[storeName] = { ...config, storeName };
-  reorderState[storeName] = { pending: null, saving: false };
 }
 
 export function init(
@@ -113,8 +129,14 @@ export function init(
   dbName = name;
   dbVersion = version;
   onUpgrade = options?.onUpgrade ?? null;
+  register(COLLECTION_SYNC_STORE, {
+    entityType: "collectionSyncIntent",
+    keyPath: "key",
+    indexes: [],
+  });
   return openDatabase().then(() => {
     getDataChangedChannel();
+    void requeueCollectionSyncs();
     window.addEventListener("beforeunload", (event) => {
       const pending = hasPendingChanges();
       flushAllSyncs();
@@ -125,7 +147,9 @@ export function init(
     });
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") flushAllSyncs();
+      else void requeueCollectionSyncs();
     });
+    window.addEventListener("online", () => void requeueCollectionSyncs());
   });
 }
 
@@ -290,6 +314,7 @@ function emitLocally(event: string, data?: any): void {
 }
 
 export function addEntity(storeName: string, entityData: Record<string, any>): Promise<string> {
+  requireMetadataMutationSupport();
   const now = new Date().toISOString();
   const item: any = {
     sortOrder: Date.now(),
@@ -316,6 +341,7 @@ export function updateEntityFields(
   id: string,
   fields: Record<string, any>,
 ): Promise<void> {
+  requireMetadataMutationSupport();
   rememberEntity(storeName, id);
   return withLock(storeName, id, async () => {
     const item = await get(storeName, id);
@@ -347,27 +373,60 @@ export function updateEntityRaw(
   });
 }
 
-export function updateSortOrders(
+export function updateCollectionOrder(
   storeName: string,
+  collectionId: string,
   entries: Array<{ id: string; sortOrder: number }>,
+  serverArgs: unknown[],
 ): Promise<void> {
-  return Promise.all(
-    entries.map(({ id, sortOrder }) => {
-      rememberEntity(storeName, id);
-      return withLock(storeName, id, async () => {
-        const item = await get(storeName, id);
-        if (!item) return;
-        item.sortOrder = sortOrder;
-        item._dirty = true;
-        await put(storeName, item);
-      }).catch((error) => {
-        console.error("[EntityStore] updateSortOrders failed:", id, error);
+  requireMetadataMutationSupport();
+  const config = registrations[storeName];
+  if (!config?.serverFns?.reorder) {
+    return Promise.reject(new Error(`No reorder transport registered for ${storeName}`));
+  }
+  const key = scopedKey(storeName, collectionId);
+  entries.forEach(({ id }) => rememberEntity(storeName, id));
+
+  return withLock(COLLECTION_SYNC_STORE, key, async () => {
+    const db = await openDatabase();
+    const intent: CollectionSyncIntent = {
+      key,
+      storeName,
+      entityIds: entries.map(({ id }) => id),
+      args: serverArgs,
+      mutationId: crypto.randomUUID(),
+      updatedAt: new Date().toISOString(),
+    };
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction([storeName, COLLECTION_SYNC_STORE], "readwrite");
+      const entityStore = transaction.objectStore(storeName);
+      entries.forEach(({ id, sortOrder }) => {
+        const request = entityStore.get(id);
+        request.onsuccess = () => {
+          const item = request.result;
+          if (!item) return;
+          item.sortOrder = sortOrder;
+          entityStore.put(item);
+        };
       });
-    }),
-  ).then(() => undefined);
+      transaction.objectStore(COLLECTION_SYNC_STORE).put(intent);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  }).then(() => {
+    pendingCollectionSyncKeys.add(key);
+    emit("dataChanged", {
+      entityType: config.entityType || storeName,
+      op: "reorder",
+      collectionSyncKey: key,
+    });
+    scheduleCollectionSync(key);
+  });
 }
 
 export function setInactive(storeName: string, id: string): Promise<void> {
+  requireMetadataMutationSupport();
   rememberEntity(storeName, id);
   return withLock(storeName, id, async () => {
     const item = await get(storeName, id);
@@ -515,40 +574,77 @@ export function syncArchiveToServer(storeName: string, id: string): void {
     });
 }
 
-export function scheduleReorderSync(storeName: string, args: unknown[]): void {
-  const state = reorderState[storeName];
-  if (!state) return;
-  state.pending = args;
-  if (reorderDebounces[storeName]) clearTimeout(reorderDebounces[storeName]);
-  reorderDebounces[storeName] = setTimeout(() => {
-    delete reorderDebounces[storeName];
-    flushReorderSync(storeName);
-  }, 5000);
+function scheduleCollectionSync(key: string, delay = 5000): void {
+  if (collectionSyncDebounces[key]) clearTimeout(collectionSyncDebounces[key]);
+  collectionSyncDebounces[key] = setTimeout(() => {
+    delete collectionSyncDebounces[key];
+    flushCollectionSync(key);
+  }, delay);
 }
 
-function flushReorderSync(storeName: string): void {
-  const state = reorderState[storeName];
-  if (!state || state.saving || !state.pending) return;
-  const args = state.pending;
-  state.pending = null;
-  state.saving = true;
-  const reorderFunction = registrations[storeName]?.serverFns?.reorder;
-  if (!reorderFunction) {
-    state.saving = false;
-    return;
-  }
-  void serverCall(reorderFunction, ...args)
-    .catch((error) => console.error("[EntityStore] reorder sync failed:", storeName, error))
+function flushCollectionSync(key: string): void {
+  if (syncingCollectionKeys.has(key) || !navigator.locks) return;
+  syncingCollectionKeys.add(key);
+  let retryDelay: number | undefined;
+
+  void navigator.locks
+    .request(`gas-pomodoro:collection-sync:${key}`, async () => {
+      const intent = (await get(COLLECTION_SYNC_STORE, key)) as CollectionSyncIntent | null;
+      if (!intent) {
+        pendingCollectionSyncKeys.delete(key);
+        return false;
+      }
+      const reorderFunction = registrations[intent.storeName]?.serverFns?.reorder;
+      if (!reorderFunction)
+        throw new Error(`No reorder transport registered for ${intent.storeName}`);
+
+      await retryWithBackoff(async () => {
+        const response = (await serverCall(reorderFunction, ...intent.args)) as any;
+        if (response?.success !== true) {
+          throw new Error(`${reorderFunction} did not acknowledge collection order`);
+        }
+      });
+
+      return await withLock(COLLECTION_SYNC_STORE, key, async () => {
+        const latest = (await get(COLLECTION_SYNC_STORE, key)) as CollectionSyncIntent | null;
+        if (!latest) return false;
+        if (latest.mutationId !== intent.mutationId) return true;
+        await remove(COLLECTION_SYNC_STORE, key);
+        pendingCollectionSyncKeys.delete(key);
+        return false;
+      });
+    })
+    .then(async (needsResync) => {
+      if (await needsResync) retryDelay = 0;
+    })
+    .catch((error) => {
+      console.error("[EntityStore] collection sync failed:", key, error);
+      retryDelay = 30_000;
+    })
     .finally(() => {
-      state.saving = false;
-      if (state.pending) flushReorderSync(storeName);
+      syncingCollectionKeys.delete(key);
+      if (retryDelay !== undefined) scheduleCollectionSync(key, retryDelay);
     });
+}
+
+async function requeueCollectionSyncs(): Promise<void> {
+  if (!navigator.locks) return;
+  try {
+    const intents = (await getAll(COLLECTION_SYNC_STORE)) as CollectionSyncIntent[];
+    intents.forEach((intent) => {
+      pendingCollectionSyncKeys.add(intent.key);
+      scheduleCollectionSync(intent.key, 0);
+    });
+  } catch (error) {
+    console.warn("[EntityStore] failed to requeue collection sync:", error);
+  }
 }
 
 export function hasPendingChanges(): boolean {
   return (
     Object.keys(metadataDebounces).length > 0 ||
-    Object.values(reorderState).some((state) => state.pending !== null)
+    pendingCollectionSyncKeys.size > 0 ||
+    Object.keys(collectionSyncDebounces).length > 0
   );
 }
 
@@ -559,18 +655,26 @@ export function flushAllSyncs(): void {
     const entity = entityStoreMap[key];
     if (entity) syncMetadataToServer(entity.storeName, entity.id);
   });
-  Object.keys(reorderState).forEach((storeName) => {
-    const timer = reorderDebounces[storeName];
+  pendingCollectionSyncKeys.forEach((key) => {
+    const timer = collectionSyncDebounces[key];
     if (timer) {
       clearTimeout(timer);
-      delete reorderDebounces[storeName];
+      delete collectionSyncDebounces[key];
     }
-    flushReorderSync(storeName);
+    flushCollectionSync(key);
   });
 }
 
 export async function mergeServerData(storeName: string, serverEntities: any[]): Promise<void> {
-  const localEntities = await getAll(storeName);
+  const [localEntities, collectionIntents] = await Promise.all([
+    getAll(storeName),
+    getAll(COLLECTION_SYNC_STORE) as Promise<CollectionSyncIntent[]>,
+  ]);
+  const pendingOrderIds = new Set(
+    collectionIntents
+      .filter((intent) => intent.storeName === storeName)
+      .flatMap((intent) => intent.entityIds || []),
+  );
   const serverById = new Map(serverEntities.map((entity) => [entity.id, entity]));
   const operations: Promise<unknown>[] = [];
 
@@ -614,6 +718,7 @@ export async function mergeServerData(storeName: string, serverEntities: any[]):
             : {};
         await put(storeName, {
           ...serverEntity,
+          ...(pendingOrderIds.has(serverEntity.id) ? { sortOrder: latest.sortOrder } : {}),
           ...privateFields,
           ...legacyBodyFields,
           _serverUpdatedAt: serverEntity.updatedAt,

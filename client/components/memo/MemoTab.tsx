@@ -21,6 +21,8 @@ import { EditorLayout, ToolbarSlot, MetaTitle } from "../shared/EditorLayout";
 import { SyncIndicator } from "../shared/SyncIndicator";
 import { DocumentSearchNavigation } from "../search/DocumentSearchNavigation";
 import * as MemoStore from "../../lib/memoStore";
+import { documentKey } from "../../lib/documentSync";
+import { canMutateMetadata } from "../../lib/editPermissions";
 import s from "./MemoTab.module.css";
 
 const SIDEBAR_KEY = "gas_pomodoro_memo_sidebar_collapsed";
@@ -94,8 +96,13 @@ export function MemoTab() {
     scrollRef,
   });
 
-  const activeDocumentReadOnly = readOnly || isArchivedSearchDocument;
-  const contextItemReadOnly = contextMenu?.item.id === memo.activeId && activeDocumentReadOnly;
+  const activeDocumentReadOnly = readOnly || isArchivedSearchDocument || memo.metadataReadOnly;
+  const contextItemReadOnly = contextMenu
+    ? !canMutateMetadata(documentKey("memos", contextMenu.item.id), {
+        activeDocumentKey: memo.activeId ? documentKey("memos", memo.activeId) : undefined,
+        activeDocumentReadOnly,
+      })
+    : false;
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
@@ -224,6 +231,7 @@ export function MemoTab() {
         emptyLabel="メモがありません"
         extraFilter={extraFilter}
         filterSlot={filterSlot}
+        readOnly={memo.metadataReadOnly}
       />
 
       <div className={s["memo-editor-panel"]}>

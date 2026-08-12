@@ -33,8 +33,11 @@ interface TaskContentProps {
   tasks: UseTasksReturn;
   sidebarCollapsed?: boolean;
   onExpandSidebar?: () => void;
-  onReadOnlyChange?: (readOnly: boolean) => void;
+  /** Required so sibling metadata controls always receive the editor lease state. */
+  onReadOnlyChange: (readOnly: boolean) => void;
 }
+
+type TaskLayoutProps = Omit<TaskContentProps, "onReadOnlyChange">;
 
 function storeNameFor(type: string): string {
   if (type === "case") return "cases";
@@ -42,7 +45,12 @@ function storeNameFor(type: string): string {
   return "projects";
 }
 
-export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskContentProps) {
+export function TaskContent({
+  tasks,
+  sidebarCollapsed,
+  onExpandSidebar,
+  onReadOnlyChange,
+}: TaskContentProps) {
   const { selectedNode } = tasks;
   if (!selectedNode) return null;
   if (selectedNode.type === "all") {
@@ -60,11 +68,12 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
       tasks={tasks}
       sidebarCollapsed={sidebarCollapsed}
       onExpandSidebar={onExpandSidebar}
+      onReadOnlyChange={onReadOnlyChange}
     />
   );
 }
 
-function AllTasksContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskContentProps) {
+function AllTasksContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskLayoutProps) {
   return (
     <div className={s["task-detail"]}>
       <div className={s["all-tasks-header"]}>
@@ -141,8 +150,8 @@ function TaskDocumentContent({
   });
 
   useEffect(() => {
-    onReadOnlyChange?.(readOnly || isArchivedSearchDocument);
-    return () => onReadOnlyChange?.(true);
+    onReadOnlyChange(readOnly || isArchivedSearchDocument);
+    return () => onReadOnlyChange(true);
   }, [isArchivedSearchDocument, onReadOnlyChange, readOnly]);
 
   const searchNavigation = useDocumentSearchNavigation({

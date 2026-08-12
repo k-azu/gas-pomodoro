@@ -191,6 +191,63 @@ const MOCK_STATS = {
   totalNonWorkInterruptionSeconds: 120,
 };
 
+const MOCK_MEMOS = [
+  {
+    id: "mock-memo-1",
+    name: "開発メモ",
+    tags: ["dev"],
+    sortOrder: 1,
+    isActive: true,
+    createdAt: "2025-01-01T00:00:00.000Z",
+    updatedAt: "2025-01-15T00:00:00.000Z",
+  },
+  {
+    id: "mock-memo-2",
+    name: "議事録",
+    tags: [],
+    sortOrder: 2,
+    isActive: true,
+    createdAt: "2025-02-01T00:00:00.000Z",
+    updatedAt: "2025-02-10T00:00:00.000Z",
+  },
+  {
+    id: "mock-memo-3",
+    name: "設計ドキュメント",
+    tags: ["dev"],
+    sortOrder: 3,
+    isActive: true,
+    createdAt: "2025-03-01T00:00:00.000Z",
+    updatedAt: "2025-03-01T00:00:00.000Z",
+  },
+  {
+    id: "mock-memo-4",
+    name: "デプロイ手順書",
+    tags: [],
+    sortOrder: 4,
+    isActive: true,
+    createdAt: "2025-04-01T00:00:00.000Z",
+    updatedAt: "2025-04-01T00:00:00.000Z",
+  },
+  {
+    id: "mock-memo-5",
+    name: "バグトラッカー",
+    tags: [],
+    sortOrder: 5,
+    isActive: true,
+    createdAt: "2025-05-01T00:00:00.000Z",
+    updatedAt: "2025-05-01T00:00:00.000Z",
+  },
+  {
+    id: "mock-memo-empty",
+    name: "空のメモ",
+    tags: [],
+    sortOrder: 6,
+    isActive: true,
+    createdAt: "2025-06-01T00:00:00.000Z",
+    updatedAt: "2025-06-01T00:00:00.000Z",
+  },
+];
+
 const MOCK_PROJECTS = [
   {
     id: "mock-proj-1",
@@ -406,6 +463,99 @@ const MOCK_TASKS = [
   },
 ];
 
+type MockMetadataStoreName = "memos" | "projects" | "cases" | "tasks";
+type MockMetadataEntity = Record<string, any> & { id: string };
+type MockMetadataState = Record<MockMetadataStoreName, Record<string, MockMetadataEntity>>;
+
+const MOCK_METADATA_STATE_KEY = "gas_pomodoro_mock_server_metadata";
+
+function emptyMockMetadataState(): MockMetadataState {
+  return { memos: {}, projects: {}, cases: {}, tasks: {} };
+}
+
+function readMockMetadataState(): MockMetadataState {
+  try {
+    const stored = localStorage.getItem(MOCK_METADATA_STATE_KEY);
+    if (stored) return { ...emptyMockMetadataState(), ...JSON.parse(stored) };
+  } catch {
+    // Fall back to the static metadata below.
+  }
+  return emptyMockMetadataState();
+}
+
+function writeMockMetadataState(state: MockMetadataState): void {
+  try {
+    localStorage.setItem(MOCK_METADATA_STATE_KEY, JSON.stringify(state));
+  } catch {
+    // Tests can still use the static metadata when storage is unavailable.
+  }
+}
+
+function baseMockMetadata(storeName: MockMetadataStoreName): MockMetadataEntity[] {
+  if (storeName === "memos") return MOCK_MEMOS;
+  if (storeName === "projects") return MOCK_PROJECTS;
+  if (storeName === "cases") return MOCK_CASES;
+  return MOCK_TASKS;
+}
+
+function getMockMetadata(storeName: MockMetadataStoreName): MockMetadataEntity[] {
+  const overrides = readMockMetadataState()[storeName];
+  const baseIds = new Set(baseMockMetadata(storeName).map(({ id }) => id));
+  return [
+    ...baseMockMetadata(storeName).map((entity) =>
+      overrides[entity.id] ? { ...entity, ...overrides[entity.id] } : entity,
+    ),
+    ...Object.values(overrides).filter(({ id }) => !baseIds.has(id)),
+  ];
+}
+
+function putMockMetadata(storeName: MockMetadataStoreName, entity: MockMetadataEntity): void {
+  const state = readMockMetadataState();
+  state[storeName][entity.id] = entity;
+  writeMockMetadataState(state);
+}
+
+function createMockMetadata(
+  storeName: MockMetadataStoreName,
+  id: string,
+  fields: Record<string, any>,
+): MockMetadataEntity {
+  const existing = getMockMetadata(storeName).find((entity) => entity.id === id);
+  if (existing) return existing;
+  const now = new Date().toISOString();
+  const sortOrder =
+    Math.max(0, ...getMockMetadata(storeName).map((entity) => Number(entity.sortOrder) || 0)) + 1;
+  const entity = {
+    id,
+    sortOrder,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+    ...fields,
+  };
+  putMockMetadata(storeName, entity);
+  return entity;
+}
+
+function updateMockMetadata(
+  storeName: MockMetadataStoreName,
+  id: string,
+  fields: Record<string, any>,
+): MockMetadataEntity | null {
+  const current = getMockMetadata(storeName).find((entity) => entity.id === id);
+  if (!current) return null;
+  const next = { ...current, ...fields, updatedAt: new Date().toISOString() };
+  putMockMetadata(storeName, next);
+  return next;
+}
+
+function reorderMockMetadata(storeName: MockMetadataStoreName, orderedIds: string[]): void {
+  orderedIds.forEach((id, index) => {
+    const current = getMockMetadata(storeName).find((entity) => entity.id === id);
+    if (current) putMockMetadata(storeName, { ...current, sortOrder: index + 1 });
+  });
+}
+
 const MOCK_TASK_RECORDS = [
   {
     id: "mock-rec-1",
@@ -579,7 +729,9 @@ function readMockRevisionedContent(id: string): MockRevisionedContent | null {
   }
   const initial = MOCK_CONTENT_BY_ID[id];
   if (initial) return { ...initial, contentRevision: 1, isActive: true };
-  const entity = [...MOCK_PROJECTS, ...MOCK_CASES, ...MOCK_TASKS].find((item) => item.id === id);
+  const entity = (["memos", "projects", "cases", "tasks"] as MockMetadataStoreName[])
+    .flatMap(getMockMetadata)
+    .find((item) => item.id === id);
   return entity
     ? {
         content: "",
@@ -741,69 +893,16 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
         recentRecordsBulk: MOCK_RECORDS,
         recentInterruptionsBulk: MOCK_INTERRUPTIONS,
         spreadsheetUrl: "https://docs.google.com/spreadsheets/d/example",
-        memos: withMockContentRevisions([
-          {
-            id: "mock-memo-1",
-            name: "開発メモ",
-            tags: ["dev"],
-            sortOrder: 1,
-            isActive: true,
-            createdAt: "2025-01-01T00:00:00.000Z",
-            updatedAt: "2025-01-15T00:00:00.000Z",
-          },
-          {
-            id: "mock-memo-2",
-            name: "議事録",
-            tags: [],
-            sortOrder: 2,
-            isActive: true,
-            createdAt: "2025-02-01T00:00:00.000Z",
-            updatedAt: "2025-02-10T00:00:00.000Z",
-          },
-          {
-            id: "mock-memo-3",
-            name: "設計ドキュメント",
-            tags: ["dev"],
-            sortOrder: 3,
-            isActive: true,
-            createdAt: "2025-03-01T00:00:00.000Z",
-            updatedAt: "2025-03-01T00:00:00.000Z",
-          },
-          {
-            id: "mock-memo-4",
-            name: "デプロイ手順書",
-            tags: [],
-            sortOrder: 4,
-            isActive: true,
-            createdAt: "2025-04-01T00:00:00.000Z",
-            updatedAt: "2025-04-01T00:00:00.000Z",
-          },
-          {
-            id: "mock-memo-5",
-            name: "バグトラッカー",
-            tags: [],
-            sortOrder: 5,
-            isActive: true,
-            createdAt: "2025-05-01T00:00:00.000Z",
-            updatedAt: "2025-05-01T00:00:00.000Z",
-          },
-          {
-            id: "mock-memo-empty",
-            name: "空のメモ",
-            tags: [],
-            sortOrder: 6,
-            isActive: true,
-            createdAt: "2025-06-01T00:00:00.000Z",
-            updatedAt: "2025-06-01T00:00:00.000Z",
-          },
-        ]),
+        memos: withMockContentRevisions(
+          getMockMetadata("memos").filter((memo) => memo.isActive !== false),
+        ),
         memoTags: [
           { name: "dev", color: "#4CAF50", sortOrder: 1, isActive: true },
           { name: "memo", color: "#2196F3", sortOrder: 2, isActive: true },
         ],
-        projects: withMockContentRevisions(MOCK_PROJECTS),
-        cases: withMockContentRevisions(MOCK_CASES),
-        tasks: withMockContentRevisions(MOCK_TASKS),
+        projects: withMockContentRevisions(getMockMetadata("projects")),
+        cases: withMockContentRevisions(getMockMetadata("cases")),
+        tasks: withMockContentRevisions(getMockMetadata("tasks")),
       };
 
     case "getRefreshData":
@@ -940,48 +1039,120 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
     // ---- Task Data ----
     case "getAllTaskData":
       return {
-        projects: withMockContentRevisions(MOCK_PROJECTS),
-        cases: withMockContentRevisions(MOCK_CASES),
-        tasks: withMockContentRevisions(MOCK_TASKS),
+        projects: withMockContentRevisions(getMockMetadata("projects")),
+        cases: withMockContentRevisions(getMockMetadata("cases")),
+        tasks: withMockContentRevisions(getMockMetadata("tasks")),
       };
 
     case "getTaskPomodoroRecords":
       return MOCK_TASK_RECORDS;
 
     // ---- EntityStore dynamic server functions ----
-    case "addProject":
-    case "addCase":
-    case "addTask":
-      createMockRevisionedContent(String(args[0] || ""));
-      return { success: true };
+    case "addProject": {
+      const entity = createMockMetadata("projects", String(args[0] || ""), {
+        name: String(args[1] || ""),
+        color: String(args[2] || "#4285f4"),
+        content: "",
+      });
+      createMockRevisionedContent(entity.id);
+      return { success: true, id: entity.id, updatedAt: entity.updatedAt };
+    }
+
+    case "addCase": {
+      const entity = createMockMetadata("cases", String(args[0] || ""), {
+        projectId: String(args[1] || ""),
+        name: String(args[2] || ""),
+        color: "#757575",
+        content: "",
+      });
+      createMockRevisionedContent(entity.id);
+      return { success: true, id: entity.id, updatedAt: entity.updatedAt };
+    }
+
+    case "addTask": {
+      const entity = createMockMetadata("tasks", String(args[0] || ""), {
+        projectId: String(args[1] || ""),
+        caseId: String(args[2] || ""),
+        name: String(args[3] || ""),
+        status: "todo",
+        startedAt: "",
+        dueDate: "",
+        completedAt: "",
+        content: "",
+      });
+      createMockRevisionedContent(entity.id);
+      return { success: true, id: entity.id, updatedAt: entity.updatedAt };
+    }
 
     case "saveMemo": {
       const memo = args[0] as { id?: string } | undefined;
       const id = String(memo?.id || "");
+      const entity = createMockMetadata("memos", id, {
+        name: String((memo as any)?.name || ""),
+        tags: Array.isArray((memo as any)?.tags) ? (memo as any).tags : [],
+      });
       createMockRevisionedContent(id);
-      return { success: true, id, updatedAt: new Date().toISOString() };
+      return { success: true, id, updatedAt: entity.updatedAt };
     }
 
     case "updateProject":
     case "updateCase":
     case "updateTask":
-    case "updateMemoMetadata":
-      return { success: true, updatedAt: new Date().toISOString() };
+    case "updateMemoMetadata": {
+      const storeName: MockMetadataStoreName =
+        functionName === "updateProject"
+          ? "projects"
+          : functionName === "updateCase"
+            ? "cases"
+            : functionName === "updateTask"
+              ? "tasks"
+              : "memos";
+      const entity = updateMockMetadata(
+        storeName,
+        String(args[0] || ""),
+        (args[1] as Record<string, any>) || {},
+      );
+      return entity
+        ? { success: true, updatedAt: entity.updatedAt }
+        : { success: false, message: "Entity not found" };
+    }
 
     case "archiveProject":
     case "archiveCase":
-    case "archiveTask":
-      archiveMockRevisionedContent(String(args[0] || ""));
+    case "archiveTask": {
+      const storeName: MockMetadataStoreName =
+        functionName === "archiveProject"
+          ? "projects"
+          : functionName === "archiveCase"
+            ? "cases"
+            : "tasks";
+      const id = String(args[0] || "");
+      updateMockMetadata(storeName, id, { isActive: false });
+      archiveMockRevisionedContent(id);
       return { success: true };
+    }
 
-    case "deleteMemo":
-      archiveMockRevisionedContent(String(args[0] || ""));
+    case "deleteMemo": {
+      const id = String(args[0] || "");
+      updateMockMetadata("memos", id, { isActive: false });
+      archiveMockRevisionedContent(id);
       return { success: true };
+    }
 
     case "reorderProjects":
+      reorderMockMetadata("projects", (args[0] as string[]) || []);
+      return { success: true };
+
     case "reorderCases":
+      reorderMockMetadata("cases", (args[1] as string[]) || []);
+      return { success: true };
+
     case "reorderTasks":
+      reorderMockMetadata("tasks", (args[1] as string[]) || []);
+      return { success: true };
+
     case "updateMemoSortOrders":
+      reorderMockMetadata("memos", (args[0] as string[]) || []);
       return { success: true };
 
     case "getProjectContent":

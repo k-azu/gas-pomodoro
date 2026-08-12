@@ -7,6 +7,7 @@ import * as EntityStore from "../lib/entityStore";
 import { STORAGE_KEYS, lsGetJSON, lsSetJSON, lsSet } from "../lib/localStorage";
 import { useNavigation } from "../contexts/NavigationContext";
 import type { TaskStatus } from "../types/entities";
+import { isMetadataReadOnly } from "../lib/editPermissions";
 
 // =========================================================
 // Types
@@ -126,6 +127,7 @@ export interface UseTasksReturn {
   getArchivedDirectTasks: (projectId: string) => TaskItem[];
   unarchiveCase: (caseId: string) => Promise<void>;
 
+  metadataReadOnly: boolean;
   isLoading: boolean;
 }
 
@@ -139,6 +141,7 @@ export function useTasks(): UseTasksReturn {
   const [taskViewMode, setTaskViewModeState] = useState<TaskViewMode>("doc");
   const [tableLayoutMode, setTableLayoutModeState] = useState<TaskTableLayoutMode>("grouped");
   const [isLoading, setIsLoading] = useState(false);
+  const metadataReadOnly = isMetadataReadOnly();
   const selectedRef = useRef(selectedNode);
   selectedRef.current = selectedNode;
 
@@ -328,6 +331,7 @@ export function useTasks(): UseTasksReturn {
   // CRUD
   const addProject = useCallback(
     async (name: string, color?: string) => {
+      if (metadataReadOnly) return;
       setIsLoading(true);
       try {
         const id = await TaskStore.addProject(name, color);
@@ -337,11 +341,12 @@ export function useTasks(): UseTasksReturn {
         setIsLoading(false);
       }
     },
-    [refreshFromStore, selectNode],
+    [metadataReadOnly, refreshFromStore, selectNode],
   );
 
   const addCase = useCallback(
     async (projectId: string, name: string) => {
+      if (metadataReadOnly) return;
       setIsLoading(true);
       try {
         const id = await TaskStore.addCase(projectId, name);
@@ -356,11 +361,12 @@ export function useTasks(): UseTasksReturn {
         setIsLoading(false);
       }
     },
-    [refreshFromStore, selectNode],
+    [metadataReadOnly, refreshFromStore, selectNode],
   );
 
   const addTask = useCallback(
     async (projectId: string, caseId: string, name: string) => {
+      if (metadataReadOnly) return;
       setIsLoading(true);
       try {
         const id = await TaskStore.addTask(projectId, caseId, name);
@@ -375,36 +381,53 @@ export function useTasks(): UseTasksReturn {
         setIsLoading(false);
       }
     },
-    [refreshFromStore, selectNode],
+    [metadataReadOnly, refreshFromStore, selectNode],
   );
 
-  const rename = useCallback((type: EditableNodeType, id: string, name: string) => {
-    if (type === "project") {
-      TaskStore.updateProject(id, { name });
-      setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, name } : p)));
-    } else if (type === "case") {
-      TaskStore.updateCase(id, { name });
-      setAllCases((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
-    } else {
-      TaskStore.updateTask(id, { name });
-      setAllTasks((prev) => prev.map((t) => (t.id === id ? { ...t, name } : t)));
-    }
-  }, []);
+  const rename = useCallback(
+    (type: EditableNodeType, id: string, name: string) => {
+      if (metadataReadOnly) return;
+      if (type === "project") {
+        TaskStore.updateProject(id, { name });
+        setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, name } : p)));
+      } else if (type === "case") {
+        TaskStore.updateCase(id, { name });
+        setAllCases((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
+      } else {
+        TaskStore.updateTask(id, { name });
+        setAllTasks((prev) => prev.map((t) => (t.id === id ? { ...t, name } : t)));
+      }
+    },
+    [metadataReadOnly],
+  );
 
-  const updateProjectFields = useCallback((id: string, fields: Record<string, any>) => {
-    TaskStore.updateProject(id, fields);
-  }, []);
+  const updateProjectFields = useCallback(
+    (id: string, fields: Record<string, any>) => {
+      if (metadataReadOnly) return;
+      TaskStore.updateProject(id, fields);
+    },
+    [metadataReadOnly],
+  );
 
-  const updateCaseFields = useCallback((id: string, fields: Record<string, any>) => {
-    TaskStore.updateCase(id, fields);
-  }, []);
+  const updateCaseFields = useCallback(
+    (id: string, fields: Record<string, any>) => {
+      if (metadataReadOnly) return;
+      TaskStore.updateCase(id, fields);
+    },
+    [metadataReadOnly],
+  );
 
-  const updateTaskFields = useCallback((id: string, fields: Record<string, any>) => {
-    TaskStore.updateTask(id, fields);
-  }, []);
+  const updateTaskFields = useCallback(
+    (id: string, fields: Record<string, any>) => {
+      if (metadataReadOnly) return;
+      TaskStore.updateTask(id, fields);
+    },
+    [metadataReadOnly],
+  );
 
   const archiveNode = useCallback(
     async (type: EditableNodeType, id: string) => {
+      if (metadataReadOnly) return;
       setIsLoading(true);
       try {
         if (type === "project") await TaskStore.archiveProject(id);
@@ -448,7 +471,7 @@ export function useTasks(): UseTasksReturn {
         setIsLoading(false);
       }
     },
-    [refreshFromStore, selectNode],
+    [metadataReadOnly, refreshFromStore, selectNode],
   );
 
   // =========================================================
@@ -478,38 +501,47 @@ export function useTasks(): UseTasksReturn {
 
   const unarchiveCase = useCallback(
     async (caseId: string) => {
+      if (metadataReadOnly) return;
       await TaskStore.updateCase(caseId, { isActive: true });
       const caseTasks = await TaskStore.getArchivedTasksForCase(caseId);
       await Promise.all(caseTasks.map((t) => TaskStore.updateTask(t.id, { isActive: true })));
       await refreshFromStore();
     },
-    [refreshFromStore],
+    [metadataReadOnly, refreshFromStore],
   );
 
   // Reorder
-  const reorderProjects = useCallback((ids: string[]) => {
-    TaskStore.reorderProjects(ids);
-    setProjects((prev) => {
-      const map = new Map(prev.map((p) => [p.id, p]));
-      return ids.map((id, i) => {
-        const p = map.get(id)!;
-        return { ...p, sortOrder: i + 1 };
+  const reorderProjects = useCallback(
+    (ids: string[]) => {
+      if (metadataReadOnly) return;
+      TaskStore.reorderProjects(ids);
+      setProjects((prev) => {
+        const map = new Map(prev.map((p) => [p.id, p]));
+        return ids.map((id, i) => {
+          const p = map.get(id)!;
+          return { ...p, sortOrder: i + 1 };
+        });
       });
-    });
-  }, []);
+    },
+    [metadataReadOnly],
+  );
 
-  const reorderCases = useCallback((projectId: string, ids: string[]) => {
-    TaskStore.reorderCases(projectId, ids);
-    setAllCases((prev) => {
-      const map = new Map(prev.filter((c) => c.projectId === projectId).map((c) => [c.id, c]));
-      const reordered = ids.map((id, i) => {
-        const c = map.get(id)!;
-        return { ...c, sortOrder: i + 1 };
+  const reorderCases = useCallback(
+    (projectId: string, ids: string[]) => {
+      if (metadataReadOnly) return;
+      TaskStore.reorderCases(projectId, ids);
+      setAllCases((prev) => {
+        const map = new Map(prev.filter((c) => c.projectId === projectId).map((c) => [c.id, c]));
+        const reordered = ids.map((id, i) => {
+          const c = map.get(id)!;
+          return { ...c, sortOrder: i + 1 };
+        });
+        const others = prev.filter((c) => c.projectId !== projectId);
+        return [...others, ...reordered];
       });
-      const others = prev.filter((c) => c.projectId !== projectId);
-      return [...others, ...reordered];
-    });
-  }, []);
+    },
+    [metadataReadOnly],
+  );
 
   return {
     projects,
@@ -541,6 +573,7 @@ export function useTasks(): UseTasksReturn {
     getArchivedCasesFor,
     getArchivedDirectTasks,
     unarchiveCase,
+    metadataReadOnly,
     isLoading,
   };
 }

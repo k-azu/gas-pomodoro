@@ -14,6 +14,7 @@ import {
 } from "./documentCoordinator";
 import { serverCall } from "./serverCall";
 import type { MemoTag, MemoMetadata } from "../types";
+import { requireMetadataMutationSupport } from "./editPermissions";
 
 let _memoTags: MemoTag[] = [];
 let _serverMemos: MemoMetadata[] | null = null;
@@ -150,10 +151,7 @@ export function deleteMemo(id: string): Promise<void> {
 
 export function reorderMemos(orderedIds: string[]): Promise<void> {
   const entries = orderedIds.map((id, i) => ({ id, sortOrder: i + 1 }));
-  return EntityStore.updateSortOrders("memos", entries).then(() => {
-    EntityStore.emit("dataChanged", { entityType: "memo", op: "reorder" });
-    EntityStore.scheduleReorderSync("memos", [orderedIds]);
-  });
+  return EntityStore.updateCollectionOrder("memos", "root", entries, [orderedIds]);
 }
 
 // =========================================================
@@ -165,6 +163,7 @@ export function updateTags(id: string, tags: string[]): Promise<void> {
 }
 
 export function addTag(name: string, color?: string): void {
+  requireMetadataMutationSupport();
   const c = color || "#757575";
   const existing = _memoTags.find((t) => t.name === name);
   if (existing) return;
@@ -173,6 +172,7 @@ export function addTag(name: string, color?: string): void {
 }
 
 export function updateTagColor(name: string, color: string): void {
+  requireMetadataMutationSupport();
   const tag = _memoTags.find((t) => t.name === name);
   if (tag) tag.color = color;
   serverCall("updateMemoTagColor", name, color).catch(() => {});

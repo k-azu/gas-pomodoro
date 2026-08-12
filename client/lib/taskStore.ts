@@ -108,7 +108,7 @@ export function init(serverData?: {
     };
   }
 
-  return EntityStore.init("gas_pomodoro", 6, {
+  return EntityStore.init("gas_pomodoro", 7, {
     onUpgrade: (db) => {
       if (db.objectStoreNames.contains("contents")) db.deleteObjectStore("contents");
       if (db.objectStoreNames.contains("syncMeta")) db.deleteObjectStore("syncMeta");
@@ -345,26 +345,17 @@ export function getArchivedTasksForCase(caseId: string): Promise<any[]> {
 
 export function reorderProjects(orderedIds: string[]): Promise<void> {
   const entries = orderedIds.map((id, i) => ({ id, sortOrder: i + 1 }));
-  return EntityStore.updateSortOrders("projects", entries).then(() => {
-    EntityStore.emit("dataChanged", { entityType: "project", op: "reorder" });
-    EntityStore.scheduleReorderSync("projects", [orderedIds]);
-  });
+  return EntityStore.updateCollectionOrder("projects", "root", entries, [orderedIds]);
 }
 
 export function reorderCases(projectId: string, orderedIds: string[]): Promise<void> {
   const entries = orderedIds.map((id, i) => ({ id, sortOrder: i + 1 }));
-  return EntityStore.updateSortOrders("cases", entries).then(() => {
-    EntityStore.emit("dataChanged", { entityType: "case", op: "reorder" });
-    EntityStore.scheduleReorderSync("cases", [projectId, orderedIds]);
-  });
+  return EntityStore.updateCollectionOrder("cases", projectId, entries, [projectId, orderedIds]);
 }
 
 export function reorderTasks(parentId: string, orderedIds: string[]): Promise<void> {
   const entries = orderedIds.map((id, i) => ({ id, sortOrder: i + 1 }));
-  return EntityStore.updateSortOrders("tasks", entries).then(() => {
-    EntityStore.emit("dataChanged", { entityType: "task", op: "reorder" });
-    EntityStore.scheduleReorderSync("tasks", [parentId, orderedIds]);
-  });
+  return EntityStore.updateCollectionOrder("tasks", parentId, entries, [parentId, orderedIds]);
 }
 
 // =========================================================
@@ -397,6 +388,5 @@ export const on = EntityStore.on;
 export const rawGet = EntityStore.get;
 export const entityPut = EntityStore.put;
 export const updateEntity = EntityStore.updateEntityRaw;
-export const entityUpdateSortOrders = EntityStore.updateSortOrders;
 export const entityFlushAllSyncs = EntityStore.flushAllSyncs;
 export { withLock } from "./entityStore";

@@ -49,7 +49,7 @@ export function TaskTree({
       }
     },
     {
-      enabled: tasks.projects.length > 0,
+      enabled: !tasks.metadataReadOnly && tasks.projects.length > 0,
       getContainer: (el) => {
         const groupEl = el.closest("[data-type]") as HTMLElement | null;
         return groupEl?.parentElement ?? null;
@@ -221,18 +221,20 @@ function ProjectNode({
         ) : (
           <span className={s["task-tree-name"]}>{project.name}</span>
         )}
-        <span
-          className={s["task-tree-add-btn"]}
-          title="案件を追加"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!expanded) tasks.toggleExpand(project.id);
-            const name = prompt("案件名:");
-            if (name?.trim()) tasks.addCase(project.id, name.trim());
-          }}
-        >
-          +
-        </span>
+        {!tasks.metadataReadOnly && (
+          <span
+            className={s["task-tree-add-btn"]}
+            title="案件を追加"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!expanded) tasks.toggleExpand(project.id);
+              const name = prompt("案件名:");
+              if (name?.trim()) tasks.addCase(project.id, name.trim());
+            }}
+          >
+            +
+          </span>
+        )}
       </div>
 
       {expanded && (
@@ -271,16 +273,18 @@ function ProjectNode({
               onContextMenu={onContextMenu}
             />
           ))}
-          <div
-            className={`${s["task-tree-add"]} ${s["task-tree-add-task"]}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              const name = prompt("タスク名:");
-              if (name?.trim()) tasks.addTask(project.id, "", name.trim());
-            }}
-          >
-            + タスク
-          </div>
+          {!tasks.metadataReadOnly && (
+            <div
+              className={`${s["task-tree-add"]} ${s["task-tree-add-task"]}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                const name = prompt("タスク名:");
+                if (name?.trim()) tasks.addTask(project.id, "", name.trim());
+              }}
+            >
+              + タスク
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -354,18 +358,20 @@ function CaseNode({
         ) : (
           <span className={s["task-tree-name"]}>{caseItem.name}</span>
         )}
-        <span
-          className={s["task-tree-add-btn"]}
-          title="タスクを追加"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!expanded) tasks.toggleExpand(caseItem.id);
-            const name = prompt("タスク名:");
-            if (name?.trim()) tasks.addTask(caseItem.projectId, caseItem.id, name.trim());
-          }}
-        >
-          +
-        </span>
+        {!tasks.metadataReadOnly && (
+          <span
+            className={s["task-tree-add-btn"]}
+            title="タスクを追加"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!expanded) tasks.toggleExpand(caseItem.id);
+              const name = prompt("タスク名:");
+              if (name?.trim()) tasks.addTask(caseItem.projectId, caseItem.id, name.trim());
+            }}
+          >
+            +
+          </span>
+        )}
       </div>
 
       {expanded && (

@@ -1,4 +1,5 @@
 import { useEffect, useState, type RefObject } from "react";
+import { supportsWebLocks } from "../lib/webLocks";
 
 export type DocumentEditLeaseStatus = "owned" | "waiting" | "unsupported";
 
@@ -11,7 +12,7 @@ function startDocumentEditLease(
   onStatus: (status: DocumentEditLeaseStatus) => void,
   beforeAcquire: () => Promise<void>,
 ): (beforeRelease: () => Promise<void>) => void {
-  if (!navigator.locks) {
+  if (!supportsWebLocks()) {
     // A shared Active Draft is only safe when the browser can guarantee one
     // editor per document. Failing closed avoids silently overwriting another
     // tab's draft in browsers without Web Locks.

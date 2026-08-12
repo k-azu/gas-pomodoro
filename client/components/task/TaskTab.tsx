@@ -11,9 +11,17 @@ import { ContentHeader } from "../shared/ContentHeader";
 import { TaskTree } from "./TaskTree";
 import { TaskContent } from "./TaskContent";
 import { lsGet, lsSet } from "../../lib/localStorage";
+import { documentKey } from "../../lib/documentSync";
+import { canMutateMetadata } from "../../lib/editPermissions";
 import s from "./TaskTab.module.css";
 
 const SIDEBAR_KEY = "gas_pomodoro_task_sidebar_collapsed";
+
+function documentScope(type: EditableNodeType): string {
+  if (type === "case") return "cases";
+  if (type === "task") return "tasks";
+  return "projects";
+}
 
 export function TaskTab() {
   const tasks = useTasks();
@@ -35,12 +43,16 @@ export function TaskTab() {
     setSelectedDocumentReadOnly(true);
   }, [selectedDocumentKey]);
 
-  const contextItemReadOnly = Boolean(
-    contextMenu &&
-    tasks.selectedNode?.type === contextMenu.type &&
-    tasks.selectedNode.id === contextMenu.data.id &&
-    selectedDocumentReadOnly,
-  );
+  const activeDocumentKey =
+    tasks.selectedNode && tasks.selectedNode.type !== "all"
+      ? documentKey(documentScope(tasks.selectedNode.type), tasks.selectedNode.id)
+      : undefined;
+  const contextItemReadOnly = contextMenu
+    ? !canMutateMetadata(documentKey(documentScope(contextMenu.type), contextMenu.data.id), {
+        activeDocumentKey,
+        activeDocumentReadOnly: selectedDocumentReadOnly,
+      })
+    : false;
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
@@ -74,6 +86,7 @@ export function TaskTab() {
               ? [
                   {
                     label: "案件を追加",
+                    disabled: tasks.metadataReadOnly,
                     onClick: () => {
                       const name = prompt("案件名:");
                       if (name?.trim()) {
@@ -83,6 +96,7 @@ export function TaskTab() {
                   },
                   {
                     label: "タスクを追加",
+                    disabled: tasks.metadataReadOnly,
                     onClick: () => {
                       const name = prompt("タスク名:");
                       if (name?.trim()) {
@@ -96,6 +110,7 @@ export function TaskTab() {
               ? [
                   {
                     label: "タスクを追加",
+                    disabled: tasks.metadataReadOnly,
                     onClick: () => {
                       const name = prompt("タスク名:");
                       if (name?.trim()) {
@@ -159,6 +174,7 @@ export function TaskTab() {
         onToggle={toggleSidebar}
         headerSlot={
           <SidebarAddButton
+            disabled={tasks.metadataReadOnly}
             onClick={() => {
               const name = prompt("プロジェクト名:");
               if (name?.trim()) tasks.addProject(name.trim());

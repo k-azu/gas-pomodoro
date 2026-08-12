@@ -36,6 +36,27 @@ async function openSameMemo(context: BrowserContext, mockDelay?: string) {
   };
 }
 
+async function dragSidebarItemAfter(page: Page, draggingId: string, targetId: string) {
+  const dragging = page.locator(`[class*='sidebar-item'][data-id="${draggingId}"]`);
+  const target = page.locator(`[class*='sidebar-item'][data-id="${targetId}"]`);
+  const [draggingBox, targetBox] = await Promise.all([
+    dragging.boundingBox(),
+    target.boundingBox(),
+  ]);
+  if (!draggingBox || !targetBox) throw new Error("Cannot resolve sidebar item positions");
+
+  await page.mouse.move(
+    draggingBox.x + draggingBox.width / 2,
+    draggingBox.y + draggingBox.height / 2,
+  );
+  await page.mouse.down();
+  await page.waitForTimeout(300);
+  await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height, {
+    steps: 5,
+  });
+  await page.mouse.up();
+}
+
 test.describe("文書本文のタブ間調停", () => {
   test("同じ文書は一方だけが編集し、終了後に編集権を引き継ぐ", async ({ context }) => {
     const { owner, waiting } = await openSameMemo(context);
@@ -188,6 +209,54 @@ test.describe("文書本文のタブ間調停", () => {
         .filter(Boolean);
     }, logKey);
     expect(completedNames).toEqual([firstName, latestName]);
+  });
+
+  test("並び替えはタブ間で最新のコレクション状態だけを同期する", async ({ context }) => {
+    const pageA = await context.newPage();
+    const pageB = await context.newPage();
+    await Promise.all([gotoApp(pageA), gotoApp(pageB)]);
+
+    await dragSidebarItemAfter(pageA, "mock-memo-1", "mock-memo-2");
+    await expect
+      .poll(async () => {
+        const intent = await idbGet(pageA, "collectionSyncIntents", "memos:root");
+        return intent?.args?.[0]?.slice(0, 2);
+      })
+      .toEqual(["mock-memo-2", "mock-memo-1"]);
+    await expect
+      .poll(() =>
+        pageB
+          .locator("[class*='sidebar-item'][data-id]")
+          .evaluateAll((items) =>
+            items.slice(0, 2).map((item) => (item as HTMLElement).dataset.id),
+          ),
+      )
+      .toEqual(["mock-memo-2", "mock-memo-1"]);
+
+    await dragSidebarItemAfter(pageB, "mock-memo-2", "mock-memo-1");
+    await expect
+      .poll(async () => {
+        const intent = await idbGet(pageB, "collectionSyncIntents", "memos:root");
+        return intent?.args?.[0]?.slice(0, 2);
+      })
+      .toEqual(["mock-memo-1", "mock-memo-2"]);
+
+    await expect
+      .poll(
+        () =>
+          pageB.evaluate(() => {
+            const state = JSON.parse(
+              localStorage.getItem("gas_pomodoro_mock_server_metadata") || "{}",
+            );
+            return [
+              state.memos?.["mock-memo-1"]?.sortOrder,
+              state.memos?.["mock-memo-2"]?.sortOrder,
+            ];
+          }),
+        { timeout: 10_000 },
+      )
+      .toEqual([1, 2]);
+    await expect.poll(() => idbGet(pageB, "collectionSyncIntents", "memos:root")).toBeNull();
   });
 
   test("Web Locks非対応ではDraft競合を避けるため読み取り専用にする", async ({ page }) => {
@@ -786,6 +855,21 @@ test.describe("文書本文のタブ間調停", () => {
       )
       .toBe(2);
     await expect(page.getByLabel("回復用の本文")).toHaveCount(0);
+
+    await expect
+      .poll(async () => {
+        const projects = await idbGetAll(page, "projects");
+        return projects.find((item) => item.name === projectName && item._pendingCreate === false);
+      })
+      .not.toBeUndefined();
+    await page.reload();
+    await page.getByRole("button", { name: "タスク", exact: true }).click();
+    await expect(page.locator('[data-type="project"]', { hasText: projectName })).toBeVisible();
+    const reloadedProjects = await idbGetAll(page, "projects");
+    expect(reloadedProjects.find((item) => item.name === projectName)).toMatchObject({
+      isActive: true,
+      _pendingCreate: false,
+    });
   });
 
   test("新規作成の応答喪失後も同じIDで冪等に再試行する", async ({ page }) => {
@@ -851,5 +935,21 @@ test.describe("文書本文のタブ間調停", () => {
       )
       .toBe(2);
     await expect(page.getByLabel("回復用の本文")).toHaveCount(0);
+
+    await expect
+      .poll(async () => {
+        const memos = await idbGetAll(page, "memos");
+        return memos.find((item) => item.name === "新しいメモ" && item._pendingCreate === false);
+      })
+      .not.toBeUndefined();
+    await page.reload();
+    await expect(
+      page.locator("[class*='sidebar-item']", { hasText: "新しいメモ" }).last(),
+    ).toBeVisible();
+    const reloadedMemos = await idbGetAll(page, "memos");
+    expect(reloadedMemos.find((item) => item.name === "新しいメモ")).toMatchObject({
+      isActive: true,
+      _pendingCreate: false,
+    });
   });
 });
