@@ -28,10 +28,7 @@ let _oldestCachedDate: string | null = null;
 export function registerStores(): void {
   EntityStore.register(STORE_RECORDS, {
     keyPath: "id",
-    indexes: [
-      { name: "date", keyPath: "date", options: { unique: false } },
-      { name: "taskId", keyPath: "taskId", options: { unique: false } },
-    ],
+    indexes: [{ name: "date", keyPath: "date", options: { unique: false } }],
   });
   EntityStore.register(STORE_INTERRUPTIONS, {
     keyPath: "id",

@@ -898,15 +898,6 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
         tasks: MOCK_TASKS,
       };
 
-    case "getTaskPomodoroData": {
-      const records = MOCK_RECORDS.filter((record) => record.taskId === args[0]);
-      const pomodoroIds = new Set(records.map((record) => record.id));
-      return {
-        records,
-        interruptions: MOCK_INTERRUPTIONS.filter((record) => pomodoroIds.has(record.pomodoroId)),
-      };
-    }
-
     case "putDocumentContent": {
       const request = args[0] as {
         documentKey: string;

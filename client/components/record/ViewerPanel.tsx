@@ -279,7 +279,6 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       // Write-through the single final server snapshot to IDB.
       if (result.record) await RecordCache.upsertRecord(result.record);
       if (result.interruption) await RecordCache.upsertInterruptions([result.interruption]);
-      vs.onServerSaved?.();
 
       origCategory.current = newCategory;
       origType.current = newType as "work" | "nonWork";

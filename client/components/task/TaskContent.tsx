@@ -10,16 +10,12 @@ import { STATUS_CONFIG, STATUS_ITEMS_WITH_ARCHIVED, statusLabelToKey } from "../
 import { useDocumentEditor } from "../../hooks/useDocumentEditor";
 import { useDocumentSearchNavigation } from "../../hooks/useDocumentSearchNavigation";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
-import { useTaskPomodoroData } from "../../hooks/useTaskPomodoroData";
-import { useApp } from "../../contexts/AppContext";
 import { useNavigation } from "../../contexts/NavigationContext";
-import type { ViewerState } from "../../contexts/NavigationContext";
 import { ItemPicker } from "../shared/ItemPicker";
 import { ContentHeaderName } from "../shared/ContentHeader";
 import { FolderIcon, TaskListIcon } from "../shared/Icons";
 import { SidebarExpandButton } from "../shared/Sidebar";
 import { RecordField } from "../shared/RecordField";
-import { RecordRow } from "../shared/RecordRow";
 import { EditorLayout, ToolbarSlot, MetaTitle } from "../shared/EditorLayout";
 import { SyncIndicator, type SyncStatus } from "../shared/SyncIndicator";
 import { DocumentSearchNavigation } from "../search/DocumentSearchNavigation";
@@ -270,9 +266,6 @@ function TaskDocumentContent({
           />
         )}
       </EditorLayout>
-
-      {/* Work records — task only */}
-      {type === "task" && !standalone && <TaskWorkRecords key={id} id={id} />}
     </div>
   );
 }
@@ -493,104 +486,4 @@ function TaskMeta({
       </RecordField>
     </>
   );
-}
-
-// =========================================================
-// Work Records
-// =========================================================
-
-function TaskWorkRecords({ id }: { id: string }) {
-  const [shouldLoad, setShouldLoad] = useState(false);
-  const { records, interruptions, isLoading, hasLoaded, hasError, refresh } = useTaskPomodoroData(
-    id,
-    shouldLoad,
-  );
-  const { timer } = useApp();
-  const { showViewer, isViewerSaving } = useNavigation();
-
-  const guardedShowViewer = useCallback(
-    (state: ViewerState) => {
-      if (isViewerSaving) return;
-      showViewer(state);
-    },
-    [showViewer, isViewerSaving],
-  );
-
-  const categories = timer.state.categories;
-  const intCategories = timer.state.interruptionCategories;
-
-  const colorMap: Record<string, string> = {};
-  categories.forEach((c) => {
-    colorMap[c.name] = c.color;
-  });
-
-  // Group interruptions by pomodoroId
-  const intMap: Record<string, typeof interruptions> = {};
-  interruptions.forEach((i) => {
-    if (!intMap[i.pomodoroId]) intMap[i.pomodoroId] = [];
-    intMap[i.pomodoroId].push(i);
-  });
-
-  const workRecords = records.filter((r) => r.type === "work");
-  const totalWorkSeconds = workRecords.reduce(
-    (total, record) => total + record.actualDurationSeconds,
-    0,
-  );
-
-  return (
-    <details
-      className={s["task-records-section"]}
-      onToggle={(event) => {
-        if (event.currentTarget.open) setShouldLoad(true);
-      }}
-    >
-      <summary>
-        作業記録
-        {hasLoaded && (
-          <span className={s["task-records-summary-stats"]}>
-            🍅 × {workRecords.length}
-            <span className={s["task-records-summary-separator"]}>·</span>
-            合計 {formatTime(totalWorkSeconds)}
-          </span>
-        )}
-      </summary>
-      <div className={s["task-records-list"]}>
-        {isLoading && workRecords.length === 0 && (
-          <div className={s["task-records-loading"]}>読み込み中...</div>
-        )}
-        {hasError && <div className={s["task-records-error"]}>作業記録を取得できませんでした</div>}
-        {hasLoaded && workRecords.length === 0 && (
-          <div className={s["task-records-empty"]}>作業記録がありません</div>
-        )}
-        {workRecords.length > 0 && (
-          <ul className={s["task-records-ul"]}>
-            {workRecords.map((r) => (
-              <RecordRow
-                key={r.id}
-                record={r}
-                interruptions={intMap[r.id] || []}
-                colorMap={colorMap}
-                intCategories={intCategories}
-                showViewer={guardedShowViewer}
-                onServerSaved={refresh}
-              />
-            ))}
-          </ul>
-        )}
-      </div>
-    </details>
-  );
-}
-
-// =========================================================
-// Helpers
-// =========================================================
-
-function formatTime(seconds: number): string {
-  if (!seconds) return "0m";
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) return `${hours}h${mins > 0 ? `${mins}m` : ""}`;
-  if (mins === 0) return `${seconds}s`;
-  return `${mins}m`;
 }
