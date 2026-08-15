@@ -279,6 +279,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       // Write-through the single final server snapshot to IDB.
       if (result.record) await RecordCache.upsertRecord(result.record);
       if (result.interruption) await RecordCache.upsertInterruptions([result.interruption]);
+      vs.onServerSaved?.();
 
       origCategory.current = newCategory;
       origType.current = newType as "work" | "nonWork";
@@ -572,23 +573,18 @@ function buildSavedViewerState(
 ): ViewerState {
   const start = startTime ? new Date(startTime) : null;
   const end = endTime ? new Date(endTime) : null;
-  const hasValidTimes =
-    start !== null &&
-    end !== null &&
-    Number.isFinite(start.getTime()) &&
-    Number.isFinite(end.getTime());
+  const savedStartTime =
+    start && Number.isFinite(start.getTime()) ? start.toISOString() : source.startTime;
+  const savedEndTime = end && Number.isFinite(end.getTime()) ? end.toISOString() : source.endTime;
   return {
     ...source,
     markdown,
     category,
     interruptionType: source.interruptionType ? interruptionType : null,
-    startTime: start?.toISOString() ?? source.startTime,
-    endTime: end?.toISOString() ?? source.endTime,
+    startTime: savedStartTime,
+    endTime: savedEndTime,
     projectId,
     caseId,
     taskId,
-    actualDurationSeconds: hasValidTimes
-      ? Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000))
-      : source.actualDurationSeconds,
   };
 }

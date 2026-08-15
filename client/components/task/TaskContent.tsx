@@ -10,7 +10,7 @@ import { STATUS_CONFIG, STATUS_ITEMS_WITH_ARCHIVED, statusLabelToKey } from "../
 import { useDocumentEditor } from "../../hooks/useDocumentEditor";
 import { useDocumentSearchNavigation } from "../../hooks/useDocumentSearchNavigation";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
-import { useTaskRecordCache } from "../../hooks/useTaskRecordCache";
+import { useTaskPomodoroData } from "../../hooks/useTaskPomodoroData";
 import { useApp } from "../../contexts/AppContext";
 import { useNavigation } from "../../contexts/NavigationContext";
 import type { ViewerState } from "../../contexts/NavigationContext";
@@ -501,7 +501,7 @@ function TaskMeta({
 
 function TaskWorkRecords({ id }: { id: string }) {
   const [shouldLoad, setShouldLoad] = useState(false);
-  const { records, interruptions, isLoading, hasLoaded, hasError } = useTaskRecordCache(
+  const { records, interruptions, isLoading, hasLoaded, hasError, refresh } = useTaskPomodoroData(
     id,
     shouldLoad,
   );
@@ -572,6 +572,7 @@ function TaskWorkRecords({ id }: { id: string }) {
                 colorMap={colorMap}
                 intCategories={intCategories}
                 showViewer={guardedShowViewer}
+                onServerSaved={refresh}
               />
             ))}
           </ul>

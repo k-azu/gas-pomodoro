@@ -39,8 +39,8 @@ export interface ViewerState {
   caseId?: string;
   taskId?: string;
   onSaveHierarchy?: (projectId: string, caseId: string, taskId: string) => void;
-  /** Actual duration in seconds (work records, for task stats delta) */
-  actualDurationSeconds?: number;
+  /** Refresh the source list after a persisted record or interruption is saved. */
+  onServerSaved?: () => void;
   /** Stable identity for an in-memory interruption draft */
   draftId?: string;
 }

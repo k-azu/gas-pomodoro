@@ -41,12 +41,14 @@ export function RecordRow({
   colorMap,
   intCategories,
   showViewer,
+  onServerSaved,
 }: {
   record: PomodoroRecord;
   interruptions: InterruptionRecord[];
   colorMap: Record<string, string>;
   intCategories: CategoryItem[];
   showViewer: (state: ViewerState) => void;
+  onServerSaved?: () => void;
 }) {
   const catColor = r.category ? colorMap[r.category] : undefined;
   const firstLine = (r.content || "")
@@ -84,7 +86,7 @@ export function RecordRow({
             projectId: r.projectId || "",
             caseId: r.caseId || "",
             taskId: r.taskId || "",
-            actualDurationSeconds: r.actualDurationSeconds,
+            onServerSaved,
           })
         }
       >
@@ -100,6 +102,7 @@ export function RecordRow({
               int={int}
               intCategories={intCategories}
               showViewer={showViewer}
+              onServerSaved={onServerSaved}
             />
           ))}
         </div>
@@ -116,10 +119,12 @@ export function InterruptionRow({
   int,
   intCategories,
   showViewer,
+  onServerSaved,
 }: {
   int: InterruptionRecord;
   intCategories: CategoryItem[];
   showViewer: (state: ViewerState) => void;
+  onServerSaved?: () => void;
 }) {
   const typeLabel = int.type === "work" ? "作業" : "非作業";
   const intMins = Math.floor(int.durationSeconds / 60);
@@ -157,6 +162,7 @@ export function InterruptionRow({
           interruptionType: (int.type as "work" | "nonWork") || null,
           startTime: int.startTime,
           endTime: int.endTime,
+          onServerSaved,
         });
       }}
     >

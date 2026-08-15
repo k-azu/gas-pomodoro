@@ -366,27 +366,6 @@ const MOCK_TASKS = [
   },
 ];
 
-const MOCK_TASK_RECORDS = [
-  {
-    id: "mock-rec-1",
-    type: "work",
-    content: "機能Aの実装",
-    actualDurationSeconds: 1500,
-    startTime: new Date(Date.now() - 3600000).toISOString(),
-    endTime: new Date(Date.now() - 2100000).toISOString(),
-    category: "開発",
-  },
-  {
-    id: "mock-rec-3",
-    type: "work",
-    content: "バグ調査",
-    actualDurationSeconds: 900,
-    startTime: new Date(Date.now() - 10800000).toISOString(),
-    endTime: new Date(Date.now() - 9300000).toISOString(),
-    category: "開発",
-  },
-];
-
 // =========================================================
 // Content-function names that support scenario + extra delay
 // =========================================================
@@ -919,8 +898,14 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
         tasks: MOCK_TASKS,
       };
 
-    case "getTaskPomodoroRecords":
-      return MOCK_TASK_RECORDS.filter((record) => record.taskId === args[0]);
+    case "getTaskPomodoroData": {
+      const records = MOCK_RECORDS.filter((record) => record.taskId === args[0]);
+      const pomodoroIds = new Set(records.map((record) => record.id));
+      return {
+        records,
+        interruptions: MOCK_INTERRUPTIONS.filter((record) => pomodoroIds.has(record.pomodoroId)),
+      };
+    }
 
     case "putDocumentContent": {
       const request = args[0] as {

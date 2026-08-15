@@ -103,10 +103,6 @@ export function getRecordsByDate(dateStr: string): Promise<PomodoroRecord[]> {
   return EntityStore.getByIndex(STORE_RECORDS, "date", dateStr);
 }
 
-export function getRecordsByTaskId(taskId: string): Promise<PomodoroRecord[]> {
-  return EntityStore.getByIndex(STORE_RECORDS, "taskId", taskId);
-}
-
 export async function getInterruptionsByPomodoroIds(
   pomodoroIds: string[],
 ): Promise<InterruptionRecord[]> {
@@ -150,18 +146,6 @@ export async function upsertRecordWithInterruptions(
     interruptions.length > 0 ? EntityStore.putBatch(STORE_INTERRUPTIONS, interruptions) : undefined,
   ]);
   EntityStore.emit(EVENT_CHANGED, { op: "upsert", dateStr: record.date, id: record.id });
-}
-
-export async function replaceTaskRecords(taskId: string, records: PomodoroRecord[]): Promise<void> {
-  const cachedRecords = await getRecordsByTaskId(taskId);
-  const serverIds = new Set(records.map((record) => record.id));
-  const staleRecords = cachedRecords.filter((record) => !serverIds.has(record.id));
-
-  await Promise.all([
-    EntityStore.putBatch(STORE_RECORDS, records),
-    ...staleRecords.map((record) => EntityStore.remove(STORE_RECORDS, record.id)),
-  ]);
-  EntityStore.emit(EVENT_CHANGED, { op: "replaceTaskRecords", taskId });
 }
 
 // =========================================================

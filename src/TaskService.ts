@@ -48,6 +48,11 @@ interface TaskMetadata {
   lastMetadataMutationId: string;
 }
 
+interface TaskPomodoroData {
+  records: PomodoroRecord[];
+  interruptions: InterruptionRecord[];
+}
+
 function getAllTaskData(): {
   projects: ProjectMetadata[];
   cases: CaseMetadata[];
@@ -450,13 +455,33 @@ function reorderTasks(_parentId: string, orderedIds: string[]): { success: boole
   }
 }
 
-function getTaskPomodoroRecords(taskId: string): PomodoroRecord[] {
-  if (!taskId) return [];
+function readMatchedRows(
+  sheet: GoogleAppsScript.Spreadsheet.Sheet,
+  rowNumbers: number[],
+  columnCount: number,
+): unknown[][] {
+  if (rowNumbers.length === 0) return [];
+
+  const matchedRows = new Set(rowNumbers);
+  let firstRow = rowNumbers[0];
+  let lastRow = rowNumbers[0];
+  rowNumbers.forEach((rowNumber) => {
+    if (rowNumber < firstRow) firstRow = rowNumber;
+    if (rowNumber > lastRow) lastRow = rowNumber;
+  });
+  return sheet
+    .getRange(firstRow, 1, lastRow - firstRow + 1, columnCount)
+    .getValues()
+    .filter((_row, index) => matchedRows.has(firstRow + index));
+}
+
+function getTaskPomodoroData(taskId: string): TaskPomodoroData {
+  if (!taskId) return { records: [], interruptions: [] };
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("PomodoroLog")!;
   const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return [];
+  if (lastRow <= 1) return { records: [], interruptions: [] };
 
   const tz = Session.getScriptTimeZone();
   const taskIdRange = sheet.getRange(2, 16, lastRow - 1, 1);
@@ -466,6 +491,24 @@ function getTaskPomodoroRecords(taskId: string): PomodoroRecord[] {
     .findAll()
     .map((range) => range.getRow())
     .sort((a, b) => b - a);
+  const records = readMatchedRows(sheet, rowNumbers, 18)
+    .map((row) => readRecordFromRow(row, tz))
+    .reverse();
 
-  return rowNumbers.map((rowNumber) => readRecordRow(sheet, rowNumber, tz));
+  if (records.length === 0) return { records, interruptions: [] };
+
+  const pomodoroIds = new Set(records.map((record) => record.id));
+  const interruptionSheet = ss.getSheetByName("Interruptions")!;
+  const interruptionLastRow = interruptionSheet.getLastRow();
+  if (interruptionLastRow <= 1) return { records, interruptions: [] };
+
+  const interruptionRowNumbers = interruptionSheet
+    .getRange(2, 2, interruptionLastRow - 1, 1)
+    .getValues()
+    .flatMap((row, index) => (pomodoroIds.has(String(row[0])) ? [index + 2] : []));
+  const interruptions = readMatchedRows(interruptionSheet, interruptionRowNumbers, 8).map((row) =>
+    readInterruptionFromRow(row),
+  );
+
+  return { records, interruptions };
 }
