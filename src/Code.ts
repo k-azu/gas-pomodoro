@@ -136,7 +136,7 @@ function getAllDocumentData(): {
   cases: CaseMetadata[];
   tasks: TaskMetadata[];
 } {
-  const taskData = getAllTaskData(false);
+  const taskData = getAllTaskData();
   return {
     memos: getMemos(),
     projects: taskData.projects,

@@ -29,8 +29,6 @@ export interface Task extends BaseEntity {
   completedAt: string;
   startedAt: string;
   dueDate: string;
-  _cachedTimeSeconds?: number;
-  _cachedPomodoroCount?: number;
 }
 
 export interface Memo extends BaseEntity {

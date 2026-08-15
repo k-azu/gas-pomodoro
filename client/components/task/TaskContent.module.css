@@ -48,11 +48,6 @@
   transform: scale(1.1);
 }
 
-.task-detail-time {
-  font-size: 0.82rem;
-  color: rgba(55, 53, 47, 0.65);
-}
-
 .task-date-input {
   border: 1px solid transparent;
   border-radius: 4px;
@@ -173,6 +168,17 @@
   color: var(--text);
 }
 
+.task-records-summary-stats {
+  margin-left: 10px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.task-records-summary-separator {
+  margin: 0 6px;
+  color: var(--text-secondary);
+}
+
 .task-records-list {
   padding: 0 16px 8px;
   max-height: 200px;
@@ -180,11 +186,16 @@
 }
 
 .task-records-loading,
+.task-records-error,
 .task-records-empty {
   padding: 12px 0;
   font-size: 0.8rem;
   color: var(--text-secondary);
   text-align: center;
+}
+
+.task-records-error {
+  color: #c62828;
 }
 
 .task-records-ul {

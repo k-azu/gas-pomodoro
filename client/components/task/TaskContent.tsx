@@ -491,11 +491,6 @@ function TaskMeta({
           onChange={(e) => tasks.updateTaskFields(id, { dueDate: e.target.value || "" })}
         />
       </RecordField>
-      {entity._cachedTimeSeconds ? (
-        <RecordField label="作業時間">
-          <span className={s["task-detail-time"]}>{formatTime(entity._cachedTimeSeconds)}</span>
-        </RecordField>
-      ) : null}
     </>
   );
 }
@@ -505,9 +500,11 @@ function TaskMeta({
 // =========================================================
 
 function TaskWorkRecords({ id }: { id: string }) {
-  const [entity] = useEntity("tasks", "task", id);
-  const pomodoroCount: number = entity?._cachedPomodoroCount || 0;
-  const { records, interruptions, isLoading } = useTaskRecordCache(id, pomodoroCount);
+  const [shouldLoad, setShouldLoad] = useState(false);
+  const { records, interruptions, isLoading, hasLoaded, hasError } = useTaskRecordCache(
+    id,
+    shouldLoad,
+  );
   const { timer } = useApp();
   const { showViewer, isViewerSaving } = useNavigation();
 
@@ -535,22 +532,34 @@ function TaskWorkRecords({ id }: { id: string }) {
   });
 
   const workRecords = records.filter((r) => r.type === "work");
-
-  const badge =
-    pomodoroCount > 0 && pomodoroCount <= 5
-      ? " " + "🍅".repeat(pomodoroCount)
-      : pomodoroCount > 5
-        ? ` 🍅×${pomodoroCount}`
-        : "";
+  const totalWorkSeconds = workRecords.reduce(
+    (total, record) => total + record.actualDurationSeconds,
+    0,
+  );
 
   return (
-    <details className={s["task-records-section"]}>
-      <summary>作業記録{badge}</summary>
+    <details
+      className={s["task-records-section"]}
+      onToggle={(event) => {
+        if (event.currentTarget.open) setShouldLoad(true);
+      }}
+    >
+      <summary>
+        作業記録
+        {hasLoaded && (
+          <span className={s["task-records-summary-stats"]}>
+            🍅 × {workRecords.length}
+            <span className={s["task-records-summary-separator"]}>·</span>
+            合計 {formatTime(totalWorkSeconds)}
+          </span>
+        )}
+      </summary>
       <div className={s["task-records-list"]}>
         {isLoading && workRecords.length === 0 && (
           <div className={s["task-records-loading"]}>読み込み中...</div>
         )}
-        {!isLoading && workRecords.length === 0 && (
+        {hasError && <div className={s["task-records-error"]}>作業記録を取得できませんでした</div>}
+        {hasLoaded && workRecords.length === 0 && (
           <div className={s["task-records-empty"]}>作業記録がありません</div>
         )}
         {workRecords.length > 0 && (
@@ -577,9 +586,10 @@ function TaskWorkRecords({ id }: { id: string }) {
 // =========================================================
 
 function formatTime(seconds: number): string {
-  if (!seconds) return "";
+  if (!seconds) return "0m";
   const hours = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   if (hours > 0) return `${hours}h${mins > 0 ? `${mins}m` : ""}`;
+  if (mins === 0) return `${seconds}s`;
   return `${mins}m`;
 }

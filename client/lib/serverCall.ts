@@ -243,8 +243,6 @@ const MOCK_TASKS = [
     content: "",
     createdAt: "2025-01-20T00:00:00.000Z",
     updatedAt: "2025-01-25T00:00:00.000Z",
-    _cachedTimeSeconds: 5400,
-    _cachedPomodoroCount: 3,
   },
   {
     id: "mock-task-2",
@@ -260,8 +258,6 @@ const MOCK_TASKS = [
     content: "",
     createdAt: "2025-01-22T00:00:00.000Z",
     updatedAt: "2025-01-26T00:00:00.000Z",
-    _cachedTimeSeconds: 900,
-    _cachedPomodoroCount: 1,
   },
   {
     id: "mock-task-3",
@@ -277,8 +273,6 @@ const MOCK_TASKS = [
     content: "",
     createdAt: "2025-01-25T00:00:00.000Z",
     updatedAt: "2025-01-25T00:00:00.000Z",
-    _cachedTimeSeconds: 0,
-    _cachedPomodoroCount: 0,
   },
   {
     id: "mock-task-4",
@@ -294,8 +288,6 @@ const MOCK_TASKS = [
     content: "",
     createdAt: "2025-01-15T00:00:00.000Z",
     updatedAt: "2025-01-19T00:00:00.000Z",
-    _cachedTimeSeconds: 7200,
-    _cachedPomodoroCount: 5,
   },
   {
     id: "mock-task-5",
@@ -311,8 +303,6 @@ const MOCK_TASKS = [
     content: "",
     createdAt: "2025-02-01T00:00:00.000Z",
     updatedAt: "2025-02-01T00:00:00.000Z",
-    _cachedTimeSeconds: 0,
-    _cachedPomodoroCount: 0,
   },
   {
     id: "mock-task-6",
@@ -328,8 +318,6 @@ const MOCK_TASKS = [
     content: "",
     createdAt: "2025-02-05T00:00:00.000Z",
     updatedAt: "2025-02-05T00:00:00.000Z",
-    _cachedTimeSeconds: 0,
-    _cachedPomodoroCount: 0,
   },
   {
     id: "mock-task-7",
@@ -345,8 +333,6 @@ const MOCK_TASKS = [
     content: "",
     createdAt: "2024-12-10T00:00:00.000Z",
     updatedAt: "2024-12-15T00:00:00.000Z",
-    _cachedTimeSeconds: 1800,
-    _cachedPomodoroCount: 1,
   },
   {
     id: "mock-task-8",
@@ -362,8 +348,6 @@ const MOCK_TASKS = [
     content: "",
     createdAt: "2024-12-05T00:00:00.000Z",
     updatedAt: "2024-12-18T00:00:00.000Z",
-    _cachedTimeSeconds: 3600,
-    _cachedPomodoroCount: 2,
   },
   {
     id: "mock-task-9",
@@ -379,8 +363,6 @@ const MOCK_TASKS = [
     content: "",
     createdAt: "2024-12-08T00:00:00.000Z",
     updatedAt: "2024-12-08T00:00:00.000Z",
-    _cachedTimeSeconds: 0,
-    _cachedPomodoroCount: 0,
   },
 ];
 
@@ -938,7 +920,7 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
       };
 
     case "getTaskPomodoroRecords":
-      return MOCK_TASK_RECORDS;
+      return MOCK_TASK_RECORDS.filter((record) => record.taskId === args[0]);
 
     case "putDocumentContent": {
       const request = args[0] as {

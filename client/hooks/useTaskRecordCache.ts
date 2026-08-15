@@ -1,9 +1,8 @@
 /**
- * useTaskRecordCache — IDB-first record access by taskId, with server fallback.
+ * useTaskRecordCache — Lazy, IDB-backed record access by taskId.
  *
- * 1. Reads IDB via RecordCache.getRecordsByTaskId
- * 2. Compares IDB work-record count with pomodoroCount (from entity)
- * 3. If mismatch → fetches from server, upserts into IDB → auto-reloads via event
+ * Nothing is read until enabled becomes true. On first enable, cached records are
+ * shown while the authoritative task records are fetched from the server.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { PomodoroRecord, InterruptionRecord } from "../types";
@@ -14,18 +13,33 @@ export interface UseTaskRecordCacheReturn {
   records: PomodoroRecord[];
   interruptions: InterruptionRecord[];
   isLoading: boolean;
+  hasLoaded: boolean;
+  hasError: boolean;
 }
 
-export function useTaskRecordCache(
-  taskId: string,
-  pomodoroCount: number,
-): UseTaskRecordCacheReturn {
+const inFlightRequests = new Map<string, Promise<PomodoroRecord[]>>();
+
+function fetchTaskRecords(taskId: string): Promise<PomodoroRecord[]> {
+  const existing = inFlightRequests.get(taskId);
+  if (existing) return existing;
+
+  const request = (
+    serverCall("getTaskPomodoroRecords", taskId) as Promise<PomodoroRecord[]>
+  ).finally(() => {
+    if (inFlightRequests.get(taskId) === request) inFlightRequests.delete(taskId);
+  });
+  inFlightRequests.set(taskId, request);
+  return request;
+}
+
+export function useTaskRecordCache(taskId: string, enabled: boolean): UseTaskRecordCacheReturn {
   const [records, setRecords] = useState<PomodoroRecord[]>([]);
   const [interruptions, setInterruptions] = useState<InterruptionRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
   const currentTaskId = useRef(taskId);
   currentTaskId.current = taskId;
-  const fetchedRef = useRef(false);
 
   const loadFromIDB = useCallback(async (tid: string) => {
     const recs = await RecordCache.getRecordsByTaskId(tid);
@@ -41,38 +55,27 @@ export function useTaskRecordCache(
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
+
     let cancelled = false;
-    fetchedRef.current = false;
 
     async function load() {
       setIsLoading(true);
-      const recs = await loadFromIDB(taskId);
+      setHasLoaded(false);
+      setHasError(false);
+      await loadFromIDB(taskId);
       if (cancelled) return;
 
-      const idbWorkCount = recs ? recs.filter((r) => r.type === "work").length : 0;
-
-      if (idbWorkCount >= pomodoroCount || pomodoroCount === 0) {
-        // IDB has all records
-        setIsLoading(false);
-        return;
-      }
-
-      // Mismatch — fetch from server
-      if (fetchedRef.current) {
-        setIsLoading(false);
-        return;
-      }
-      fetchedRef.current = true;
-
       try {
-        const serverRecs = (await serverCall("getTaskPomodoroRecords", taskId)) as PomodoroRecord[];
+        const serverRecords = await fetchTaskRecords(taskId);
         if (cancelled) return;
-        // Upsert each record into IDB (fires recordCacheChanged → loadFromIDB via event)
-        for (const r of serverRecs) {
-          await RecordCache.upsertRecord(r);
-        }
+        await RecordCache.replaceTaskRecords(taskId, serverRecords);
+        if (cancelled) return;
+        await loadFromIDB(taskId);
+        if (!cancelled) setHasLoaded(true);
       } catch (e) {
         console.error("useTaskRecordCache: server fetch failed:", e);
+        if (!cancelled) setHasError(true);
       }
       if (!cancelled) setIsLoading(false);
     }
@@ -81,16 +84,17 @@ export function useTaskRecordCache(
     return () => {
       cancelled = true;
     };
-  }, [taskId, pomodoroCount, loadFromIDB]);
+  }, [enabled, taskId, loadFromIDB]);
 
   // Listen for cache changes
   useEffect(() => {
+    if (!enabled) return;
     const handler = () => {
       loadFromIDB(currentTaskId.current);
     };
     RecordCache.on(handler);
     return () => RecordCache.off(handler);
-  }, [loadFromIDB]);
+  }, [enabled, loadFromIDB]);
 
-  return { records, interruptions, isLoading };
+  return { records, interruptions, isLoading, hasLoaded, hasError };
 }

@@ -17,7 +17,6 @@ import { useFormDraft } from "../../hooks/useFormDraft";
 import { STORAGE_KEYS } from "../../lib/localStorage";
 import { blobUrlsToDrive, resolveDriveUrls } from "../../lib/imageCache";
 import { serverCall } from "../../lib/serverCall";
-import * as TaskStore from "../../lib/taskStore";
 import * as RecordCache from "../../lib/recordCache";
 import { SaveOverlay } from "../shared/SaveOverlay";
 import s from "./RecordForm.module.css";
@@ -238,11 +237,6 @@ export function RecordForm() {
 
         // Write-through to IDB cache (single event emit)
         await RecordCache.upsertRecordWithInterruptions(record, intRecords);
-
-        // Update task stats (delta-based)
-        if (record.type === "work" && record.taskId) {
-          await TaskStore.adjustTaskStats(record.taskId, record.actualDurationSeconds, 1);
-        }
 
         // Clear draft before clearing form (prevents unmount flush re-saving)
         clearDraft();
