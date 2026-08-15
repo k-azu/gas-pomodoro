@@ -1,102 +1,37 @@
-/**
- * A. 初回ロード — mount 時の IDB → エディタ表示
- */
-import { test, expect } from "@playwright/test";
-import { idbSeedDirtyContent } from "./helpers/idb";
-import {
-  gotoApp,
-  selectMemo,
-  typeInEditor,
-  waitForSyncComplete,
-  getEditorText,
-} from "./helpers/app";
+import { expect, test } from "@playwright/test";
+import { gotoApp, selectMemo, setMockContentOverride, waitForSyncComplete } from "./helpers/app";
 
-const MEMO_STORE = "memos";
-const MEMO_2_ID = "mock-memo-2"; // "議事録"
+test("初期化で文書本文を一括取得し、通常切り替えでは追加取得しない", async ({ page }) => {
+  await gotoApp(page);
+  await waitForSyncComplete(page);
+  await expect(page.locator(".ProseMirror")).toContainText("今週のタスク");
 
-test.describe("A. 初回ロード", () => {
-  test("A1: IDB に内容あり → エディタに表示", async ({ page }) => {
-    // Seed content into IDB by typing
-    await gotoApp(page);
-    await waitForSyncComplete(page);
-    await selectMemo(page, "開発メモ");
-    await typeInEditor(page, "初回ロードテスト");
-    await page.waitForTimeout(2500); // 2s debounce + margin
+  await selectMemo(page, "議事録");
+  await expect(page.locator(".ProseMirror")).toContainText("週次ミーティング");
+  const calls = await page.evaluate(() => window.__mockServerCallCounts ?? {});
+  expect(calls.getAllInitData).toBe(1);
+  expect(calls.getMemoContent ?? 0).toBe(0);
+  expect(calls.getAllDocumentData ?? 0).toBe(0);
+});
 
-    // Reload → fresh initial load from IDB
-    await page.reload();
-    await page.waitForSelector("[class*='sidebar']", { timeout: 10_000 });
-    await selectMemo(page, "開発メモ");
-    await waitForSyncComplete(page);
+test("取得済みの空本文を未取得として扱わない", async ({ page }) => {
+  await gotoApp(page);
+  await waitForSyncComplete(page);
+  await selectMemo(page, "空のメモ");
+  await expect(page.locator(".ProseMirror")).toHaveText("");
+  await expect(page.locator(".ProseMirror")).toHaveAttribute("contenteditable", "true");
+});
 
-    const text = await getEditorText(page);
-    expect(text).toContain("初回ロードテスト");
+test("初期化されたMarkdownはundoでraw文字列や空本文へ戻らない", async ({ page }) => {
+  await setMockContentOverride(page, {
+    content: "# 初期見出し\n\n- **重要**: 初期本文",
+    updatedAt: "2030-01-01T00:00:00.000Z",
   });
-
-  test("A2: IDB 空 + 通常文書 → 遅延指定なしでサーバー内容を表示", async ({ page }) => {
-    await gotoApp(page);
-    await waitForSyncComplete(page);
-    await selectMemo(page, "開発メモ");
-    await waitForSyncComplete(page);
-
-    const text = await getEditorText(page);
-    expect(text).toContain("今週のタスク");
-  });
-
-  test("A3: サーバー上の空文書 → 空エディタ", async ({ page }) => {
-    await gotoApp(page);
-    await waitForSyncComplete(page);
-    await selectMemo(page, "空のメモ");
-    await waitForSyncComplete(page);
-
-    const text = await getEditorText(page);
-    expect(text.trim()).toBe("");
-  });
-
-  test("A4: syncing → readOnly → 完了後 editable", async ({ page }) => {
-    await gotoApp(page, { params: { mockDelay: "800" } });
-    await selectMemo(page, "開発メモ");
-
-    // During sync: syncing indicator visible + editor readOnly
-    const indicator = page.locator('[data-status="syncing"]');
-    await expect(indicator).toBeVisible({ timeout: 3_000 });
-    const editor = page.locator(".ProseMirror");
-    await expect(editor).toHaveAttribute("contenteditable", "false", { timeout: 3_000 });
-
-    // After sync: editor editable
-    await waitForSyncComplete(page);
-    await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 3_000 });
-  });
-
-  test("A5: 初回ロード後の undo でマークダウン形式にならない", async ({ page }) => {
-    // Seed markdown content in memo2 (not auto-selected, so editor won't overwrite)
-    await gotoApp(page);
-    await waitForSyncComplete(page);
-    await idbSeedDirtyContent(
-      page,
-      MEMO_STORE,
-      MEMO_2_ID,
-      "# テスト見出し\n\n**太字テキスト**です",
-    );
-
-    // Reload → fresh initial load from IDB
-    await page.reload();
-    await page.waitForSelector("[class*='sidebar']", { timeout: 10_000 });
-    await selectMemo(page, "議事録");
-    await waitForSyncComplete(page);
-
-    const editor = page.locator(".ProseMirror");
-    await expect(editor).toContainText("太字テキスト", { timeout: 5_000 });
-
-    // Press Ctrl+Z — should NOT revert to raw markdown
-    await editor.click();
-    for (let i = 0; i < 5; i++) {
-      await page.keyboard.press("Control+z");
-    }
-    await page.waitForTimeout(200);
-
-    const text = await getEditorText(page);
-    expect(text).not.toContain("# ");
-    expect(text).not.toContain("**");
-  });
+  await gotoApp(page);
+  await waitForSyncComplete(page);
+  const editor = page.locator(".ProseMirror");
+  await editor.click();
+  await page.keyboard.press("Control+z");
+  await expect(editor).toContainText("初期見出し");
+  await expect(editor).not.toContainText("# ");
 });

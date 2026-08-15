@@ -3,10 +3,11 @@
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import * as MemoStore from "../lib/memoStore";
-import * as EntityStore from "../lib/entityStore";
+import * as DocumentStore from "../lib/documentStore";
 import type { MemoTag } from "../types";
 import { STORAGE_KEYS, lsGet, lsSet, lsRemove } from "../lib/localStorage";
 import { useNavigation } from "../contexts/NavigationContext";
+import { flushActiveDocument, requestDocumentTransition } from "../lib/documentNavigationGuard";
 
 export interface MemoItem {
   id: string;
@@ -49,15 +50,15 @@ export function useMemos(): UseMemosReturn {
     return list;
   }, []);
 
-  // Listen for EntityStore data changes
+  // Listen for in-memory document changes
   useEffect(() => {
     const handler = (detail: { entityType?: string }) => {
       if (!detail || detail.entityType === "memo" || detail.entityType === "all") {
         refreshFromStore();
       }
     };
-    EntityStore.on("dataChanged", handler);
-    return () => EntityStore.off("dataChanged", handler);
+    DocumentStore.on(handler);
+    return () => DocumentStore.off(handler);
   }, [refreshFromStore]);
 
   // Initial load — determine active memo
@@ -93,9 +94,12 @@ export function useMemos(): UseMemosReturn {
 
   const selectMemo = useCallback(
     (id: string) => {
-      setActiveId(id);
-      lsSet(STORAGE_KEYS.MEMO_ACTIVE, id);
-      nav.notifyMemoChange(id);
+      if (id === activeIdRef.current) return;
+      void requestDocumentTransition(() => {
+        setActiveId(id);
+        lsSet(STORAGE_KEYS.MEMO_ACTIVE, id);
+        nav.notifyMemoChange(id);
+      });
     },
     [nav],
   );
@@ -103,6 +107,7 @@ export function useMemos(): UseMemosReturn {
   const createMemo = useCallback(async () => {
     setIsLoading(true);
     try {
+      if (!(await flushActiveDocument())) return;
       const id = await MemoStore.addMemo("新しいメモ");
       await refreshFromStore();
       setActiveId(id);
@@ -117,6 +122,7 @@ export function useMemos(): UseMemosReturn {
     async (id: string) => {
       setIsLoading(true);
       try {
+        if (activeIdRef.current === id && !(await flushActiveDocument())) return;
         await MemoStore.deleteMemo(id);
         const list = await refreshFromStore();
         if (activeIdRef.current === id) {
@@ -133,12 +139,16 @@ export function useMemos(): UseMemosReturn {
   );
 
   const renameMemo = useCallback((id: string, name: string) => {
-    MemoStore.renameMemo(id, name);
+    void MemoStore.renameMemo(id, name).catch((error) =>
+      console.error("Memo metadata save failed; the patch remains pending", error),
+    );
     setMemos((prev) => prev.map((m) => (m.id === id ? { ...m, name } : m)));
   }, []);
 
   const reorderMemos = useCallback((ids: string[]) => {
-    MemoStore.reorderMemos(ids);
+    void MemoStore.reorderMemos(ids).catch((error) =>
+      console.error("Memo order save failed", error),
+    );
     setMemos((prev) => {
       const map = new Map(prev.map((m) => [m.id, m]));
       return ids.map((id, i) => {
@@ -153,7 +163,9 @@ export function useMemos(): UseMemosReturn {
       prev.map((m) => {
         if (m.id !== id || m.tags.includes(tag)) return m;
         const newTags = [...m.tags, tag];
-        MemoStore.updateTags(id, newTags);
+        void MemoStore.updateTags(id, newTags).catch((error) =>
+          console.error("Memo metadata save failed; the patch remains pending", error),
+        );
         return { ...m, tags: newTags };
       }),
     );
@@ -164,7 +176,9 @@ export function useMemos(): UseMemosReturn {
       prev.map((m) => {
         if (m.id !== id) return m;
         const newTags = m.tags.filter((t) => t !== tag);
-        MemoStore.updateTags(id, newTags);
+        void MemoStore.updateTags(id, newTags).catch((error) =>
+          console.error("Memo metadata save failed; the patch remains pending", error),
+        );
         return { ...m, tags: newTags };
       }),
     );
@@ -181,7 +195,9 @@ export function useMemos(): UseMemosReturn {
   }, []);
 
   const updateTagsAction = useCallback((id: string, newTags: string[]) => {
-    MemoStore.updateTags(id, newTags);
+    void MemoStore.updateTags(id, newTags).catch((error) =>
+      console.error("Memo metadata save failed; the patch remains pending", error),
+    );
     setMemos((prev) => prev.map((m) => (m.id === id ? { ...m, tags: newTags } : m)));
   }, []);
 

@@ -3,6 +3,14 @@
   min-height: 100vh;
 }
 
+.document-layout {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 100vh;
+  background: var(--surface);
+}
+
 .loading-overlay {
   position: fixed;
   inset: 0;

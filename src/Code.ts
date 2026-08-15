@@ -1,6 +1,13 @@
-function doGet(): GoogleAppsScript.HTML.HtmlOutput {
+function doGet(event?: GoogleAppsScript.Events.DoGet): GoogleAppsScript.HTML.HtmlOutput {
   initializeSpreadsheet();
-  return HtmlService.createTemplateFromFile("index")
+  const template = HtmlService.createTemplateFromFile("index");
+  const query = event?.parameter ?? {};
+  template.documentView = query.view ?? "";
+  template.documentTab = query.tab ?? "";
+  template.documentMemo = query.memo ?? "";
+  template.documentType = query.type ?? "";
+  template.documentId = query.id ?? "";
+  return template
     .evaluate()
     .setTitle("Pomodoro Timer")
     .setFaviconUrl("https://drive.google.com/uc?id=1WaX5uI1Uxgt63EiOkIh1ZpiRmi77_w2h&.png") // ※ 任意
@@ -83,6 +90,7 @@ function getAllInitData(): {
   categories: CategoryItem[];
   interruptionCategories: CategoryItem[];
   spreadsheetUrl: string;
+  webAppUrl: string;
   recentRecordsBulk: PomodoroRecord[];
   recentInterruptionsBulk: InterruptionRecord[];
   memos: MemoMetadata[];
@@ -111,6 +119,7 @@ function getAllInitData(): {
     categories,
     interruptionCategories,
     spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl(),
+    webAppUrl: ScriptApp.getService().getUrl() || "",
     recentRecordsBulk: bulk.records,
     recentInterruptionsBulk: bulk.interruptions,
     memos,
@@ -118,5 +127,48 @@ function getAllInitData(): {
     projects: taskData.projects,
     cases: taskData.cases,
     tasks: taskData.tasks,
+  };
+}
+
+function getAllDocumentData(): {
+  memos: MemoMetadata[];
+  projects: ProjectMetadata[];
+  cases: CaseMetadata[];
+  tasks: TaskMetadata[];
+} {
+  const taskData = getAllTaskData(false);
+  return {
+    memos: getMemos(),
+    projects: taskData.projects,
+    cases: taskData.cases,
+    tasks: taskData.tasks,
+  };
+}
+
+function getDocumentViewInitData(documentKey: string): {
+  timerConfigs: TimerConfig[];
+  categories: CategoryItem[];
+  interruptionCategories: CategoryItem[];
+  spreadsheetUrl: string;
+  webAppUrl: string;
+  recentRecordsBulk: PomodoroRecord[];
+  recentInterruptionsBulk: InterruptionRecord[];
+  memos: MemoMetadata[];
+  memoTags: MemoTag[];
+  projects: ProjectMetadata[];
+  cases: CaseMetadata[];
+  tasks: TaskMetadata[];
+} {
+  const documents = getDocumentViewData(documentKey);
+  return {
+    timerConfigs: getAllTimerConfigs(),
+    categories: [],
+    interruptionCategories: [],
+    spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl(),
+    webAppUrl: ScriptApp.getService().getUrl() || "",
+    recentRecordsBulk: [],
+    recentInterruptionsBulk: [],
+    ...documents,
+    memoTags: documents.memos.length > 0 ? getMemoTags() : [],
   };
 }

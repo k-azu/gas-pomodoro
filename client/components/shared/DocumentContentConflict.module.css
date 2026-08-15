@@ -1,0 +1,58 @@
+.panel {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #d97706;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #78350f;
+}
+
+.panel p {
+  margin: 6px 0 10px;
+  font-size: 13px;
+}
+
+.versions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.versions label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.versions textarea {
+  min-height: 96px;
+  resize: vertical;
+  border: 1px solid #fbbf24;
+  border-radius: 4px;
+  padding: 8px;
+  background: white;
+  color: #292524;
+  font: 12px/1.45 ui-monospace, monospace;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.actions button {
+  padding: 6px 10px;
+  border: 1px solid #b45309;
+  border-radius: 4px;
+  background: white;
+  color: #78350f;
+  cursor: pointer;
+}
+
+@media (max-width: 720px) {
+  .versions {
+    grid-template-columns: 1fr;
+  }
+}

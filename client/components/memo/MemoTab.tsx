@@ -20,12 +20,21 @@ import { MemoIcon } from "../shared/Icons";
 import { EditorLayout, ToolbarSlot, MetaTitle } from "../shared/EditorLayout";
 import { SyncIndicator } from "../shared/SyncIndicator";
 import { DocumentSearchNavigation } from "../search/DocumentSearchNavigation";
+import { DocumentContentConflict } from "../shared/DocumentContentConflict";
+import { OpenDocumentWindowButton } from "../shared/OpenDocumentWindowButton";
 import * as MemoStore from "../../lib/memoStore";
+import * as DocumentStore from "../../lib/documentStore";
 import s from "./MemoTab.module.css";
 
 const SIDEBAR_KEY = "gas_pomodoro_memo_sidebar_collapsed";
 
-export function MemoTab() {
+export function MemoTab({
+  standalone = false,
+  documentId,
+}: {
+  standalone?: boolean;
+  documentId?: string;
+} = {}) {
   const memo = useMemos();
   const nav = useNavigation();
   const editorConfig = useEditorConfig();
@@ -36,15 +45,19 @@ export function MemoTab() {
     item: MemoItem;
   } | null>(null);
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
-  const liveActiveMemo = memo.memos.find((item) => item.id === memo.activeId);
+  const activeId = standalone && documentId ? documentId : memo.activeId;
+  const liveActiveMemo = memo.memos.find((item) => item.id === activeId);
+  const standaloneEntity =
+    standalone && activeId ? (DocumentStore.get("memos", activeId) as MemoItem | null) : null;
   const archivedSearchDocument =
     nav.searchOpenedDocument?.type === "memo" &&
-    nav.searchOpenedDocument.id === memo.activeId &&
+    nav.searchOpenedDocument.id === activeId &&
     nav.searchOpenedDocument.isArchived
       ? nav.searchOpenedDocument
       : null;
   const activeMemo: MemoItem | undefined =
     liveActiveMemo ??
+    standaloneEntity ??
     (archivedSearchDocument
       ? {
           id: archivedSearchDocument.id,
@@ -54,7 +67,8 @@ export function MemoTab() {
           isActive: false,
         }
       : undefined);
-  const isArchivedSearchDocument = Boolean(archivedSearchDocument);
+  const isArchivedSearchDocument =
+    Boolean(archivedSearchDocument) || Boolean(standaloneEntity?.isActive === false);
 
   const {
     editor,
@@ -67,9 +81,15 @@ export function MemoTab() {
     readOnly,
     syncStatus,
     contentRevision,
+    contentConflict,
+    keepLocalConflict,
+    acceptRemoteConflict,
+    handoffEditLease,
+    canOpenInNewTab,
+    savingForTransition,
   } = useDocumentEditor({
     scope: "memos",
-    id: memo.activeId || "",
+    id: activeId || "",
     loadContent: useCallback((id: string) => MemoStore.getContent(id), []),
     saveContent: useCallback(
       (id: string, md: string, opts?: { immediateSync?: boolean }) =>
@@ -79,13 +99,14 @@ export function MemoTab() {
     flushSync: useCallback((id: string) => MemoStore.flushContentSync(id), []),
     resolveContent: useCallback((id: string) => MemoStore.resolveWithServer(id), []),
     forceReadOnly: isArchivedSearchDocument,
+    navigationActive: standalone || nav.activeTab === "memo",
     ...editorConfig.editorProps,
     ...editorConfig.hookOptions,
   });
 
   const searchNavigation = useDocumentSearchNavigation({
     tab: "memo",
-    id: memo.activeId || "",
+    id: activeId || "",
     editor,
     mode,
     rawMarkdown,
@@ -104,10 +125,10 @@ export function MemoTab() {
   // Handle memo selection
   const handleSelect = useCallback(
     (id: string) => {
-      if (id === memo.activeId) return;
+      if (id === activeId) return;
       memo.selectMemo(id);
     },
-    [memo],
+    [activeId, memo],
   );
 
   // Context menu
@@ -188,35 +209,37 @@ export function MemoTab() {
     ) : null;
 
   return (
-    <div className={s["memo-tab-layout"]}>
-      <Sidebar<MemoItem>
-        items={memo.memos}
-        activeId={memo.activeId}
-        onSelect={handleSelect}
-        onAdd={memo.createMemo}
-        renderItem={(item) =>
-          renamingId === item.id ? (
-            <InlineRename
-              initialValue={item.name}
-              onCommit={(name) => {
-                memo.renameMemo(item.id, name);
-                setRenamingId(null);
-              }}
-              onCancel={() => setRenamingId(null)}
-            />
-          ) : (
-            <MemoSidebarItem item={item} tags={memo.tags} />
-          )
-        }
-        onReorder={memo.reorderMemos}
-        onContextMenu={handleContextMenu}
-        searchFilter={(item, q) => item.name.toLowerCase().includes(q)}
-        collapsed={sidebarCollapsed}
-        onToggle={toggleSidebar}
-        emptyLabel="メモがありません"
-        extraFilter={extraFilter}
-        filterSlot={filterSlot}
-      />
+    <div className={`${s["memo-tab-layout"]}${standalone ? ` ${s.standalone}` : ""}`}>
+      {!standalone && (
+        <Sidebar<MemoItem>
+          items={memo.memos}
+          activeId={memo.activeId}
+          onSelect={handleSelect}
+          onAdd={memo.createMemo}
+          renderItem={(item) =>
+            renamingId === item.id ? (
+              <InlineRename
+                initialValue={item.name}
+                onCommit={(name) => {
+                  memo.renameMemo(item.id, name);
+                  setRenamingId(null);
+                }}
+                onCancel={() => setRenamingId(null)}
+              />
+            ) : (
+              <MemoSidebarItem item={item} tags={memo.tags} />
+            )
+          }
+          onReorder={memo.reorderMemos}
+          onContextMenu={handleContextMenu}
+          searchFilter={(item, q) => item.name.toLowerCase().includes(q)}
+          collapsed={sidebarCollapsed}
+          onToggle={toggleSidebar}
+          emptyLabel="メモがありません"
+          extraFilter={extraFilter}
+          filterSlot={filterSlot}
+        />
+      )}
 
       <div className={s["memo-editor-panel"]}>
         {activeMemo ? (
@@ -232,19 +255,36 @@ export function MemoTab() {
             readOnly={readOnly || isArchivedSearchDocument}
             onImageUpload={editorConfig.editorProps.onImageUpload}
             scrollRef={scrollRef}
+            saving={savingForTransition}
             searchNavigation={
               searchNavigation ? (
                 <DocumentSearchNavigation controller={searchNavigation} />
               ) : undefined
             }
             toolbarLeft={
-              sidebarCollapsed ? (
+              !standalone && sidebarCollapsed ? (
                 <ToolbarSlot>
                   <SidebarExpandButton onClick={toggleSidebar} />
                 </ToolbarSlot>
               ) : undefined
             }
+            toolbarRight={
+              !standalone && activeId ? (
+                <ToolbarSlot>
+                  <OpenDocumentWindowButton
+                    target={{ tab: "memo", memoId: activeId }}
+                    onBeforeOpen={handoffEditLease}
+                    disabled={!canOpenInNewTab}
+                  />
+                </ToolbarSlot>
+              ) : undefined
+            }
           >
+            <DocumentContentConflict
+              conflict={contentConflict}
+              onKeepLocal={keepLocalConflict}
+              onAcceptRemote={acceptRemoteConflict}
+            />
             <div className={s["meta-status-row"]}>
               {isArchivedSearchDocument ? (
                 <span className={s["archived-label"]}>アーカイブ済み・読み取り専用</span>

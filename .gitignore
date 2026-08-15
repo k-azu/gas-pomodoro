@@ -162,3 +162,5 @@ docs/
 docs/*
 !docs/plans/
 !docs/plans/*.md
+!docs/adr/
+!docs/adr/*.md

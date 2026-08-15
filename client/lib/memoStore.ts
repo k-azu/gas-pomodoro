@@ -1,197 +1,119 @@
-/**
- * MemoStore — facade over EntityStore for memo CRUD + tag management
- * Port of MemoStore.html IIFE → TypeScript module.
- */
-
-import * as EntityStore from "./entityStore";
+import type { Memo, MemoTag, MemoMetadata } from "../types";
+import * as DocumentStore from "./documentStore";
 import { serverCall } from "./serverCall";
-import type { MemoTag, MemoMetadata } from "../types";
 
-let _memoTags: MemoTag[] = [];
-let _serverMemos: MemoMetadata[] | null = null;
+let memoTags: MemoTag[] = [];
 
-// =========================================================
-// Init: register "memos" entity type
-// =========================================================
-
-export function init(serverMemos: MemoMetadata[], serverMemoTags: MemoTag[]): void {
-  _memoTags = serverMemoTags || [];
-  _serverMemos = serverMemos;
-
-  EntityStore.register("memos", {
-    entityType: "memo",
-    keyPath: "id",
-    indexes: [],
-    serverFns: {
-      add: "saveMemo",
-      archive: "deleteMemo",
-      getContent: "getMemoContent",
-      reorder: "updateMemoSortOrders",
-    },
-    addServerArgs: (e: any) => [{ id: e.id, name: e.name, content: "", tags: e.tags || [] }],
-    contentSyncFn: (id: string, content: string) =>
-      serverCall("saveMemoContent", id, content, new Date().toISOString()) as Promise<any>,
-  });
+export function init(_serverMemos: MemoMetadata[], serverMemoTags: MemoTag[]): void {
+  memoTags = serverMemoTags.map((tag) => ({ ...tag }));
 }
 
-// =========================================================
-// Load data: merge server data into IDB + migrate localStorage
-// =========================================================
+export async function loadData(): Promise<void> {}
 
-export function loadData(): Promise<void> {
-  const serverMemos = _serverMemos || [];
-  _serverMemos = null;
-  return EntityStore.mergeServerData("memos", serverMemos)
-    .then(() => {
-      EntityStore.requeueDirtyRecords("memos");
-      return migrateFromLocalStorage(serverMemos);
-    })
-    .then(() => {
-      EntityStore.emit("dataChanged", { entityType: "memo", op: "serverSync" });
-    });
+export async function getMemos(): Promise<Memo[]> {
+  return (DocumentStore.getAll("memos") as Memo[])
+    .filter((memo) => memo.isActive !== false)
+    .sort((left, right) => left.sortOrder - right.sortOrder);
 }
 
-// =========================================================
-// localStorage → IDB migration (one-time, idempotent)
-// =========================================================
-
-const LS_CONTENT_PREFIX = "gas_pomodoro_memo_";
-const LS_TS_PREFIX = "gas_pomodoro_memo_ts_";
-const LS_SYNCED_PREFIX = "gas_pomodoro_memo_synced_";
-
-function migrateFromLocalStorage(serverMemos: MemoMetadata[]): Promise<void> {
-  const memoIds = serverMemos.map((m) => m.id);
-  if (memoIds.length === 0) return Promise.resolve();
-
-  const ops: Promise<void>[] = [];
-  memoIds.forEach((id) => {
-    let lsContent: string | null = null;
-    try {
-      lsContent = localStorage.getItem(LS_CONTENT_PREFIX + id);
-    } catch {
-      // ignore
-    }
-    if (!lsContent) return;
-
-    ops.push(
-      EntityStore.getContent("memos", id)
-        .then((idbContent) => {
-          if (idbContent) return;
-          return EntityStore.saveContent("memos", id, lsContent!).then(() => {
-            console.log("[MemoStore] Migrated memo from localStorage:", id);
-          });
-        })
-        .then(() => {
-          try {
-            localStorage.removeItem(LS_CONTENT_PREFIX + id);
-            localStorage.removeItem(LS_TS_PREFIX + id);
-            localStorage.removeItem(LS_SYNCED_PREFIX + id);
-          } catch {
-            // ignore
-          }
-        }),
-    );
-  });
-
-  return Promise.all(ops)
-    .then(() => {})
-    .catch((err) => {
-      console.warn("[MemoStore] localStorage migration error:", err);
-    });
+export async function getMemo(id: string): Promise<Memo | null> {
+  return DocumentStore.get("memos", id) as Memo | null;
 }
 
-// =========================================================
-// Query helpers
-// =========================================================
-
-export function getMemos(): Promise<any[]> {
-  return EntityStore.getAll("memos").then((items) =>
-    items
-      .filter((m) => m.isActive !== false)
-      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)),
-  );
-}
-
-export function getMemo(id: string): Promise<any> {
-  return EntityStore.get("memos", id);
-}
-
-// =========================================================
-// CRUD
-// =========================================================
-
-export function addMemo(name: string): Promise<string> {
-  return EntityStore.addEntity("memos", {
-    id: crypto.randomUUID(),
+export async function addMemo(name: string): Promise<string> {
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const result = (await serverCall("saveMemo", { id, name, content: "", tags: [] })) as {
+    success?: boolean;
+  };
+  if (!result?.success) throw new Error("メモを作成できませんでした");
+  const sortOrder = DocumentStore.getAll("memos").length + 1;
+  DocumentStore.putLocal("memos", {
+    id,
     name,
+    content: "",
     tags: [],
-  });
+    sortOrder,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+    contentRevision: 0,
+    metadataRevision: 0,
+    lastContentMutationId: "",
+    lastMetadataMutationId: "",
+  } as Memo);
+  DocumentStore.notifyServerConfirmed();
+  return id;
+}
+
+async function updateMemoMetadata(id: string, patch: Record<string, unknown>): Promise<void> {
+  const previous = DocumentStore.get("memos", id);
+  if (!previous) throw new Error("メモが見つかりません");
+  DocumentStore.updateLocal("memos", id, patch);
+  try {
+    await DocumentStore.patchMetadata("memos", id, patch);
+  } catch (error) {
+    console.error("[MemoStore] Metadata remains pending", error, previous.id);
+    throw error;
+  }
 }
 
 export function renameMemo(id: string, name: string): Promise<void> {
-  serverCall("renameMemo", id, name).catch(() => {});
-  return EntityStore.updateEntityFields("memos", id, { name });
+  return updateMemoMetadata(id, { name });
 }
 
-export function deleteMemo(id: string): Promise<void> {
-  return EntityStore.archiveEntity("memos", id);
+export async function deleteMemo(id: string): Promise<void> {
+  await DocumentStore.waitForMetadata("memos", id);
+  await DocumentStore.patchMetadata("memos", id, { isActive: false });
 }
 
-export function reorderMemos(orderedIds: string[]): Promise<void> {
-  const entries = orderedIds.map((id, i) => ({ id, sortOrder: i + 1 }));
-  return EntityStore.updateSortOrders("memos", entries).then(() => {
-    EntityStore.emit("dataChanged", { entityType: "memo", op: "reorder" });
-    EntityStore.scheduleReorderSync("memos", [orderedIds]);
+export async function reorderMemos(orderedIds: string[]): Promise<void> {
+  DocumentStore.reorderLocal("memos", orderedIds);
+  const result = (await serverCall("updateMemoSortOrders", orderedIds)) as { success?: boolean };
+  if (!result?.success) throw new Error("メモの並び順を保存できませんでした");
+  DocumentStore.notifyServerConfirmed();
+}
+
+export function updateTags(id: string, tags: string[]): Promise<void> {
+  return updateMemoMetadata(id, { tags });
+}
+
+export function addTag(name: string, color = "#757575"): void {
+  if (memoTags.some((tag) => tag.name === name)) return;
+  memoTags = [...memoTags, { name, color, sortOrder: memoTags.length + 1, isActive: true }];
+  void serverCall("addMemoTag", name, color).catch((error) => {
+    console.error("[MemoStore] Failed to add tag", error);
   });
 }
 
-// =========================================================
-// Tag management
-// =========================================================
-
-export function updateTags(id: string, tags: string[]): Promise<void> {
-  serverCall("updateMemoTags", id, tags).catch(() => {});
-  return EntityStore.updateEntityFields("memos", id, { tags });
-}
-
-export function addTag(name: string, color?: string): void {
-  const c = color || "#757575";
-  const existing = _memoTags.find((t) => t.name === name);
-  if (existing) return;
-  _memoTags.push({ name, color: c, sortOrder: _memoTags.length + 1, isActive: true });
-  serverCall("addMemoTag", name, c).catch(() => {});
-}
-
 export function updateTagColor(name: string, color: string): void {
-  const tag = _memoTags.find((t) => t.name === name);
-  if (tag) tag.color = color;
-  serverCall("updateMemoTagColor", name, color).catch(() => {});
+  memoTags = memoTags.map((tag) => (tag.name === name ? { ...tag, color } : tag));
+  void serverCall("updateMemoTagColor", name, color).catch((error) => {
+    console.error("[MemoStore] Failed to update tag color", error);
+  });
 }
 
 export function getTags(): MemoTag[] {
-  return _memoTags;
+  return memoTags;
 }
-
-// =========================================================
-// Content (backward compat wrappers)
-// =========================================================
 
 export function saveContent(
   id: string,
   content: string,
-  opts?: { immediateSync?: boolean },
+  _opts?: { immediateSync?: boolean },
 ): Promise<void> {
-  return EntityStore.saveContent("memos", id, content, opts);
+  return DocumentStore.saveContent("memos", id, content).then(() => undefined);
 }
 
-export function getContent(id: string): Promise<string | null> {
-  return EntityStore.getContent("memos", id);
+export async function getContent(id: string): Promise<string | null> {
+  const memo = DocumentStore.get("memos", id);
+  if (memo) return memo.content;
+  const snapshot = (await serverCall("getMemoContent", id)) as { content?: string } | null;
+  return snapshot ? String(snapshot.content ?? "") : null;
 }
 
-export function resolveWithServer(id: string) {
-  return EntityStore.resolveWithServer("memos", id);
+export async function resolveWithServer(_id?: string): Promise<{ useServer: boolean }> {
+  return { useServer: false };
 }
 
-export function flushContentSync(id: string): void {
-  EntityStore.flushContentSync("memos", id);
-}
+export function flushContentSync(_id?: string): void {}

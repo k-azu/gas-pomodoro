@@ -1,12 +1,4 @@
-/** Internal fields used by EntityStore for sync tracking */
-export interface EntityInternals {
-  _dirty?: boolean;
-  _pendingCreate?: boolean;
-  _serverUpdatedAt?: string;
-  _contentDirtyAt?: string | null;
-}
-
-export interface BaseEntity extends EntityInternals {
+export interface BaseEntity {
   id: string;
   name: string;
   content: string;
@@ -14,6 +6,10 @@ export interface BaseEntity extends EntityInternals {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  contentRevision: number;
+  metadataRevision: number;
+  lastContentMutationId: string;
+  lastMetadataMutationId: string;
 }
 
 export interface Project extends BaseEntity {
@@ -33,6 +29,8 @@ export interface Task extends BaseEntity {
   completedAt: string;
   startedAt: string;
   dueDate: string;
+  _cachedTimeSeconds?: number;
+  _cachedPomodoroCount?: number;
 }
 
 export interface Memo extends BaseEntity {

@@ -15,8 +15,15 @@ import s from "./TaskTab.module.css";
 
 const SIDEBAR_KEY = "gas_pomodoro_task_sidebar_collapsed";
 
-export function TaskTab() {
+export function TaskTab({
+  standalone = false,
+  documentNode,
+}: {
+  standalone?: boolean;
+  documentNode?: { type: "project" | "case" | "task"; id: string };
+} = {}) {
   const tasks = useTasks();
+  const displayedTasks = documentNode ? { ...tasks, selectedNode: documentNode } : tasks;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => lsGet(SIDEBAR_KEY) === "1");
   const [renamingNode, setRenamingNode] = useState<{ type: EditableNodeType; id: string } | null>(
     null,
@@ -134,40 +141,43 @@ export function TaskTab() {
   );
 
   return (
-    <div className={s["task-tab-layout"]}>
+    <div className={`${s["task-tab-layout"]}${standalone ? ` ${s.standalone}` : ""}`}>
       {/* Sidebar */}
-      <SidebarShell
-        collapsed={sidebarCollapsed}
-        onToggle={toggleSidebar}
-        headerSlot={
-          <SidebarAddButton
-            onClick={() => {
-              const name = prompt("プロジェクト名:");
-              if (name?.trim()) tasks.addProject(name.trim());
-            }}
-          >
-            +
-          </SidebarAddButton>
-        }
-        isEmpty={tasks.projects.length === 0}
-        emptyMessage="プロジェクトがありません"
-      >
-        <TaskTree
-          tasks={tasks}
-          renamingNode={renamingNode}
-          onRenameCommit={handleRenameCommit}
-          onRenameCancel={() => setRenamingNode(null)}
-          onContextMenu={handleContextMenu}
-        />
-      </SidebarShell>
+      {!standalone && (
+        <SidebarShell
+          collapsed={sidebarCollapsed}
+          onToggle={toggleSidebar}
+          headerSlot={
+            <SidebarAddButton
+              onClick={() => {
+                const name = prompt("プロジェクト名:");
+                if (name?.trim()) tasks.addProject(name.trim());
+              }}
+            >
+              +
+            </SidebarAddButton>
+          }
+          isEmpty={tasks.projects.length === 0}
+          emptyMessage="プロジェクトがありません"
+        >
+          <TaskTree
+            tasks={tasks}
+            renamingNode={renamingNode}
+            onRenameCommit={handleRenameCommit}
+            onRenameCancel={() => setRenamingNode(null)}
+            onContextMenu={handleContextMenu}
+          />
+        </SidebarShell>
+      )}
 
       {/* Content */}
       <div className={s["task-content-area"]}>
-        {tasks.selectedNode ? (
+        {displayedTasks.selectedNode ? (
           <TaskContent
-            tasks={tasks}
+            tasks={displayedTasks}
             sidebarCollapsed={sidebarCollapsed}
             onExpandSidebar={toggleSidebar}
+            standalone={standalone}
           />
         ) : (
           <ContentHeader

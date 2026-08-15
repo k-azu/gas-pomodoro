@@ -2,8 +2,10 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "e2e",
-  fullyParallel: true,
-  workers: 8,
+  // Multi-tab/Web Locks cases intentionally coordinate pages in one browser.
+  // A single worker also avoids Chromium startup flakiness in constrained CI.
+  fullyParallel: false,
+  workers: 1,
   retries: 0,
   use: {
     baseURL: "http://localhost:5174",

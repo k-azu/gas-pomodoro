@@ -1,6 +1,23 @@
 // Bump when sheet structure changes (new columns, new sheets, etc.)
 // so that existing deployments re-run initializeSpreadsheet().
-const SCHEMA_VERSION = "1";
+const SCHEMA_VERSION = "2";
+
+function ensureDocumentSyncColumns(
+  sheet: GoogleAppsScript.Spreadsheet.Sheet,
+  firstColumn: number,
+): void {
+  const headers = [
+    "contentRevision",
+    "metadataRevision",
+    "lastContentMutationId",
+    "lastMetadataMutationId",
+  ];
+  const range = sheet.getRange(1, firstColumn, 1, headers.length);
+  const current = range.getValues()[0];
+  if (headers.some((header, index) => current[index] !== header)) {
+    range.setValues([headers]).setFontWeight("bold");
+  }
+}
 
 function initializeSpreadsheet(): void {
   const props = PropertiesService.getScriptProperties();
@@ -103,6 +120,7 @@ function initializeSpreadsheet(): void {
     memosSheet.getRange("A1:H1").setFontWeight("bold");
     memosSheet.setFrozenRows(1);
   }
+  ensureDocumentSyncColumns(memosSheet, 9);
 
   // MemoTags sheet
   let memoTagsSheet = ss.getSheetByName("MemoTags");
@@ -125,6 +143,7 @@ function initializeSpreadsheet(): void {
     projSheet.getRange("A1:H1").setFontWeight("bold");
     projSheet.setFrozenRows(1);
   }
+  ensureDocumentSyncColumns(projSheet, 9);
 
   // Cases sheet
   let casesSheet = ss.getSheetByName("Cases");
@@ -138,6 +157,7 @@ function initializeSpreadsheet(): void {
     casesSheet.getRange("A1:H1").setFontWeight("bold");
     casesSheet.setFrozenRows(1);
   }
+  ensureDocumentSyncColumns(casesSheet, 9);
 
   // Tasks sheet
   let tasksSheet = ss.getSheetByName("Tasks");
@@ -165,6 +185,7 @@ function initializeSpreadsheet(): void {
     tasksSheet.getRange("A1:M1").setFontWeight("bold");
     tasksSheet.setFrozenRows(1);
   }
+  ensureDocumentSyncColumns(tasksSheet, 14);
 
   // PomodoroLog: add taskId column (P) if not present
   if (logSheet.getRange("P1").getValue() === "") {

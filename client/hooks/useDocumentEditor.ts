@@ -1,71 +1,40 @@
-/**
- * useDocumentEditor — composed hook for document-switching editors
- *
- * Combines: useMarkdownEditor + document cache + load/save/resolve + scroll management.
- * Returns everything needed by EditorLayout — no refs, no indirection.
- *
- * Consumers get {editor, mode, setMode, rawMarkdown, setRawMarkdown, charCount,
- * scrollRef, readOnly, syncStatus, flushPendingSave} — no refs, no indirection.
- */
-import { useState, useEffect, useCallback, useRef } from "react";
-import type { EditorState, MentionTrigger } from "../editor/hitomdEditor";
-import { useMarkdownEditor } from "./useMarkdownEditor";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { MentionTrigger } from "../editor/hitomdEditor";
 import type { SyncStatus } from "../components/shared/SyncIndicator";
-import * as EntityStore from "../lib/entityStore";
+import { registerDocumentEditGuard } from "../lib/documentNavigationGuard";
+import * as DocumentStore from "../lib/documentStore";
+import { DocumentContentConflictError, type ContentSnapshot } from "../lib/documentStore";
+import { useMarkdownEditor } from "./useMarkdownEditor";
 
 interface UseDocumentEditorOptions {
   scope: string;
   id: string;
   loadContent: (id: string) => Promise<string | null>;
   saveContent: (id: string, content: string, opts?: { immediateSync?: boolean }) => Promise<void>;
-  /** Flush server sync for the given id (bypass 30s debounce) */
   flushSync?: (id: string) => void;
   resolveContent?: (id: string) => Promise<{ useServer: boolean; content?: string } | null>;
-  /** Transform content after loading (e.g. resolve Drive URLs to blob URLs) */
   transformOnLoad?: (content: string) => string | Promise<string>;
-  /** Transform content before saving (e.g. convert blob URLs to Drive URLs) */
   transformOnSave?: (content: string) => string;
   onImageUpload?: (file: File) => Promise<string>;
   onResolveLink?: (url: string) => Promise<{ title?: string }>;
   mentions?: MentionTrigger[];
-  /** Keep the document non-editable regardless of synchronization state. */
   forceReadOnly?: boolean;
-  /** Whether the consumer has afterMeta content — used for scroll key differentiation */
   hasAfterMeta?: boolean;
+  navigationActive?: boolean;
 }
 
-// Track resolve status per document in this session
-const _resolveStatus = new Map<string, "resolving" | "synced">();
-
-const docKeyOf = (scope: string, id: string | undefined) => `${scope}:${id ?? ""}`;
-
-/** Fire-and-forget resolve — runs in background, results delivered via IDB + events */
-function ensureResolved(
-  scope: string,
-  id: string,
-  resolveContent: (id: string) => Promise<{ useServer: boolean; content?: string } | null>,
-): void {
-  const docKey = docKeyOf(scope, id);
-  if (_resolveStatus.has(docKey)) return;
-  _resolveStatus.set(docKey, "resolving");
-  resolveContent(id)
-    .then(() => {
-      _resolveStatus.set(docKey, "synced");
-      EntityStore.emit("resolveComplete", { scope, id });
-    })
-    .catch(() => {
-      _resolveStatus.delete(docKey);
-      EntityStore.emit("resolveError", { scope, id });
-    });
-}
+const SAVE_IDLE_MS = 15_000;
+const editLeaseSource = crypto.randomUUID();
+const editLeaseChannel =
+  typeof window === "undefined" || typeof BroadcastChannel === "undefined"
+    ? null
+    : new BroadcastChannel("gas-pomodoro:document-edit-lease:v1");
 
 export function useDocumentEditor({
   scope,
   id,
   loadContent,
   saveContent,
-  flushSync,
-  resolveContent,
   transformOnLoad,
   transformOnSave,
   onImageUpload,
@@ -73,460 +42,381 @@ export function useDocumentEditor({
   mentions,
   forceReadOnly = false,
   hasAfterMeta = false,
+  navigationActive = true,
 }: UseDocumentEditorOptions) {
   const [charCount, setCharCount] = useState(0);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
-  const [readOnly, setReadOnly] = useState(false);
+  const [savingForTransition, setSavingForTransition] = useState(false);
   const [contentRevision, setContentRevision] = useState(0);
+  const lockSupported = typeof navigator !== "undefined" && "locks" in navigator;
+  const [ownsEditLock, setOwnsEditLock] = useState(!lockSupported);
+  const [contentConflict, setContentConflict] = useState<{
+    localContent: string;
+    remote: ContentSnapshot;
+  } | null>(null);
   const suppressSaveRef = useRef(false);
-  const currentDocIdRef = useRef(id);
-  const currentDocKeyRef = useRef(docKeyOf(scope, id));
-  const prevDocKeyRef = useRef<string | null>(null);
-  const currentDocKey = docKeyOf(scope, id);
-
-  // Document state cache
-  const stateCacheRef = useRef(new Map<string, EditorState>());
-
-  // Scroll management
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const scrollPositions = useRef(new Map<string, number>());
-  const scrollKeyOf = (docKey: string | undefined, table: boolean) =>
-    table ? `${docKey}:t` : (docKey ?? "");
-
-  // Save scroll position before switching
-  const prevScrollDocKeyRef = useRef(currentDocKey);
-  const prevHasAfterMetaRef = useRef(hasAfterMeta);
-  if (
-    currentDocKey !== prevScrollDocKeyRef.current ||
-    hasAfterMeta !== prevHasAfterMetaRef.current
-  ) {
-    const container = scrollRef.current;
-    const prevDocKey = prevScrollDocKeyRef.current;
-    if (container && prevDocKey) {
-      const key = scrollKeyOf(prevDocKey, prevHasAfterMetaRef.current);
-      scrollPositions.current.set(key, container.scrollTop);
-    }
-    prevScrollDocKeyRef.current = currentDocKey;
-    prevHasAfterMetaRef.current = hasAfterMeta;
-  }
-
-  // Stable refs — updated in a separate useEffect so that the main effect's
-  // cleanup (flushPendingSave) still reads the OLD refs when the document switches.
+  const frozenForTransitionRef = useRef(false);
+  const currentIdRef = useRef(id);
+  const currentScopeRef = useRef(scope);
+  const dirtyRef = useRef(false);
+  const editVersionRef = useRef(0);
+  const pendingContentRef = useRef<string | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inFlightRef = useRef<Promise<void> | null>(null);
+  const conflictRef = useRef<{ localContent: string; remote: ContentSnapshot } | null>(null);
   const saveContentRef = useRef(saveContent);
-  const flushSyncRef = useRef(flushSync);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollPositionsRef = useRef(new Map<string, number>());
+  const releaseEditLockRef = useRef<(() => void) | null>(null);
+  const [editLeaseReleased, setEditLeaseReleased] = useState(false);
+  const editLeaseReleasedRef = useRef(false);
+
   useEffect(() => {
     saveContentRef.current = saveContent;
-    flushSyncRef.current = flushSync;
-  }, [saveContent, flushSync]);
+  }, [saveContent]);
 
-  // Save debounce
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingContentRef = useRef<{
-    scope: string;
-    id: string;
-    content: string;
-    saveContent: typeof saveContent;
-  } | null>(null);
-  const failedContentRef = useRef(
-    new Map<
-      string,
-      { scope: string; id: string; content: string; saveContent: typeof saveContent }
-    >(),
-  );
-  const savingSeqRef = useRef(0);
-  const transformErrorDocKeysRef = useRef(new Set<string>());
-
-  const reportSaveError = useCallback(() => {
-    setSyncStatus("error");
-  }, []);
-
-  const savePending = useCallback(
-    (
-      pending: { scope: string; id: string; content: string; saveContent: typeof saveContent },
-      opts?: { immediateSync?: boolean },
-    ) => {
-      const saveSeq = ++savingSeqRef.current;
-      const docKey = docKeyOf(pending.scope, pending.id);
-      return pending.saveContent(pending.id, pending.content, opts).catch((err) => {
-        console.error("[useDocumentEditor] Failed to save content:", err);
-        const latest = pendingContentRef.current;
-        if (!latest || docKeyOf(latest.scope, latest.id) !== docKey) {
-          failedContentRef.current.set(docKey, pending);
-        }
-        if (savingSeqRef.current === saveSeq) reportSaveError();
-      });
-    },
-    [reportSaveError, saveContent],
-  );
-
-  const doSave = useCallback(() => {
-    const pending = pendingContentRef.current;
-    if (!pending) return;
-    pendingContentRef.current = null;
-    void savePending(pending);
-  }, [savePending]);
-
-  const flushPendingSave = useCallback(() => {
+  const saveLatest = useCallback(async (): Promise<void> => {
+    if (conflictRef.current) throw new Error("Resolve the document conflict before leaving");
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
-    const pending = pendingContentRef.current;
-    if (pending) {
-      pendingContentRef.current = null;
-      void savePending(pending, { immediateSync: true });
+    while (dirtyRef.current) {
+      if (inFlightRef.current) {
+        await inFlightRef.current;
+        continue;
+      }
+      const content = pendingContentRef.current;
+      if (content === null) return;
+      const documentId = currentIdRef.current;
+      const version = editVersionRef.current;
+      setSyncStatus("syncing");
+      const request = saveContentRef.current(documentId, content, { immediateSync: true });
+      inFlightRef.current = request;
+      try {
+        await request;
+        if (editVersionRef.current === version && currentIdRef.current === documentId) {
+          dirtyRef.current = false;
+          pendingContentRef.current = null;
+          setSyncStatus("synced");
+          window.setTimeout(
+            () => setSyncStatus((value) => (value === "synced" ? "idle" : value)),
+            400,
+          );
+        }
+      } catch (error) {
+        if (error instanceof DocumentContentConflictError) {
+          const conflict = { localContent: error.localContent, remote: error.remote };
+          conflictRef.current = conflict;
+          setContentConflict(conflict);
+        }
+        setSyncStatus("error");
+        throw error;
+      } finally {
+        if (inFlightRef.current === request) inFlightRef.current = null;
+      }
     }
+  }, []);
 
-    const failedSaves = Array.from(failedContentRef.current.values());
-    failedContentRef.current.clear();
-    failedSaves.forEach((failed) => {
-      void savePending(failed, { immediateSync: true });
-    });
+  const runWhileFrozen = useCallback(
+    async <T>(operation: () => Promise<T>): Promise<T> => {
+      frozenForTransitionRef.current = true;
+      setSavingForTransition(true);
+      try {
+        await saveLatest();
+        await DocumentStore.waitForMetadata(
+          currentScopeRef.current as DocumentStore.DocumentStoreName,
+          currentIdRef.current,
+        );
+        return await operation();
+      } finally {
+        frozenForTransitionRef.current = false;
+        setSavingForTransition(false);
+      }
+    },
+    [saveLatest],
+  );
 
-    if (!pending && failedSaves.length === 0) {
-      flushSyncRef.current?.(currentDocIdRef.current);
-    }
-  }, [savePending]);
+  const saveForTransition = useCallback(
+    () => runWhileFrozen(async () => undefined),
+    [runWhileFrozen],
+  );
 
-  // onChange handler for useMarkdownEditor
   const handleChange = useCallback(
     (markdown: string) => {
-      if (suppressSaveRef.current || forceReadOnly) return;
-      const docId = currentDocIdRef.current;
+      if (suppressSaveRef.current || forceReadOnly || frozenForTransitionRef.current) return;
       const content = transformOnSave ? transformOnSave(markdown) : markdown;
-      const docKey = docKeyOf(scope, docId);
-      failedContentRef.current.delete(docKey);
-      transformErrorDocKeysRef.current.delete(docKey);
-      pendingContentRef.current = {
-        scope,
-        id: docId,
-        content,
-        saveContent: saveContentRef.current,
-      };
+      dirtyRef.current = true;
+      editVersionRef.current += 1;
+      pendingContentRef.current = content;
+      setSyncStatus("idle");
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
         saveTimerRef.current = null;
-        doSave();
-      }, 2000);
+        void saveLatest().catch((error) => {
+          console.error("[useDocumentEditor] Failed to save content", error);
+        });
+      }, SAVE_IDLE_MS);
     },
-    [scope, transformOnSave, doSave, forceReadOnly],
+    [forceReadOnly, saveLatest, transformOnSave],
   );
 
-  const {
-    editor,
-    mode,
-    setMode,
-    rawMarkdown,
-    setRawMarkdown,
-    captureState,
-    restoreState,
-    resetContent,
-    applyContent,
-  } = useMarkdownEditor({
+  const { editor, mode, setMode, rawMarkdown, setRawMarkdown, resetContent } = useMarkdownEditor({
     initialContent: "",
     onChange: handleChange,
     onCharCount: setCharCount,
-    readOnly: readOnly || forceReadOnly,
+    readOnly:
+      forceReadOnly ||
+      savingForTransition ||
+      contentConflict !== null ||
+      (lockSupported && !ownsEditLock),
     onImageUpload,
     onResolveLink,
     mentions,
   });
 
-  // Flush on page reload / tab close
+  const flushPendingSave = useCallback(
+    () =>
+      saveForTransition()
+        .then(() => true)
+        .catch(() => false),
+    [saveForTransition],
+  );
+
   useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const hasPending = pendingContentRef.current !== null || failedContentRef.current.size > 0;
-      flushPendingSave();
-      if (hasPending) {
-        e.preventDefault();
-        e.returnValue = "";
-      }
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [flushPendingSave]);
+    if (!navigationActive || !id) return;
+    return registerDocumentEditGuard({
+      documentKey: `${scope}:${id}`,
+      isDirty: () =>
+        dirtyRef.current ||
+        inFlightRef.current !== null ||
+        DocumentStore.hasPendingMetadata(scope as DocumentStore.DocumentStoreName, id),
+      saveBeforeTransition: saveForTransition,
+      runWhileFrozen,
+    });
+  }, [id, navigationActive, runWhileFrozen, saveForTransition, scope]);
 
-  // Main effect: load/switch documents + resolve
   useEffect(() => {
-    if (!id) return;
-
-    const cancelledRef = { current: false };
-    const docKey = docKeyOf(scope, id);
-    const isSwitch = prevDocKeyRef.current !== null && prevDocKeyRef.current !== docKey;
-    prevDocKeyRef.current = docKey;
-
-    // Set sync status based on resolve state
-    const status = resolveContent ? _resolveStatus.get(docKey) : undefined;
-    if (!resolveContent || status === "synced") {
-      setSyncStatus("idle");
-      setReadOnly(false);
-    } else {
-      setSyncStatus("syncing");
-      setReadOnly(true);
+    releaseEditLockRef.current?.();
+    releaseEditLockRef.current = null;
+    if (!lockSupported) {
+      setOwnsEditLock(true);
+      return;
     }
-
-    const transformLoadedContent = async (
-      raw: string,
-    ): Promise<{ content: string; transformError?: unknown }> => {
-      if (!transformOnLoad) return { content: raw };
-      try {
-        return { content: await transformOnLoad(raw) };
-      } catch (err) {
-        return { content: raw, transformError: err };
-      }
-    };
-
-    const load = async (docId: string): Promise<{ content: string; transformError?: unknown }> => {
-      const raw = (await loadContent(docId)) || "";
-      return transformLoadedContent(raw);
-    };
-
-    let applyingResolvedContent = false;
-    let resolveCompleteReceived = false;
-
-    const markResolveComplete = () => {
-      if (cancelledRef.current) return;
-      suppressSaveRef.current = false;
-      setReadOnly(false);
-      setSyncStatus((prev) => (prev === "syncing" ? "synced" : prev));
-      setTimeout(() => {
-        if (cancelledRef.current) return;
-        setSyncStatus((prev) => (prev === "synced" ? "idle" : prev));
-      }, 400);
-    };
-
-    const markResolveError = () => {
-      if (cancelledRef.current) return;
-      suppressSaveRef.current = false;
-      setSyncStatus("error");
-      setReadOnly(false);
-    };
-
-    const markLoadError = (err: unknown) => {
-      console.error("[useDocumentEditor] Failed to load content:", err);
-      if (cancelledRef.current) return;
-      suppressSaveRef.current = false;
-      setSyncStatus("error");
-      setReadOnly(true);
-    };
-
-    const markTransformError = (err: unknown) => {
-      console.error("[useDocumentEditor] Failed to transform loaded content:", err);
-      if (cancelledRef.current) return;
-      transformErrorDocKeysRef.current.add(docKey);
-      suppressSaveRef.current = false;
-      setSyncStatus("error");
-      setReadOnly(false);
-    };
-
-    if (isSwitch) {
-      // Save outgoing document state
-      const fromDocKey = currentDocKeyRef.current;
-      if (fromDocKey !== docKey) {
-        const captured = captureState();
-        if (captured) stateCacheRef.current.set(fromDocKey, captured);
-      }
-
-      const hasDoc = stateCacheRef.current.has(docKey);
-      const resolveStatus = _resolveStatus.get(docKey);
-      const needsResolve = resolveContent && !resolveStatus;
-
-      if (hasDoc && !needsResolve) {
-        // Cache hit & resolved → restore from cache
-        currentDocIdRef.current = id;
-        currentDocKeyRef.current = docKey;
-        if (!resolveContent || _resolveStatus.get(docKey) === "synced") {
-          suppressSaveRef.current = false;
-        }
-        const cached = stateCacheRef.current.get(docKey);
-        if (cached) {
-          restoreState(cached);
-          setContentRevision((revision) => revision + 1);
-        }
-
-        if (resolveContent) ensureResolved(scope, id, resolveContent);
-      } else {
-        // Invalidate stale cache if exists
-        if (hasDoc) stateCacheRef.current.delete(docKey);
-
-        setReadOnly(true);
-        currentDocIdRef.current = id;
-        currentDocKeyRef.current = docKey;
-        suppressSaveRef.current = true;
-
-        load(id)
-          .then(({ content, transformError }) => {
-            if (cancelledRef.current) {
-              suppressSaveRef.current = false;
-              return;
-            }
-            currentDocKeyRef.current = docKey;
-            resetContent(content);
-            setContentRevision((revision) => revision + 1);
-            if (transformError) {
-              markTransformError(transformError);
-            } else {
-              transformErrorDocKeysRef.current.delete(docKey);
-            }
-            if (!resolveContent || _resolveStatus.get(docKey) === "synced") {
-              suppressSaveRef.current = false;
-              if (!transformError) setReadOnly(false);
-            }
-            if (resolveContent) ensureResolved(scope, id, resolveContent);
-          })
-          .catch(markLoadError);
-      }
-    } else {
-      // Initial load
-      if (resolveContent && status !== "synced") {
-        suppressSaveRef.current = true;
-      }
-      load(id)
-        .then(({ content, transformError }) => {
-          if (cancelledRef.current) {
-            suppressSaveRef.current = false;
-            return;
-          }
-          currentDocIdRef.current = id;
-          currentDocKeyRef.current = docKey;
-          resetContent(content);
-          setContentRevision((revision) => revision + 1);
-          if (transformError) {
-            markTransformError(transformError);
-          } else {
-            transformErrorDocKeysRef.current.delete(docKey);
-          }
-
-          if (!resolveContent || _resolveStatus.get(docKey) === "synced") {
-            suppressSaveRef.current = false;
-            if (!transformError) setReadOnly(false);
-          }
-          if (resolveContent) ensureResolved(scope, id, resolveContent);
-        })
-        .catch(markLoadError);
+    if (!navigationActive || !id || forceReadOnly || editLeaseReleased) {
+      setOwnsEditLock(false);
+      return;
     }
-
-    // Event listeners for resolve results on the DISPLAYED document
-    const onContentResolved = async (event: {
-      storeName?: string;
-      id: string;
-      content: string;
-    }) => {
-      if (event.storeName !== scope || event.id !== id || cancelledRef.current) return;
-      applyingResolvedContent = true;
-      let transformError: unknown;
-      try {
-        const transformed = await transformLoadedContent(event.content);
-        const content = transformed.content;
-        transformError = transformed.transformError;
-        if (cancelledRef.current) return;
-        suppressSaveRef.current = true;
-        applyContent(content, { addToHistory: true });
-        setContentRevision((revision) => revision + 1);
-        applyingResolvedContent = false;
-        if (transformError) {
-          _resolveStatus.delete(docKey);
-          markTransformError(transformError);
-          return;
+    let cancelled = false;
+    const controller = new AbortController();
+    setOwnsEditLock(false);
+    void navigator.locks
+      .request(
+        `gas-pomodoro:document-edit:${scope}:${id}`,
+        { mode: "exclusive", signal: controller.signal },
+        async (lock) => {
+          if (!lock || cancelled) return;
+          setOwnsEditLock(true);
+          editLeaseChannel?.postMessage({
+            type: "lease-acquired",
+            source: editLeaseSource,
+            documentKey: `${scope}:${id}`,
+          });
+          await new Promise<void>((resolve) => {
+            releaseEditLockRef.current = resolve;
+          });
+          releaseEditLockRef.current = null;
+          setOwnsEditLock(false);
+        },
+      )
+      .catch((lockError) => {
+        if (!(lockError instanceof DOMException && lockError.name === "AbortError")) {
+          console.error("[useDocumentEditor] Failed to acquire edit lock", lockError);
         }
-        transformErrorDocKeysRef.current.delete(docKey);
-        if (resolveCompleteReceived) markResolveComplete();
-      } catch (err) {
-        console.error("[useDocumentEditor] Failed to apply resolved content:", err);
-        applyingResolvedContent = false;
-        _resolveStatus.delete(docKey);
-        markResolveError();
-      }
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+      releaseEditLockRef.current?.();
+      releaseEditLockRef.current = null;
     };
+  }, [editLeaseReleased, forceReadOnly, id, lockSupported, navigationActive, scope]);
 
-    const onResolveComplete = (event: { scope?: string; id: string }) => {
-      if (event.scope !== scope || event.id !== id || cancelledRef.current) return;
-      if (transformErrorDocKeysRef.current.has(docKey)) return;
-      if (applyingResolvedContent) {
-        resolveCompleteReceived = true;
+  useEffect(() => {
+    if (!editLeaseChannel || !id) return;
+    const handleLeaseMessage = (event: MessageEvent) => {
+      const message = event.data as {
+        type?: string;
+        source?: string;
+        documentKey?: string;
+      } | null;
+      if (
+        !message ||
+        message.type !== "lease-acquired" ||
+        message.source === editLeaseSource ||
+        message.documentKey !== `${scope}:${id}` ||
+        !editLeaseReleasedRef.current
+      ) {
         return;
       }
-      markResolveComplete();
+      editLeaseReleasedRef.current = false;
+      setEditLeaseReleased(false);
     };
+    editLeaseChannel.addEventListener("message", handleLeaseMessage);
+    return () => editLeaseChannel.removeEventListener("message", handleLeaseMessage);
+  }, [id, scope]);
 
-    const onResolveError = (event: { scope?: string; id: string }) => {
-      if (event.scope !== scope || event.id !== id || cancelledRef.current) return;
-      markResolveError();
-    };
-
-    if (resolveContent) {
-      EntityStore.on("contentResolved", onContentResolved);
-      EntityStore.on("resolveComplete", onResolveComplete);
-      EntityStore.on("resolveError", onResolveError);
-    }
-
-    return () => {
-      cancelledRef.current = true;
-      if (resolveContent) {
-        EntityStore.off("contentResolved", onContentResolved);
-        EntityStore.off("resolveComplete", onResolveComplete);
-        EntityStore.off("resolveError", onResolveError);
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (
+        !dirtyRef.current &&
+        !inFlightRef.current &&
+        !DocumentStore.hasPendingMetadata(
+          currentScopeRef.current as DocumentStore.DocumentStoreName,
+          currentIdRef.current,
+        )
+      ) {
+        return;
       }
-      flushPendingSave();
+      event.preventDefault();
+      event.returnValue = "";
     };
-  }, [
-    id,
-    scope,
-    loadContent,
-    resolveContent,
-    transformOnLoad,
-    flushPendingSave,
-    captureState,
-    restoreState,
-    resetContent,
-    applyContent,
-  ]);
-
-  // Invalidate cache for non-displayed documents when contentResolved fires
-  useEffect(() => {
-    if (!resolveContent) return;
-    const handler = (event: { storeName?: string; id: string }) => {
-      if (event.storeName !== scope) return;
-      const eventDocKey = docKeyOf(scope, event.id);
-      if (eventDocKey === currentDocKey) return;
-      stateCacheRef.current.delete(eventDocKey);
-      scrollPositions.current.delete(eventDocKey);
-      scrollPositions.current.delete(`${eventDocKey}:t`);
+    const handleVisibilityChange = () => {
+      const hasPendingMetadata = DocumentStore.hasPendingMetadata(
+        currentScopeRef.current as DocumentStore.DocumentStoreName,
+        currentIdRef.current,
+      );
+      if (document.visibilityState !== "hidden" || (!dirtyRef.current && !hasPendingMetadata)) {
+        return;
+      }
+      void saveForTransition().catch((error) => {
+        console.error("[useDocumentEditor] Hidden-page save failed", error);
+      });
     };
-    EntityStore.on("contentResolved", handler);
-    return () => EntityStore.off("contentResolved", handler);
-  }, [currentDocKey, resolveContent, scope]);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [saveForTransition]);
 
-  // Restore scroll position after document switch
-  const prevScrollKeyRef = useRef(scrollKeyOf(currentDocKey, hasAfterMeta));
   useEffect(() => {
-    const key = scrollKeyOf(currentDocKey, hasAfterMeta);
-    if (key === prevScrollKeyRef.current) return;
-    prevScrollKeyRef.current = key;
-
-    const container = scrollRef.current;
-    if (!container || !id) return;
-
-    const saved = scrollPositions.current.get(key);
-    const target = saved ?? 0;
-    container.scrollTop = target;
-
-    if (target === 0 || container.scrollTop === target) return;
-
+    if (!id) return;
     let cancelled = false;
-    const deadline = performance.now() + 500;
-    const poll = () => {
-      if (cancelled) return;
-      container.scrollTop = target;
-      if (container.scrollTop >= target - 1 || performance.now() > deadline) return;
-      requestAnimationFrame(poll);
-    };
-    requestAnimationFrame(poll);
+    const previousKey = `${currentScopeRef.current}:${currentIdRef.current}`;
+    const nextKey = `${scope}:${id}`;
+    if (previousKey !== nextKey) {
+      scrollPositionsRef.current.set(previousKey, scrollRef.current?.scrollTop ?? 0);
+    }
+    currentIdRef.current = id;
+    currentScopeRef.current = scope;
+    editLeaseReleasedRef.current = false;
+    setEditLeaseReleased(false);
+    dirtyRef.current = false;
+    pendingContentRef.current = null;
+    editVersionRef.current = 0;
+    conflictRef.current = null;
+    setContentConflict(null);
+    suppressSaveRef.current = true;
+    setSyncStatus("syncing");
+    setMode("wysiwyg");
 
+    loadContent(id)
+      .then(async (raw) => (transformOnLoad ? transformOnLoad(raw ?? "") : (raw ?? "")))
+      .then((content) => {
+        if (cancelled) return;
+        resetContent(content);
+        setContentRevision((revision) => revision + 1);
+        suppressSaveRef.current = false;
+        setSyncStatus("idle");
+        const scrollTop = scrollPositionsRef.current.get(nextKey) ?? 0;
+        if (scrollRef.current) scrollRef.current.scrollTop = scrollTop;
+      })
+      .catch((error) => {
+        console.error("[useDocumentEditor] Failed to load content", error);
+        if (cancelled) return;
+        setSyncStatus("error");
+      });
     return () => {
       cancelled = true;
     };
-  }, [currentDocKey, id, hasAfterMeta]);
+  }, [id, loadContent, resetContent, scope, setMode, transformOnLoad]);
+
+  const keepLocalConflict = useCallback(async (): Promise<void> => {
+    const conflict = conflictRef.current;
+    if (!conflict) return;
+    DocumentStore.applyContentSnapshot(
+      currentScopeRef.current as DocumentStore.DocumentStoreName,
+      currentIdRef.current,
+      conflict.remote,
+    );
+    conflictRef.current = null;
+    setContentConflict(null);
+    pendingContentRef.current = conflict.localContent;
+    editVersionRef.current += 1;
+    dirtyRef.current = true;
+    await saveForTransition();
+  }, [saveForTransition]);
+
+  const acceptRemoteConflict = useCallback(async (): Promise<void> => {
+    const conflict = conflictRef.current;
+    if (!conflict) return;
+    DocumentStore.applyContentSnapshot(
+      currentScopeRef.current as DocumentStore.DocumentStoreName,
+      currentIdRef.current,
+      conflict.remote,
+    );
+    const content = transformOnLoad
+      ? await transformOnLoad(conflict.remote.content)
+      : conflict.remote.content;
+    suppressSaveRef.current = true;
+    resetContent(content);
+    dirtyRef.current = false;
+    pendingContentRef.current = null;
+    conflictRef.current = null;
+    setContentConflict(null);
+    setSyncStatus("idle");
+    suppressSaveRef.current = false;
+    setContentRevision((revision) => revision + 1);
+  }, [resetContent, transformOnLoad]);
+
+  const handoffEditLease = useCallback(async (): Promise<boolean> => {
+    if (!lockSupported || !ownsEditLock) return false;
+    try {
+      await saveForTransition();
+      editLeaseReleasedRef.current = true;
+      setEditLeaseReleased(true);
+      releaseEditLockRef.current?.();
+      releaseEditLockRef.current = null;
+      setOwnsEditLock(false);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [lockSupported, ownsEditLock, saveForTransition]);
+
+  useEffect(() => {
+    if (!id) return;
+    const handleStoreChange = (event: { op: string }) => {
+      if (event.op !== "serverRefresh" || dirtyRef.current) return;
+      suppressSaveRef.current = true;
+      void loadContent(id)
+        .then(async (raw) => (transformOnLoad ? transformOnLoad(raw ?? "") : (raw ?? "")))
+        .then((content) => {
+          if (dirtyRef.current) return;
+          resetContent(content);
+          setContentRevision((revision) => revision + 1);
+          suppressSaveRef.current = false;
+        })
+        .catch((refreshError) => {
+          suppressSaveRef.current = false;
+          console.error("[useDocumentEditor] Failed to apply refreshed content", refreshError);
+        });
+    };
+    DocumentStore.on(handleStoreChange);
+    return () => DocumentStore.off(handleStoreChange);
+  }, [id, loadContent, resetContent, transformOnLoad]);
 
   return {
     editor,
@@ -536,9 +426,25 @@ export function useDocumentEditor({
     setRawMarkdown,
     charCount,
     scrollRef,
-    readOnly: readOnly || forceReadOnly,
-    syncStatus,
+    readOnly:
+      forceReadOnly ||
+      savingForTransition ||
+      contentConflict !== null ||
+      (lockSupported && !ownsEditLock),
+    syncStatus: lockSupported && !ownsEditLock && !forceReadOnly ? ("locked" as const) : syncStatus,
     contentRevision,
+    contentConflict: contentConflict
+      ? {
+          localContent: contentConflict.localContent,
+          remoteContent: contentConflict.remote.content,
+          remoteRevision: contentConflict.remote.revision,
+        }
+      : null,
+    keepLocalConflict,
+    acceptRemoteConflict,
+    handoffEditLease,
+    canOpenInNewTab: lockSupported && ownsEditLock && !forceReadOnly,
     flushPendingSave,
+    savingForTransition,
   };
 }

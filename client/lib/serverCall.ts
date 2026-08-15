@@ -8,6 +8,8 @@ import type { DocumentSearchFilter } from "../types/search";
 declare global {
   interface Window {
     __mockDocumentSearchCallCount?: number;
+    __mockServerCallCounts?: Record<string, number>;
+    __mockContentShouldFail?: boolean;
     google?: {
       script: {
         run: {
@@ -22,7 +24,14 @@ declare global {
   }
 }
 
-const isDev = !window.google?.script?.run;
+const isDev = typeof window !== "undefined" && !window.google?.script?.run;
+let serverCallHandlerForTests: ((functionName: string, args: unknown[]) => unknown) | null = null;
+
+export function setServerCallHandlerForTests(
+  handler: ((functionName: string, args: unknown[]) => unknown) | null,
+): void {
+  serverCallHandlerForTests = handler;
+}
 
 // =========================================================
 // Mock scenario parameters (dev only)
@@ -405,6 +414,7 @@ const CONTENT_FUNCTIONS = new Set([
   "getMemoContent",
   "updateRecordDetails",
   "updateInterruptionDetails",
+  "putDocumentContent",
 ]);
 
 /** Generate large mock content for char-count limit testing. Includes `prefix` for keyword matching. */
@@ -523,6 +533,86 @@ const MOCK_CONTENT_BY_ID: Record<string, { content: string; updatedAt: string }>
   },
 };
 
+const mockContentRevision = new Map<string, number>();
+const mockMetadataRevision = new Map<string, number>();
+const mockLastContentMutation = new Map<string, string>();
+const mockLastMetadataMutation = new Map<string, string>();
+const mockMetadataOverrides = new Map<string, Record<string, unknown>>();
+const MOCK_SERVER_STORAGE_KEY = "gas-pomodoro:mock-document-server:v1";
+
+interface MockDocumentServerState {
+  content?: string;
+  updatedAt?: string;
+  contentRevision?: number;
+  metadataRevision?: number;
+  lastContentMutationId?: string;
+  lastMetadataMutationId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+function readMockServerStates(): Record<string, MockDocumentServerState> {
+  if (!isDev) return {};
+  try {
+    return JSON.parse(localStorage.getItem(MOCK_SERVER_STORAGE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function readMockServerState(id: string): MockDocumentServerState {
+  return readMockServerStates()[id] ?? {};
+}
+
+function writeMockServerState(id: string, patch: MockDocumentServerState): void {
+  const states = readMockServerStates();
+  states[id] = { ...(states[id] ?? {}), ...patch };
+  localStorage.setItem(MOCK_SERVER_STORAGE_KEY, JSON.stringify(states));
+}
+
+export function setMockRemoteDocumentContentForTests(id: string, content: string): void {
+  if (!isDev) return;
+  const state = readMockServerState(id);
+  const revision = (state.contentRevision ?? mockContentRevision.get(id) ?? 0) + 1;
+  const updatedAt = new Date().toISOString();
+  const lastContentMutationId = `remote-${crypto.randomUUID()}`;
+  mockContentRevision.set(id, revision);
+  mockLastContentMutation.set(id, lastContentMutationId);
+  MOCK_CONTENT_BY_ID[id] = { content, updatedAt };
+  writeMockServerState(id, {
+    content,
+    updatedAt,
+    contentRevision: revision,
+    lastContentMutationId,
+  });
+}
+
+function withDocumentSyncFields<T extends { id: string; updatedAt: string }>(entities: T[]) {
+  return entities.map((entity) => {
+    const state = readMockServerState(entity.id);
+    const contentOverride =
+      entity.id === "mock-memo-1" &&
+      typeof window !== "undefined" &&
+      (window as any).__mockContentOverride &&
+      typeof (window as any).__mockContentOverride.content === "string"
+        ? ((window as any).__mockContentOverride as { content: string; updatedAt?: string })
+        : null;
+    return {
+      ...entity,
+      ...(mockMetadataOverrides.get(entity.id) ?? {}),
+      ...(state.metadata ?? {}),
+      updatedAt: contentOverride?.updatedAt ?? state.updatedAt ?? entity.updatedAt,
+      content:
+        contentOverride?.content ?? state.content ?? MOCK_CONTENT_BY_ID[entity.id]?.content ?? "",
+      contentRevision: state.contentRevision ?? mockContentRevision.get(entity.id) ?? 0,
+      metadataRevision: state.metadataRevision ?? mockMetadataRevision.get(entity.id) ?? 0,
+      lastContentMutationId:
+        state.lastContentMutationId ?? mockLastContentMutation.get(entity.id) ?? "",
+      lastMetadataMutationId:
+        state.lastMetadataMutationId ?? mockLastMetadataMutation.get(entity.id) ?? "",
+    };
+  });
+}
+
 function getContentMockResponse(functionName: string, id?: string): unknown {
   if (typeof window !== "undefined" && (window as any).__mockContentOverride !== undefined) {
     return (window as any).__mockContentOverride;
@@ -543,7 +633,11 @@ function getContentMockResponse(functionName: string, id?: string): unknown {
   }
   // Normal documents return their server content regardless of response delay.
   if (id && MOCK_CONTENT_BY_ID[id]) {
-    return MOCK_CONTENT_BY_ID[id];
+    const state = readMockServerState(id);
+    return {
+      content: state.content ?? MOCK_CONTENT_BY_ID[id].content,
+      updatedAt: state.updatedAt ?? MOCK_CONTENT_BY_ID[id].updatedAt,
+    };
   }
   // An unknown ID represents a record that no longer exists on the server.
   return null;
@@ -581,7 +675,8 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
         recentRecordsBulk: MOCK_RECORDS,
         recentInterruptionsBulk: MOCK_INTERRUPTIONS,
         spreadsheetUrl: "https://docs.google.com/spreadsheets/d/example",
-        memos: [
+        webAppUrl: `${window.location.origin}/`,
+        memos: withDocumentSyncFields([
           {
             id: "mock-memo-1",
             name: "開発メモ",
@@ -636,15 +731,69 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
             createdAt: "2025-06-01T00:00:00.000Z",
             updatedAt: "2025-06-01T00:00:00.000Z",
           },
-        ],
+        ]),
         memoTags: [
           { name: "dev", color: "#4CAF50", sortOrder: 1, isActive: true },
           { name: "memo", color: "#2196F3", sortOrder: 2, isActive: true },
         ],
-        projects: MOCK_PROJECTS,
-        cases: MOCK_CASES,
-        tasks: MOCK_TASKS,
+        projects: withDocumentSyncFields(MOCK_PROJECTS),
+        cases: withDocumentSyncFields(MOCK_CASES),
+        tasks: withDocumentSyncFields(MOCK_TASKS),
       };
+
+    case "getAllDocumentData": {
+      const initial = getMockResponse("getAllInitData", []) as {
+        memos: unknown[];
+        projects: unknown[];
+        cases: unknown[];
+        tasks: unknown[];
+      };
+      return {
+        memos: initial.memos,
+        projects: initial.projects,
+        cases: initial.cases,
+        tasks: initial.tasks,
+      };
+    }
+
+    case "getDocumentViewInitData": {
+      const initial = getMockResponse("getAllInitData", []) as Record<string, unknown> & {
+        memos: Array<{ id: string }>;
+        projects: Array<{ id: string }>;
+        cases: Array<{ id: string }>;
+        tasks: Array<{ id: string }>;
+      };
+      const documentKey = String(args[0]);
+      const [storeName, id] = documentKey.split(":");
+      const selectedMemos =
+        storeName !== "memos"
+          ? []
+          : initial.memos.filter((entity) => entity.id === id).length > 0
+            ? initial.memos.filter((entity) => entity.id === id)
+            : id === "mock-memo-archived"
+              ? withDocumentSyncFields([
+                  {
+                    id,
+                    name: "アーカイブ済みメモ",
+                    tags: ["memo"],
+                    sortOrder: 99,
+                    isActive: false,
+                    createdAt: "2024-11-01T00:00:00.000Z",
+                    updatedAt: "2024-11-30T08:20:00.000Z",
+                  },
+                ])
+              : [];
+      return {
+        ...initial,
+        recentRecordsBulk: [],
+        recentInterruptionsBulk: [],
+        memos: selectedMemos,
+        projects:
+          storeName === "projects" ? initial.projects.filter((entity) => entity.id === id) : [],
+        cases: storeName === "cases" ? initial.cases.filter((entity) => entity.id === id) : [],
+        tasks: storeName === "tasks" ? initial.tasks.filter((entity) => entity.id === id) : [],
+      };
+    }
 
     case "getRefreshData":
       return {
@@ -788,6 +937,147 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
     case "getTaskPomodoroRecords":
       return MOCK_TASK_RECORDS;
 
+    case "putDocumentContent": {
+      const request = args[0] as {
+        documentKey: string;
+        content: string;
+        expectedRevision: number;
+        mutationId: string;
+      };
+      const id = request.documentKey.slice(request.documentKey.indexOf(":") + 1);
+      const state = readMockServerState(id);
+      const currentRevision = state.contentRevision ?? mockContentRevision.get(id) ?? 0;
+      const currentContent = state.content ?? MOCK_CONTENT_BY_ID[id]?.content ?? "";
+      const updatedAt =
+        state.updatedAt ?? MOCK_CONTENT_BY_ID[id]?.updatedAt ?? new Date().toISOString();
+      const snapshot = {
+        documentKey: request.documentKey,
+        content: currentContent,
+        revision: currentRevision,
+        updatedAt,
+        lastMutationId: state.lastContentMutationId ?? mockLastContentMutation.get(id) ?? "",
+      };
+      if (snapshot.lastMutationId === request.mutationId) {
+        return { status: "applied", mutationId: request.mutationId, snapshot };
+      }
+      if (request.expectedRevision !== currentRevision) {
+        return { status: "conflict", mutationId: request.mutationId, snapshot };
+      }
+      const nextRevision = currentRevision + 1;
+      const nextUpdatedAt = new Date().toISOString();
+      mockContentRevision.set(id, nextRevision);
+      mockLastContentMutation.set(id, request.mutationId);
+      MOCK_CONTENT_BY_ID[id] = { content: request.content, updatedAt: nextUpdatedAt };
+      writeMockServerState(id, {
+        content: request.content,
+        updatedAt: nextUpdatedAt,
+        contentRevision: nextRevision,
+        lastContentMutationId: request.mutationId,
+      });
+      return {
+        status: "applied",
+        mutationId: request.mutationId,
+        snapshot: {
+          documentKey: request.documentKey,
+          content: request.content,
+          revision: nextRevision,
+          updatedAt: nextUpdatedAt,
+          lastMutationId: request.mutationId,
+        },
+      };
+    }
+
+    case "patchDocumentMetadata": {
+      const request = args[0] as {
+        documentKey: string;
+        patch: Record<string, unknown>;
+        expectedRevision: number;
+        mutationId: string;
+      };
+      const id = request.documentKey.slice(request.documentKey.indexOf(":") + 1);
+      const state = readMockServerState(id);
+      const currentRevision = state.metadataRevision ?? mockMetadataRevision.get(id) ?? 0;
+      const lastMutationId = state.lastMetadataMutationId ?? mockLastMetadataMutation.get(id) ?? "";
+      const initial = getMockResponse("getAllInitData", []) as {
+        memos: Array<Record<string, unknown>>;
+        projects: Array<Record<string, unknown>>;
+        cases: Array<Record<string, unknown>>;
+        tasks: Array<Record<string, unknown>>;
+      };
+      const storeName = request.documentKey.slice(0, request.documentKey.indexOf(":"));
+      const collection =
+        storeName === "memos"
+          ? initial.memos
+          : storeName === "projects"
+            ? initial.projects
+            : storeName === "cases"
+              ? initial.cases
+              : initial.tasks;
+      const currentEntity = collection.find((entity) => entity.id === id) ?? {};
+      const fields =
+        storeName === "memos"
+          ? ["name", "tags", "isActive"]
+          : storeName === "projects"
+            ? ["name", "color", "isActive"]
+            : storeName === "cases"
+              ? ["projectId", "name", "isActive"]
+              : [
+                  "projectId",
+                  "caseId",
+                  "name",
+                  "status",
+                  "isActive",
+                  "startedAt",
+                  "dueDate",
+                  "completedAt",
+                ];
+      const currentMetadata = Object.fromEntries(
+        fields.map((field) => [field, currentEntity[field]]),
+      );
+      const snapshot = {
+        documentKey: request.documentKey,
+        revision: currentRevision,
+        updatedAt: new Date().toISOString(),
+        lastMutationId,
+        metadata: currentMetadata,
+      };
+      if (lastMutationId === request.mutationId) {
+        return { status: "applied", mutationId: request.mutationId, snapshot };
+      }
+      if (request.expectedRevision !== currentRevision) {
+        return { status: "conflict", mutationId: request.mutationId, snapshot };
+      }
+      const nextRevision = currentRevision + 1;
+      const updatedAt = new Date().toISOString();
+      mockMetadataRevision.set(id, nextRevision);
+      mockLastMetadataMutation.set(id, request.mutationId);
+      mockMetadataOverrides.set(id, {
+        ...(mockMetadataOverrides.get(id) ?? {}),
+        ...request.patch,
+        updatedAt,
+      });
+      writeMockServerState(id, {
+        updatedAt,
+        metadataRevision: nextRevision,
+        lastMetadataMutationId: request.mutationId,
+        metadata: {
+          ...(state.metadata ?? {}),
+          ...request.patch,
+        },
+      });
+      return {
+        status: "applied",
+        mutationId: request.mutationId,
+        snapshot: {
+          ...snapshot,
+          revision: nextRevision,
+          updatedAt,
+          lastMutationId: request.mutationId,
+          metadata: { ...currentMetadata, ...request.patch },
+        },
+      };
+    }
+
     // ---- EntityStore dynamic server functions ----
     case "addProject":
     case "addCase":
@@ -858,8 +1148,14 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
 // =========================================================
 
 export function serverCall(functionName: string, ...args: unknown[]): Promise<unknown> {
+  if (serverCallHandlerForTests) {
+    return Promise.resolve().then(() => serverCallHandlerForTests!(functionName, args));
+  }
   if (isDev) {
     console.log(`[mock] serverCall: ${functionName}`, args);
+    window.__mockServerCallCounts = window.__mockServerCallCounts ?? {};
+    window.__mockServerCallCounts[functionName] =
+      (window.__mockServerCallCounts[functionName] ?? 0) + 1;
     const baseDelay = 100;
     const extraDelay = CONTENT_FUNCTIONS.has(functionName)
       ? mockParams.delay

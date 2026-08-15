@@ -80,7 +80,6 @@ function saveRecord(record: PomodoroRecord): { success: boolean } {
             const startedAt = tasksSheet.getRange(i + 2, 11).getValue();
             if (!startedAt) {
               tasksSheet.getRange(i + 2, 11).setValue(record.startTime);
-              invalidateTaskCache();
             }
             break;
           }

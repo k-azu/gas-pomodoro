@@ -5,7 +5,6 @@
  * Markdown モードでの編集内容はキャッシュに正しく保存される。
  */
 import { test, expect } from "@playwright/test";
-import { idbGet, idbSeedDirtyContent } from "./helpers/idb";
 import {
   gotoApp,
   selectMemo,
@@ -15,10 +14,6 @@ import {
   switchToMarkdownMode,
   getRawEditorText,
 } from "./helpers/app";
-
-const MEMO_STORE = "memos";
-const MEMO_1_ID = "mock-memo-1"; // "開発メモ"
-const MEMO_2_ID = "mock-memo-2"; // "議事録"
 
 test.describe("Markdown モードとドキュメント切り替え", () => {
   test("M1: ドキュメント切り替え後は WYSIWYG モードに戻り正しい内容が表示される", async ({
@@ -103,41 +98,17 @@ test.describe("Markdown モードとドキュメント切り替え", () => {
     // 末尾に追加
     await page.keyboard.press("End");
     await page.keyboard.insertText("\n追加行");
-    await page.waitForTimeout(2500); // debounce flush を待つ
-
-    // memo2 に切り替え → WYSIWYG に戻る（rawMarkdown が editor に同期されてからキャッシュ）
+    // memo2 に切り替え → Markdown内容を即時保存してからWYSIWYGへ戻る
     await selectMemo(page, "議事録");
     await page.waitForTimeout(500);
 
-    // memo1 に戻る → WYSIWYG でキャッシュが復元される
+    // memo1 に戻る → サーバー確認済みメモリsnapshotからWYSIWYGを作り直す
     await selectMemo(page, "開発メモ");
     await page.waitForTimeout(500);
 
-    // IDB に保存されているか確認
-    const rec = await idbGet(page, MEMO_STORE, MEMO_1_ID);
-    expect(rec.content).toContain("初期テキスト");
-    expect(rec.content).toContain("追加行");
-  });
-
-  test("M4: キャッシュなし → IDB から読み込み → WYSIWYG で正しい内容", async ({ page }) => {
-    await gotoApp(page);
-    await waitForSyncComplete(page);
-
-    // memo1 を開く（memo2 は未オープン → キャッシュなし）
-    await selectMemo(page, "開発メモ");
-    await waitForSyncComplete(page);
-
-    // memo2 の IDB に直接書き込み
-    await idbSeedDirtyContent(page, MEMO_STORE, MEMO_2_ID, "# IDB見出し\n\nIDB本文テキスト");
-
-    // memo2 に切り替え（キャッシュなし → IDB 読み込み）
-    await selectMemo(page, "議事録");
-    await page.waitForTimeout(1000);
-
-    // WYSIWYG で IDB の内容が表示されている
     const text = await getEditorText(page);
-    expect(text).toContain("IDB見出し");
-    expect(text).toContain("IDB本文テキスト");
+    expect(text).toContain("初期テキスト");
+    expect(text).toContain("追加行");
   });
 
   test("M5: ドキュメント往復 → 両ドキュメントの内容が正しい", async ({ page }) => {

@@ -7,11 +7,16 @@ export type * from "./categories";
 export interface MemoMetadata {
   id: string;
   name: string;
+  content: string;
   tags: string[];
   sortOrder: number;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  contentRevision: number;
+  metadataRevision: number;
+  lastContentMutationId: string;
+  lastMetadataMutationId: string;
 }
 
 /** Shape of getAllInitData response */
@@ -20,6 +25,7 @@ export interface InitData {
   categories: import("./categories").CategoryItem[];
   interruptionCategories: import("./categories").CategoryItem[];
   spreadsheetUrl: string;
+  webAppUrl: string;
   recentRecordsBulk: import("./records").PomodoroRecord[];
   recentInterruptionsBulk: import("./records").InterruptionRecord[];
   memos: MemoMetadata[];

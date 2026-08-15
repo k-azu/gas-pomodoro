@@ -1,10 +1,7 @@
-/**
- * TaskStore — facade over EntityStore for project/case/task CRUD
- * Port of TaskStore.html IIFE → TypeScript module.
- */
-
-import * as EntityStore from "./entityStore";
-import type { TaskStatus } from "../types/entities";
+import type { Case, Project, Task, TaskStatus } from "../types/entities";
+import * as DocumentStore from "./documentStore";
+import type { DocumentStoreName } from "./documentStore";
+import { serverCall } from "./serverCall";
 
 export const STATUS_ORDER: Record<string, number> = {
   docs: 0,
@@ -15,346 +12,269 @@ export const STATUS_ORDER: Record<string, number> = {
   done: 5,
 };
 
-// =========================================================
-// Init: register entity types and open IDB
-// =========================================================
+export async function init(): Promise<void> {}
+export async function loadData(): Promise<void> {}
 
-let _serverData: { projects: any[]; cases: any[]; tasks: any[] } | null = null;
-
-export function init(serverData?: {
-  projects?: any[];
-  cases?: any[];
-  tasks?: any[];
-}): Promise<void> {
-  EntityStore.register("projects", {
-    entityType: "project",
-    keyPath: "id",
-    indexes: [],
-    serverFns: {
-      add: "addProject",
-      update: "updateProject",
-      archive: "archiveProject",
-      getContent: "getProjectContent",
-      reorder: "reorderProjects",
-    },
-    addServerArgs: (e: any) => [e.id, e.name, e.color || "#4285f4"],
-  });
-
-  EntityStore.register("cases", {
-    entityType: "case",
-    keyPath: "id",
-    indexes: [{ name: "projectId", keyPath: "projectId", options: { unique: false } }],
-    serverFns: {
-      add: "addCase",
-      update: "updateCase",
-      archive: "archiveCase",
-      getContent: "getCaseContent",
-      reorder: "reorderCases",
-    },
-    addServerArgs: (e: any) => [e.id, e.projectId, e.name],
-  });
-
-  EntityStore.register("tasks", {
-    entityType: "task",
-    keyPath: "id",
-    indexes: [
-      { name: "projectId", keyPath: "projectId", options: { unique: false } },
-      { name: "caseId", keyPath: "caseId", options: { unique: false } },
-      { name: "status", keyPath: "status", options: { unique: false } },
-    ],
-    serverFns: {
-      add: "addTask",
-      update: "updateTask",
-      archive: "archiveTask",
-      getContent: "getTaskContent",
-      reorder: "reorderTasks",
-    },
-    addServerArgs: (e: any) => [e.id, e.projectId, e.caseId || "", e.name],
-    onUpdateHook: (item: any, fields: Record<string, any>) => {
-      if (fields.status === "done" && item.status !== "done") {
-        fields.completedAt = new Date().toISOString();
-      } else if (fields.status && fields.status !== "done" && item.status === "done") {
-        fields.completedAt = "";
-      }
-    },
-  });
-
-  if (serverData) {
-    _serverData = {
-      projects: serverData.projects || [],
-      cases: serverData.cases || [],
-      tasks: serverData.tasks || [],
-    };
-  }
-
-  return EntityStore.init("gas_pomodoro", 4, {
-    onUpgrade: (db) => {
-      if (db.objectStoreNames.contains("contents")) db.deleteObjectStore("contents");
-      if (db.objectStoreNames.contains("syncMeta")) db.deleteObjectStore("syncMeta");
-    },
-  });
-}
-
-// =========================================================
-// loadData: merge server data into IDB (symmetric with MemoStore)
-// =========================================================
-
-export function loadData(): Promise<void> {
-  const data = _serverData || { projects: [], cases: [], tasks: [] };
-  _serverData = null;
-
-  return Promise.all([
-    EntityStore.mergeServerData("projects", data.projects),
-    EntityStore.mergeServerData("cases", data.cases),
-    EntityStore.mergeServerData("tasks", data.tasks),
-  ]).then(() => {
-    EntityStore.requeueDirtyRecords("projects");
-    EntityStore.requeueDirtyRecords("cases");
-    EntityStore.requeueDirtyRecords("tasks");
-    EntityStore.emit("dataChanged", { entityType: "all", op: "serverSync" });
-  });
-}
-
-// =========================================================
-// CRUD
-// =========================================================
-
-export function addProject(name: string, color?: string): Promise<string> {
-  return EntityStore.addEntity("projects", {
-    id: crypto.randomUUID(),
+function nowEntityBase(id: string, name: string, sortOrder: number) {
+  const now = new Date().toISOString();
+  return {
+    id,
     name,
-    color: color || "#4285f4",
-  });
+    content: "",
+    sortOrder,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+    contentRevision: 0,
+    metadataRevision: 0,
+    lastContentMutationId: "",
+    lastMetadataMutationId: "",
+  };
 }
 
-export function addCase(projectId: string, name: string): Promise<string> {
-  return EntityStore.addEntity("cases", {
-    id: crypto.randomUUID(),
+export async function addProject(name: string, color = "#4285f4"): Promise<string> {
+  const id = crypto.randomUUID();
+  const result = (await serverCall("addProject", id, name, color)) as { success?: boolean };
+  if (!result?.success) throw new Error("プロジェクトを作成できませんでした");
+  DocumentStore.putLocal("projects", {
+    ...nowEntityBase(id, name, DocumentStore.getAll("projects").length + 1),
+    color,
+  } as Project);
+  DocumentStore.notifyServerConfirmed();
+  return id;
+}
+
+export async function addCase(projectId: string, name: string): Promise<string> {
+  const id = crypto.randomUUID();
+  const result = (await serverCall("addCase", id, projectId, name)) as { success?: boolean };
+  if (!result?.success) throw new Error("案件を作成できませんでした");
+  DocumentStore.putLocal("cases", {
+    ...nowEntityBase(id, name, DocumentStore.getAll("cases").length + 1),
     projectId,
-    name,
-  });
+  } as Case);
+  DocumentStore.notifyServerConfirmed();
+  return id;
 }
 
-export function addTask(projectId: string, caseId: string, name: string): Promise<string> {
-  return EntityStore.addEntity("tasks", {
-    id: crypto.randomUUID(),
+export async function addTask(projectId: string, caseId: string, name: string): Promise<string> {
+  const id = crypto.randomUUID();
+  const result = (await serverCall("addTask", id, projectId, caseId, name)) as {
+    success?: boolean;
+  };
+  if (!result?.success) throw new Error("タスクを作成できませんでした");
+  DocumentStore.putLocal("tasks", {
+    ...nowEntityBase(id, name, DocumentStore.getAll("tasks").length + 1),
     projectId,
-    caseId: caseId || "",
-    name,
+    caseId,
     status: "todo" as TaskStatus,
     completedAt: "",
     startedAt: "",
     dueDate: "",
-  });
+  } as Task);
+  DocumentStore.notifyServerConfirmed();
+  return id;
 }
 
-export function updateProject(id: string, fields: Record<string, any>): Promise<void> {
-  return EntityStore.updateEntityFields("projects", id, fields);
+async function updateMetadata(
+  storeName: Exclude<DocumentStoreName, "memos">,
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const previous = DocumentStore.get(storeName, id);
+  if (!previous) throw new Error("文書が見つかりません");
+  const normalizedPatch = { ...patch };
+  if (storeName === "tasks" && patch.status !== undefined) {
+    const oldStatus = (previous as Task).status;
+    const newStatus = String(patch.status);
+    if (newStatus === "done" && oldStatus !== "done") {
+      normalizedPatch.completedAt = new Date().toISOString();
+    } else if (newStatus !== "done" && oldStatus === "done") {
+      normalizedPatch.completedAt = "";
+    }
+  }
+  DocumentStore.updateLocal(storeName, id, normalizedPatch);
+  try {
+    await DocumentStore.patchMetadata(storeName, id, patch);
+  } catch (error) {
+    console.error("[TaskStore] Metadata remains pending", error, previous.id);
+    throw error;
+  }
 }
 
-export function updateCase(id: string, fields: Record<string, any>): Promise<void> {
-  return EntityStore.updateEntityFields("cases", id, fields);
+export function updateProject(id: string, fields: Record<string, unknown>): Promise<void> {
+  return updateMetadata("projects", id, fields);
 }
 
-export function updateTask(id: string, fields: Record<string, any>): Promise<void> {
-  return EntityStore.updateEntityFields("tasks", id, fields);
+export function updateCase(id: string, fields: Record<string, unknown>): Promise<void> {
+  return updateMetadata("cases", id, fields);
 }
 
-// =========================================================
-// Archive (with cascading for project/case)
-// =========================================================
-
-export function archiveProject(id: string): Promise<void> {
-  return EntityStore.setInactive("projects", id)
-    .then(() =>
-      EntityStore.getByIndex("cases", "projectId", id).then((cases) =>
-        Promise.all(cases.map((c) => EntityStore.setInactive("cases", c.id))),
-      ),
-    )
-    .then(() =>
-      EntityStore.getByIndex("tasks", "projectId", id).then((tasks) =>
-        Promise.all(tasks.map((t) => EntityStore.setInactive("tasks", t.id))),
-      ),
-    )
-    .then(() => {
-      EntityStore.emit("dataChanged", { entityType: "project", op: "archive", id });
-      EntityStore.syncArchiveToServer("projects", id);
-    });
+export function updateTask(id: string, fields: Record<string, unknown>): Promise<void> {
+  return updateMetadata("tasks", id, fields);
 }
 
-export function archiveCase(id: string): Promise<void> {
-  return EntityStore.setInactive("cases", id)
-    .then(() =>
-      EntityStore.getByIndex("tasks", "caseId", id).then((tasks) =>
-        Promise.all(tasks.map((t) => EntityStore.setInactive("tasks", t.id))),
-      ),
-    )
-    .then(() => {
-      EntityStore.emit("dataChanged", { entityType: "case", op: "archive", id });
-      EntityStore.syncArchiveToServer("cases", id);
-    });
+async function archiveOne(
+  storeName: Exclude<DocumentStoreName, "memos">,
+  id: string,
+): Promise<void> {
+  await DocumentStore.waitForMetadata(storeName, id);
+  await DocumentStore.patchMetadata(storeName, id, { isActive: false });
+}
+
+export async function archiveProject(id: string): Promise<void> {
+  await archiveOne("projects", id);
+  const children = [
+    ...DocumentStore.getByIndex("cases", "projectId", id),
+    ...DocumentStore.getByIndex("tasks", "projectId", id),
+  ];
+  await Promise.all(
+    children
+      .filter((entity) => entity.isActive !== false)
+      .map((entity) => archiveOne("caseId" in entity ? "tasks" : "cases", entity.id)),
+  );
+}
+
+export async function archiveCase(id: string): Promise<void> {
+  await archiveOne("cases", id);
+  const tasks = DocumentStore.getByIndex("tasks", "caseId", id).filter(
+    (entity) => entity.isActive !== false,
+  );
+  await Promise.all(tasks.map((task) => archiveOne("tasks", task.id)));
 }
 
 export function archiveTask(id: string): Promise<void> {
-  return EntityStore.archiveEntity("tasks", id);
+  return archiveOne("tasks", id);
 }
-
-// =========================================================
-// Adjust cached stats (delta-based, no server roundtrip)
-// =========================================================
 
 export async function adjustTaskStats(
   taskId: string,
   timeDelta: number,
   countDelta: number,
 ): Promise<void> {
-  const task = await EntityStore.get("tasks", taskId);
+  const task = DocumentStore.get("tasks", taskId) as Task | null;
   if (!task) return;
-
-  task._cachedTimeSeconds = (task._cachedTimeSeconds || 0) + timeDelta;
-  task._cachedPomodoroCount = (task._cachedPomodoroCount || 0) + countDelta;
-  await EntityStore.put("tasks", task);
-
-  EntityStore.emit("dataChanged", { entityType: "task", op: "adjustStats" });
+  DocumentStore.updateLocal("tasks", taskId, {
+    _cachedTimeSeconds: (task._cachedTimeSeconds ?? 0) + timeDelta,
+    _cachedPomodoroCount: (task._cachedPomodoroCount ?? 0) + countDelta,
+  });
 }
 
-// =========================================================
-// Query helpers
-// =========================================================
-
-export function getProjects(): Promise<any[]> {
-  return EntityStore.getAll("projects").then((items) =>
-    items
-      .filter((p) => p.isActive !== false)
-      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)),
-  );
+export async function getProjects(): Promise<Project[]> {
+  return (DocumentStore.getAll("projects") as Project[])
+    .filter((project) => project.isActive !== false)
+    .sort((left, right) => left.sortOrder - right.sortOrder);
 }
 
-export function getCases(projectId: string): Promise<any[]> {
-  return EntityStore.getByIndex("cases", "projectId", projectId).then((items) =>
-    items
-      .filter((c) => c.isActive !== false)
-      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)),
-  );
+export async function getCases(projectId: string): Promise<Case[]> {
+  return (DocumentStore.getByIndex("cases", "projectId", projectId) as Case[])
+    .filter((item) => item.isActive !== false)
+    .sort((left, right) => left.sortOrder - right.sortOrder);
 }
 
-export function getTasks(projectId: string, caseId?: string): Promise<any[]> {
-  const indexName = caseId ? "caseId" : "projectId";
-  const indexVal = caseId || projectId;
-  return EntityStore.getByIndex("tasks", indexName, indexVal).then((items) =>
-    items
-      .filter((t) => {
-        if (t.isActive === false) return false;
-        if (caseId) return true;
-        return !t.caseId;
-      })
-      .sort((a, b) => {
-        const sa = STATUS_ORDER[a.status] !== undefined ? STATUS_ORDER[a.status] : 99;
-        const sb = STATUS_ORDER[b.status] !== undefined ? STATUS_ORDER[b.status] : 99;
-        if (sa !== sb) return sa - sb;
-        return (a.createdAt || "").localeCompare(b.createdAt || "");
-      }),
-  );
+function compareTasks(left: Task, right: Task): number {
+  const status = (STATUS_ORDER[left.status] ?? 99) - (STATUS_ORDER[right.status] ?? 99);
+  if (status !== 0) return status;
+  return left.createdAt.localeCompare(right.createdAt);
 }
 
-export function getAllProjects(): Promise<any[]> {
+export async function getTasks(projectId: string, caseId?: string): Promise<Task[]> {
+  const tasks = DocumentStore.getByIndex(
+    "tasks",
+    caseId ? "caseId" : "projectId",
+    caseId || projectId,
+  ) as Task[];
+  return tasks
+    .filter((task) => task.isActive !== false && (caseId ? true : !task.caseId))
+    .sort(compareTasks);
+}
+
+export function getAllProjects(): Promise<Project[]> {
   return getProjects();
 }
 
-export function getAllCases(): Promise<any[]> {
-  return EntityStore.getAll("cases").then((items) => items.filter((c) => c.isActive !== false));
+export async function getAllCases(): Promise<Case[]> {
+  return (DocumentStore.getAll("cases") as Case[]).filter((item) => item.isActive !== false);
 }
 
-export function getAllTasks(): Promise<any[]> {
-  return EntityStore.getAll("tasks").then((items) => items.filter((t) => t.isActive !== false));
+export async function getAllTasks(): Promise<Task[]> {
+  return (DocumentStore.getAll("tasks") as Task[]).filter((item) => item.isActive !== false);
 }
 
-// =========================================================
-// Archived query helpers
-// =========================================================
-
-export function getArchivedCases(projectId: string): Promise<any[]> {
-  return EntityStore.getByIndex("cases", "projectId", projectId).then((items) =>
-    items
-      .filter((c) => c.isActive === false)
-      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)),
+export async function getArchivedCases(projectId: string): Promise<Case[]> {
+  return (DocumentStore.getByIndex("cases", "projectId", projectId) as Case[]).filter(
+    (item) => item.isActive === false,
   );
 }
 
-export function getArchivedDirectTasks(projectId: string): Promise<any[]> {
-  return EntityStore.getByIndex("tasks", "projectId", projectId).then((items) =>
-    items
-      .filter((t) => t.isActive === false && !t.caseId)
-      .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || "")),
+export async function getArchivedDirectTasks(projectId: string): Promise<Task[]> {
+  return (DocumentStore.getByIndex("tasks", "projectId", projectId) as Task[]).filter(
+    (item) => item.isActive === false && !item.caseId,
   );
 }
 
-export function getArchivedTasksForCase(caseId: string): Promise<any[]> {
-  return EntityStore.getByIndex("tasks", "caseId", caseId).then((items) =>
-    items
-      .filter((t) => t.isActive === false)
-      .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || "")),
+export async function getArchivedTasksForCase(caseId: string): Promise<Task[]> {
+  return (DocumentStore.getByIndex("tasks", "caseId", caseId) as Task[]).filter(
+    (item) => item.isActive === false,
   );
 }
 
-// =========================================================
-// Reorder
-// =========================================================
-
-export function reorderProjects(orderedIds: string[]): Promise<void> {
-  const entries = orderedIds.map((id, i) => ({ id, sortOrder: i + 1 }));
-  return EntityStore.updateSortOrders("projects", entries).then(() => {
-    EntityStore.emit("dataChanged", { entityType: "project", op: "reorder" });
-    EntityStore.scheduleReorderSync("projects", [orderedIds]);
-  });
+async function reorder(
+  storeName: Exclude<DocumentStoreName, "memos">,
+  functionName: string,
+  args: unknown[],
+  ids: string[],
+): Promise<void> {
+  DocumentStore.reorderLocal(storeName, ids);
+  const result = (await serverCall(functionName, ...args)) as { success?: boolean };
+  if (!result?.success) throw new Error("並び順を保存できませんでした");
+  DocumentStore.notifyServerConfirmed();
 }
 
-export function reorderCases(projectId: string, orderedIds: string[]): Promise<void> {
-  const entries = orderedIds.map((id, i) => ({ id, sortOrder: i + 1 }));
-  return EntityStore.updateSortOrders("cases", entries).then(() => {
-    EntityStore.emit("dataChanged", { entityType: "case", op: "reorder" });
-    EntityStore.scheduleReorderSync("cases", [projectId, orderedIds]);
-  });
+export function reorderProjects(ids: string[]): Promise<void> {
+  return reorder("projects", "reorderProjects", [ids], ids);
 }
 
-export function reorderTasks(parentId: string, orderedIds: string[]): Promise<void> {
-  const entries = orderedIds.map((id, i) => ({ id, sortOrder: i + 1 }));
-  return EntityStore.updateSortOrders("tasks", entries).then(() => {
-    EntityStore.emit("dataChanged", { entityType: "task", op: "reorder" });
-    EntityStore.scheduleReorderSync("tasks", [parentId, orderedIds]);
-  });
+export function reorderCases(projectId: string, ids: string[]): Promise<void> {
+  return reorder("cases", "reorderCases", [projectId, ids], ids);
 }
 
-// =========================================================
-// Content
-// =========================================================
+export function reorderTasks(parentId: string, ids: string[]): Promise<void> {
+  return reorder("tasks", "reorderTasks", [parentId, ids], ids);
+}
 
 export function saveContent(
   id: string,
   content: string,
   storeName: string,
-  opts?: { immediateSync?: boolean },
+  _opts?: { immediateSync?: boolean },
 ): Promise<void> {
-  return EntityStore.saveContent(storeName, id, content, opts);
+  return DocumentStore.saveContent(storeName as DocumentStoreName, id, content).then(
+    () => undefined,
+  );
 }
 
-export function getContent(id: string, storeName: string): Promise<string | null> {
-  return EntityStore.getContent(storeName, id);
+export async function getContent(id: string, storeName: string): Promise<string | null> {
+  const entity = DocumentStore.get(storeName as DocumentStoreName, id);
+  if (entity) return entity.content;
+  const functionName =
+    storeName === "cases"
+      ? "getCaseContent"
+      : storeName === "tasks"
+        ? "getTaskContent"
+        : "getProjectContent";
+  const snapshot = (await serverCall(functionName, id)) as { content?: string } | null;
+  return snapshot ? String(snapshot.content ?? "") : null;
 }
 
-export function resolveWithServer(id: string, storeName: string) {
-  return EntityStore.resolveWithServer(storeName, id);
+export async function resolveWithServer(
+  _id?: string,
+  _storeName?: string,
+): Promise<{ useServer: boolean }> {
+  return { useServer: false };
 }
 
-export function flushContentSync(storeName: string, id: string): void {
-  EntityStore.flushContentSync(storeName, id);
-}
+export function flushContentSync(_storeName?: string, _id?: string): void {}
 
-// Re-export EntityStore methods used by TaskTab
-export const on = EntityStore.on;
-export const rawGet = EntityStore.get;
-export const entityPut = EntityStore.put;
-export const updateEntity = EntityStore.updateEntityRaw;
-export const entityUpdateSortOrders = EntityStore.updateSortOrders;
-export const entityFlushAllSyncs = EntityStore.flushAllSyncs;
-export { withLock } from "./entityStore";
+export const on = DocumentStore.on;
+export const rawGet = async (storeName: string, id: string) =>
+  DocumentStore.get(storeName as DocumentStoreName, id);

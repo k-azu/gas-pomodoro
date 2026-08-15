@@ -35,6 +35,12 @@
   overflow: hidden;
 }
 
+.memo-tab-layout.standalone {
+  width: 100%;
+  min-height: 100vh;
+  height: auto;
+}
+
 /* ===== Editor panel ===== */
 .memo-editor-panel {
   flex: 1;

@@ -1,9 +1,8 @@
 /**
  * TaskContent — Content area for project/case/task
  *
- * Single editor instance shared across all node types.
- * Meta section (name, status, dates, etc.) varies per type via keyed child components.
- * Tiptap undo history and cursor position are preserved across type switches.
+ * One editor instance is mounted for the selected node. Switching documents resets
+ * its state from the server-confirmed in-memory snapshot.
  */
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { UseTasksReturn } from "../../hooks/useTasks";
@@ -24,15 +23,18 @@ import { RecordRow } from "../shared/RecordRow";
 import { EditorLayout, ToolbarSlot, MetaTitle } from "../shared/EditorLayout";
 import { SyncIndicator, type SyncStatus } from "../shared/SyncIndicator";
 import { DocumentSearchNavigation } from "../search/DocumentSearchNavigation";
+import { DocumentContentConflict } from "../shared/DocumentContentConflict";
+import { OpenDocumentWindowButton } from "../shared/OpenDocumentWindowButton";
 import { TaskTableView } from "./TaskTableView";
 import s from "./TaskContent.module.css";
 import * as TaskStore from "../../lib/taskStore";
-import * as EntityStore from "../../lib/entityStore";
+import * as DocumentStore from "../../lib/documentStore";
 
 interface TaskContentProps {
   tasks: UseTasksReturn;
   sidebarCollapsed?: boolean;
   onExpandSidebar?: () => void;
+  standalone?: boolean;
 }
 
 function storeNameFor(type: string): string {
@@ -41,7 +43,12 @@ function storeNameFor(type: string): string {
   return "projects";
 }
 
-export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskContentProps) {
+export function TaskContent({
+  tasks,
+  sidebarCollapsed,
+  onExpandSidebar,
+  standalone = false,
+}: TaskContentProps) {
   const { selectedNode } = tasks;
   if (!selectedNode) return null;
   if (selectedNode.type === "all") {
@@ -59,6 +66,7 @@ export function TaskContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskCo
       tasks={tasks}
       sidebarCollapsed={sidebarCollapsed}
       onExpandSidebar={onExpandSidebar}
+      standalone={standalone}
     />
   );
 }
@@ -83,7 +91,12 @@ function AllTasksContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskConte
   );
 }
 
-function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskContentProps) {
+function TaskDocumentContent({
+  tasks,
+  sidebarCollapsed,
+  onExpandSidebar,
+  standalone = false,
+}: TaskContentProps) {
   const { selectedNode } = tasks;
   const nav = useNavigation();
   const editorConfig = useEditorConfig();
@@ -93,12 +106,14 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
   const type = selectedNode.type;
   const storeName = storeNameFor(type);
   const isContainerType = type === "project" || type === "case";
-  const showingDoc = isContainerType ? tasks.taskViewMode !== "table" : true;
+  const showingDoc = standalone || (isContainerType ? tasks.taskViewMode !== "table" : true);
+  const selectedEntity = DocumentStore.get(storeName as DocumentStore.DocumentStoreName, id);
   const isArchivedSearchDocument =
-    type === "task" &&
-    nav.searchOpenedDocument?.type === "task" &&
-    nav.searchOpenedDocument.id === id &&
-    nav.searchOpenedDocument.isArchived;
+    selectedEntity?.isActive === false ||
+    (type === "task" &&
+      nav.searchOpenedDocument?.type === "task" &&
+      nav.searchOpenedDocument.id === id &&
+      nav.searchOpenedDocument.isArchived);
 
   // --- Single useDocumentEditor instance ---
   const {
@@ -113,6 +128,12 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
     syncStatus,
     contentRevision,
     flushPendingSave,
+    contentConflict,
+    keepLocalConflict,
+    acceptRemoteConflict,
+    handoffEditLease,
+    canOpenInNewTab,
+    savingForTransition,
   } = useDocumentEditor({
     scope: storeName,
     id,
@@ -130,6 +151,7 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
     ...editorConfig.editorProps,
     ...editorConfig.hookOptions,
     forceReadOnly: isArchivedSearchDocument,
+    navigationActive: standalone || nav.activeTab === "task",
     hasAfterMeta: !showingDoc && isContainerType,
   });
 
@@ -144,8 +166,8 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
   });
 
   // --- Toggle view (project/case only) ---
-  const toggleView = useCallback(() => {
-    flushPendingSave();
+  const toggleView = useCallback(async () => {
+    if (!(await flushPendingSave())) return;
     tasks.setTaskViewMode(showingDoc ? "table" : "doc");
   }, [showingDoc, tasks, flushPendingSave]);
 
@@ -155,22 +177,30 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
 
   // --- Toolbar slots ---
   const toolbarLeftSlot =
-    sidebarCollapsed && onExpandSidebar ? (
+    !standalone && sidebarCollapsed && onExpandSidebar ? (
       <ToolbarSlot>
         <SidebarExpandButton onClick={onExpandSidebar} />
       </ToolbarSlot>
     ) : undefined;
 
-  const toolbarRightSlot = isContainerType ? (
-    <ToolbarSlot>
-      <ViewModeToggle
-        showingDoc={showingDoc}
-        tableLayoutMode={tasks.tableLayoutMode}
-        toggleView={toggleView}
-        toggleTableLayout={toggleTableLayout}
-      />
-    </ToolbarSlot>
-  ) : undefined;
+  const toolbarRightSlot =
+    !standalone && (isContainerType || canOpenInNewTab) ? (
+      <ToolbarSlot>
+        {isContainerType && (
+          <ViewModeToggle
+            showingDoc={showingDoc}
+            tableLayoutMode={tasks.tableLayoutMode}
+            toggleView={() => void toggleView()}
+            toggleTableLayout={toggleTableLayout}
+          />
+        )}
+        <OpenDocumentWindowButton
+          target={{ tab: "task", taskNode: { type, id } }}
+          onBeforeOpen={handoffEditLease}
+          disabled={!canOpenInNewTab}
+        />
+      </ToolbarSlot>
+    ) : undefined;
 
   const tableSlot =
     !showingDoc && isContainerType ? (
@@ -191,6 +221,7 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
         readOnly={readOnly || isArchivedSearchDocument}
         onImageUpload={editorConfig.editorProps.onImageUpload}
         scrollRef={scrollRef}
+        saving={savingForTransition}
         toolbarLeft={toolbarLeftSlot}
         toolbarRight={toolbarRightSlot}
         searchNavigation={
@@ -199,12 +230,29 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
         className={s["task-wiki-container"]}
         afterMeta={tableSlot}
       >
+        <DocumentContentConflict
+          conflict={contentConflict}
+          onKeepLocal={keepLocalConflict}
+          onAcceptRemote={acceptRemoteConflict}
+        />
         {/* Meta section — keyed to remount per type+id */}
         {type === "project" && (
-          <ProjectMeta key={`p-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
+          <ProjectMeta
+            key={`p-${id}`}
+            id={id}
+            tasks={tasks}
+            syncStatus={syncStatus}
+            readOnly={isArchivedSearchDocument}
+          />
         )}
         {type === "case" && (
-          <CaseMeta key={`c-${id}`} id={id} tasks={tasks} syncStatus={syncStatus} />
+          <CaseMeta
+            key={`c-${id}`}
+            id={id}
+            tasks={tasks}
+            syncStatus={syncStatus}
+            readOnly={isArchivedSearchDocument}
+          />
         )}
         {type === "task" && (
           <TaskMeta
@@ -218,7 +266,9 @@ function TaskDocumentContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskC
       </EditorLayout>
 
       {/* Work records — task only */}
-      {type === "task" && !isArchivedSearchDocument && <TaskWorkRecords key={id} id={id} />}
+      {type === "task" && !standalone && !isArchivedSearchDocument && (
+        <TaskWorkRecords key={id} id={id} />
+      )}
     </div>
   );
 }
@@ -231,19 +281,18 @@ function useEntity(storeName: string, entityType: string, id: string) {
   const [entity, setEntity] = useState<any>(null);
 
   useEffect(() => {
-    EntityStore.get(storeName, id).then((data) => setEntity(data));
+    setEntity(DocumentStore.get(storeName as DocumentStore.DocumentStoreName, id));
   }, [storeName, id]);
 
   useEffect(() => {
     const handler = (detail: { entityType?: string }) => {
       if (!detail || detail.entityType === entityType || detail.entityType === "all") {
-        EntityStore.get(storeName, id).then((data) => {
-          if (data) setEntity(data);
-        });
+        const data = DocumentStore.get(storeName as DocumentStore.DocumentStoreName, id);
+        if (data) setEntity(data);
       }
     };
-    EntityStore.on("dataChanged", handler);
-    return () => EntityStore.off("dataChanged", handler);
+    DocumentStore.on(handler);
+    return () => DocumentStore.off(handler);
   }, [entityType, storeName, id]);
 
   return [entity, setEntity] as const;
@@ -278,10 +327,12 @@ function ProjectMeta({
   id,
   tasks,
   syncStatus,
+  readOnly = false,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
+  readOnly?: boolean;
 }) {
   const [entity, setEntity] = useEntity("projects", "project", id);
   const colorRef = useRef<HTMLInputElement>(null);
@@ -295,6 +346,7 @@ function ProjectMeta({
           className={s["meta-color-folder"]}
           onClick={(e) => {
             e.stopPropagation();
+            if (readOnly) return;
             colorRef.current?.click();
           }}
         >
@@ -304,6 +356,7 @@ function ProjectMeta({
             type="color"
             value={entity.color || "#4285f4"}
             onChange={(e) => tasks.updateProjectFields(id, { color: e.target.value })}
+            disabled={readOnly}
             style={{
               position: "absolute",
               inset: 0,
@@ -319,10 +372,14 @@ function ProjectMeta({
       <MetaTitle>
         <ContentHeaderName
           name={entity.name}
-          onRename={(name) => {
-            setEntity((prev: any) => ({ ...prev, name }));
-            tasks.rename("project", id, name);
-          }}
+          onRename={
+            readOnly
+              ? undefined
+              : (name) => {
+                  setEntity((prev: any) => ({ ...prev, name }));
+                  tasks.rename("project", id, name);
+                }
+          }
         />
       </MetaTitle>
     </>
@@ -333,10 +390,12 @@ function CaseMeta({
   id,
   tasks,
   syncStatus,
+  readOnly = false,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
+  readOnly?: boolean;
 }) {
   const [entity, setEntity] = useEntity("cases", "case", id);
 
@@ -350,10 +409,14 @@ function CaseMeta({
       <MetaTitle>
         <ContentHeaderName
           name={entity.name}
-          onRename={(name) => {
-            setEntity((prev: any) => ({ ...prev, name }));
-            tasks.rename("case", id, name);
-          }}
+          onRename={
+            readOnly
+              ? undefined
+              : (name) => {
+                  setEntity((prev: any) => ({ ...prev, name }));
+                  tasks.rename("case", id, name);
+                }
+          }
         />
       </MetaTitle>
     </>

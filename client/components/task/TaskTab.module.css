@@ -1,2 +1,3 @@
 .task-tab-layout { display: flex; height: 100%; overflow: hidden; }
+.task-tab-layout.standalone { width: 100%; min-height: 100vh; height: auto; }
 .task-content-area { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--surface); }

@@ -34,12 +34,13 @@ const ALL_TABS: { id: TabId; label: string }[] = [
 ];
 
 export function RightPanel() {
-  const { timer } = useApp();
+  const { timer, refreshDocuments } = useApp();
   const nav = useNavigation();
   const { activeTab, viewerState } = nav;
   const phase = timer.state.phase;
   const prevPhaseRef = useRef<Phase | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [refreshingDocuments, setRefreshingDocuments] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -105,6 +106,18 @@ export function RightPanel() {
           );
         })}
         <div className={s["tab-spacer"]} />
+        <button
+          type="button"
+          className={s["search-button"]}
+          disabled={refreshingDocuments}
+          onClick={() => {
+            setRefreshingDocuments(true);
+            void refreshDocuments().finally(() => setRefreshingDocuments(false));
+          }}
+          title="文書をサーバーから再読み込み"
+        >
+          {refreshingDocuments ? "更新中..." : "更新"}
+        </button>
         <button
           type="button"
           className={s["search-button"]}

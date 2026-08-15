@@ -12,6 +12,7 @@ import { RichEditorBody, insertImageWithUpload } from "../../editor/hitomdEditor
 import type { Editor, EditorMode } from "../../editor/hitomdEditor";
 import { Toolbar, DEFAULT_TOOLBAR_ITEMS, type ToolbarItem } from "./editorToolbar";
 import { RichTextIcon, MarkdownIcon } from "./Icons";
+import { SaveOverlay } from "./SaveOverlay";
 import s from "./DocumentEditor.module.css";
 
 export interface EditorLayoutProps {
@@ -32,6 +33,7 @@ export interface EditorLayoutProps {
   children?: ReactNode; // meta section
   afterMeta?: ReactNode;
   scrollRef?: React.RefObject<HTMLDivElement | null>;
+  saving?: boolean;
 }
 
 export function EditorLayout({
@@ -52,6 +54,7 @@ export function EditorLayout({
   children,
   afterMeta,
   scrollRef: externalScrollRef,
+  saving = false,
 }: EditorLayoutProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
@@ -244,6 +247,7 @@ export function EditorLayout({
       ref={scrollRef}
       className={`${s["page-root"]}${afterMeta ? ` ${s["hide-editor-body"]}` : ""}`}
     >
+      <SaveOverlay visible={saving} />
       <div className={`editor-full-container${className ? ` ${className}` : ""}`}>
         <div className="mdg-editor">
           {searchNavigation ? (

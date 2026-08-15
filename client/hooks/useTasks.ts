@@ -3,10 +3,11 @@
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import * as TaskStore from "../lib/taskStore";
-import * as EntityStore from "../lib/entityStore";
+import * as DocumentStore from "../lib/documentStore";
 import { STORAGE_KEYS, lsGetJSON, lsSetJSON, lsSet } from "../lib/localStorage";
 import { useNavigation } from "../contexts/NavigationContext";
 import type { TaskStatus } from "../types/entities";
+import { flushActiveDocument, requestDocumentTransition } from "../lib/documentNavigationGuard";
 
 // =========================================================
 // Types
@@ -178,7 +179,7 @@ export function useTasks(): UseTasksReturn {
     };
   }, []);
 
-  // Listen for EntityStore data changes
+  // Listen for in-memory document changes
   useEffect(() => {
     const handler = (detail: { entityType?: string }) => {
       if (
@@ -191,8 +192,8 @@ export function useTasks(): UseTasksReturn {
         refreshFromStore();
       }
     };
-    EntityStore.on("dataChanged", handler);
-    return () => EntityStore.off("dataChanged", handler);
+    DocumentStore.on(handler);
+    return () => DocumentStore.off(handler);
   }, [refreshFromStore]);
 
   // Initial load — validate persisted selection against loaded data
@@ -291,9 +292,12 @@ export function useTasks(): UseTasksReturn {
   const selectNode = useCallback(
     (type: NodeType, id: string) => {
       const node = { type, id };
-      setSelectedNode(node);
-      lsSetJSON(STORAGE_KEYS.TASK_SELECTED, node);
-      nav.notifyTaskNodeChange(node);
+      if (selectedRef.current?.type === type && selectedRef.current.id === id) return;
+      void requestDocumentTransition(() => {
+        setSelectedNode(node);
+        lsSetJSON(STORAGE_KEYS.TASK_SELECTED, node);
+        nav.notifyTaskNodeChange(node);
+      });
     },
     [nav],
   );
@@ -330,6 +334,7 @@ export function useTasks(): UseTasksReturn {
     async (name: string, color?: string) => {
       setIsLoading(true);
       try {
+        if (!(await flushActiveDocument())) return;
         const id = await TaskStore.addProject(name, color);
         await refreshFromStore();
         selectNode("project", id);
@@ -344,6 +349,7 @@ export function useTasks(): UseTasksReturn {
     async (projectId: string, name: string) => {
       setIsLoading(true);
       try {
+        if (!(await flushActiveDocument())) return;
         const id = await TaskStore.addCase(projectId, name);
         await refreshFromStore();
         setExpandedNodes((prev) => {
@@ -363,6 +369,7 @@ export function useTasks(): UseTasksReturn {
     async (projectId: string, caseId: string, name: string) => {
       setIsLoading(true);
       try {
+        if (!(await flushActiveDocument())) return;
         const id = await TaskStore.addTask(projectId, caseId, name);
         await refreshFromStore();
         setExpandedNodes((prev) => {
@@ -380,33 +387,60 @@ export function useTasks(): UseTasksReturn {
 
   const rename = useCallback((type: EditableNodeType, id: string, name: string) => {
     if (type === "project") {
-      TaskStore.updateProject(id, { name });
+      void TaskStore.updateProject(id, { name }).catch((error) =>
+        console.error("Project metadata save failed; the patch remains pending", error),
+      );
       setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, name } : p)));
     } else if (type === "case") {
-      TaskStore.updateCase(id, { name });
+      void TaskStore.updateCase(id, { name }).catch((error) =>
+        console.error("Case metadata save failed; the patch remains pending", error),
+      );
       setAllCases((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
     } else {
-      TaskStore.updateTask(id, { name });
+      void TaskStore.updateTask(id, { name }).catch((error) =>
+        console.error("Task metadata save failed; the patch remains pending", error),
+      );
       setAllTasks((prev) => prev.map((t) => (t.id === id ? { ...t, name } : t)));
     }
   }, []);
 
   const updateProjectFields = useCallback((id: string, fields: Record<string, any>) => {
-    TaskStore.updateProject(id, fields);
+    void TaskStore.updateProject(id, fields).catch((error) =>
+      console.error("Project metadata save failed; the patch remains pending", error),
+    );
   }, []);
 
   const updateCaseFields = useCallback((id: string, fields: Record<string, any>) => {
-    TaskStore.updateCase(id, fields);
+    void TaskStore.updateCase(id, fields).catch((error) =>
+      console.error("Case metadata save failed; the patch remains pending", error),
+    );
   }, []);
 
   const updateTaskFields = useCallback((id: string, fields: Record<string, any>) => {
-    TaskStore.updateTask(id, fields);
+    void TaskStore.updateTask(id, fields).catch((error) =>
+      console.error("Task metadata save failed; the patch remains pending", error),
+    );
   }, []);
 
   const archiveNode = useCallback(
     async (type: EditableNodeType, id: string) => {
       setIsLoading(true);
       try {
+        const selected = selectedRef.current;
+        const selectedCase =
+          selected?.type === "case"
+            ? (DocumentStore.get("cases", selected.id) as CaseItem | null)
+            : null;
+        const selectedTask =
+          selected?.type === "task"
+            ? (DocumentStore.get("tasks", selected.id) as TaskItem | null)
+            : null;
+        const archivesSelectedDocument =
+          selected?.id === id ||
+          (type === "project" &&
+            (selectedCase?.projectId === id || selectedTask?.projectId === id)) ||
+          (type === "case" && selectedTask?.caseId === id);
+        if (archivesSelectedDocument && !(await flushActiveDocument())) return;
         if (type === "project") await TaskStore.archiveProject(id);
         else if (type === "case") await TaskStore.archiveCase(id);
         else await TaskStore.archiveTask(id);

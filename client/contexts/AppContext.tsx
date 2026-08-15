@@ -9,14 +9,20 @@ import { serverCall } from "../lib/serverCall";
 import * as TaskStore from "../lib/taskStore";
 import * as MemoStore from "../lib/memoStore";
 import * as RecordCache from "../lib/recordCache";
+import * as EntityStore from "../lib/entityStore";
+import * as DocumentStore from "../lib/documentStore";
+import { flushActiveDocument, runWithActiveDocumentFrozen } from "../lib/documentNavigationGuard";
+import { readCurrentStandaloneDocumentTarget } from "../lib/documentWindow";
 
 interface AppContextValue {
   timer: UseTimerReturn;
   spreadsheetUrl: string;
+  webAppUrl: string;
   isLoading: boolean;
   error: string | null;
   /** Save a break record to the server + IDB cache */
   saveBreakRecord: (timerState: import("../types").TimerState) => Promise<void>;
+  refreshDocuments: () => Promise<boolean>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -33,8 +39,11 @@ function formatDate(d: Date): string {
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [spreadsheetUrl, setSpreadsheetUrl] = useState("");
+  const [webAppUrl, setWebAppUrl] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const hiddenAtRef = useRef<number | null>(null);
+  const refreshPromiseRef = useRef<Promise<boolean> | null>(null);
 
   const saveBreakRecord = useCallback(async (timerState: import("../types").TimerState) => {
     const now = new Date();
@@ -78,34 +87,118 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const timer = useTimer(onTargetReached, saveBreakRecord, refreshAll);
 
-  // Init: load server data + initialize stores (EntityStore/TaskStore/MemoStore/RecordCache)
+  const refreshDocuments = useCallback((): Promise<boolean> => {
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+    const operation = runWithActiveDocumentFrozen(async () => {
+      try {
+        await DocumentStore.waitForAllMetadata();
+        const generationBeforeFetch = DocumentStore.getLocalGeneration();
+        const data = (await serverCall("getAllDocumentData")) as Pick<
+          InitData,
+          "memos" | "projects" | "cases" | "tasks"
+        >;
+        if (DocumentStore.getLocalGeneration() !== generationBeforeFetch) return false;
+        DocumentStore.applyServerData({
+          memos: data.memos || [],
+          projects: data.projects || [],
+          cases: data.cases || [],
+          tasks: data.tasks || [],
+        });
+        return true;
+      } catch (refreshError) {
+        console.error("Document refresh failed:", refreshError);
+        return false;
+      }
+    });
+    refreshPromiseRef.current = operation;
+    const cleanup = () => {
+      if (refreshPromiseRef.current === operation) refreshPromiseRef.current = null;
+    };
+    void operation.then(cleanup, cleanup);
+    return operation;
+  }, []);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const handleDocumentEvent = (event: { op: string }) => {
+      if (event.op !== "remoteInvalidation") return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void refreshDocuments();
+      }, 250);
+    };
+    DocumentStore.on(handleDocumentEvent);
+    return () => {
+      DocumentStore.off(handleDocumentEvent);
+      if (timer) clearTimeout(timer);
+    };
+  }, [refreshDocuments]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAtRef.current = Date.now();
+        return;
+      }
+      const hiddenAt = hiddenAtRef.current;
+      hiddenAtRef.current = null;
+      if (hiddenAt !== null && Date.now() - hiddenAt >= 30 * 60 * 1000) {
+        void refreshDocuments();
+      }
+    };
+    const handleOnline = () => void refreshDocuments();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [refreshDocuments]);
+
+  // Init: load server data, initialize the document memory store, and retain IDB for records only.
   // Guard against StrictMode double-invocation which would race on MemoStore._serverMemos
   const initStarted = useRef(false);
   useEffect(() => {
     if (initStarted.current) return;
     initStarted.current = true;
 
-    serverCall("getAllInitData")
+    const standaloneTarget = readCurrentStandaloneDocumentTarget();
+    const initRequest = standaloneTarget
+      ? serverCall(
+          "getDocumentViewInitData",
+          standaloneTarget.tab === "memo"
+            ? `memos:${standaloneTarget.memoId}`
+            : `${standaloneTarget.taskNode.type === "project" ? "projects" : standaloneTarget.taskNode.type === "case" ? "cases" : "tasks"}:${standaloneTarget.taskNode.id}`,
+        )
+      : serverCall("getAllInitData");
+
+    initRequest
       .then(async (data) => {
         const d = data as InitData;
         timer.setConfigPatterns(d.timerConfigs);
         timer.setCategories(d.categories);
         timer.setInterruptionCategories(d.interruptionCategories);
         setSpreadsheetUrl(d.spreadsheetUrl || "");
+        setWebAppUrl(d.webAppUrl || "");
 
-        // Initialize stores: MemoStore.init registers "memos" store,
-        // RecordCache.registerStores registers record stores,
-        // then TaskStore.init registers task stores + opens IDB (EntityStore.init)
+        DocumentStore.initialize({
+          memos: d.memos || [],
+          projects: d.projects || [],
+          cases: d.cases || [],
+          tasks: d.tasks || [],
+        });
         MemoStore.init(d.memos || [], d.memoTags || []);
         RecordCache.registerStores();
-        await TaskStore.init({ projects: d.projects, cases: d.cases, tasks: d.tasks });
+        await TaskStore.init();
+        // Document stores from older versions are deliberately left untouched for
+        // manual recovery, but the new document path never registers or reads them.
+        await EntityStore.init("gas_pomodoro", 4);
 
-        // Load all stores in parallel (MemoStore, TaskStore, RecordCache are independent IDB stores)
-        await Promise.all([
-          MemoStore.loadData(),
-          TaskStore.loadData(),
-          RecordCache.populateFromBulk(d.recentRecordsBulk || [], d.recentInterruptionsBulk || []),
-        ]);
+        await RecordCache.populateFromBulk(
+          d.recentRecordsBulk || [],
+          d.recentInterruptionsBulk || [],
+        );
 
         setIsLoading(false);
       })
@@ -122,9 +215,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       value={{
         timer,
         spreadsheetUrl,
+        webAppUrl,
         isLoading,
         error,
         saveBreakRecord,
+        refreshDocuments,
       }}
     >
       {children}

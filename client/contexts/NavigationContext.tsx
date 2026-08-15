@@ -9,6 +9,7 @@ import { createContext, useContext, useState, useCallback, useRef, useEffect } f
 import { STORAGE_KEYS, lsSet, lsSetJSON } from "../lib/localStorage";
 import { clearActiveViewerSnapshot, loadActiveViewerSnapshot } from "../lib/viewerDraft";
 import type { DocumentSearchResult } from "../types/search";
+import { requestDocumentTransition } from "../lib/documentNavigationGuard";
 
 export type TabId = "memo" | "task" | "record" | "interruption" | "viewer" | "settings";
 
@@ -213,13 +214,14 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   // --- switchTab ---
   const switchTab = useCallback(
     (tab: TabId, opts?: { skipHistory?: boolean }) => {
-      setSearchRevealRequest(null);
-      prevTabRef.current = activeTabRef.current; // Record tab before switch
-      activeTabRef.current = tab;
-      setActiveTab(tab);
-      if (!opts?.skipHistory) {
-        pushHash();
-      }
+      if (tab === activeTabRef.current) return;
+      void requestDocumentTransition(() => {
+        setSearchRevealRequest(null);
+        prevTabRef.current = activeTabRef.current;
+        activeTabRef.current = tab;
+        setActiveTab(tab);
+        if (!opts?.skipHistory) pushHash();
+      });
     },
     [pushHash],
   );
@@ -236,21 +238,22 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
 
   // --- showViewer / closeViewer ---
   // Viewer is transient like record/interruption — no browser history entry.
-  const showViewer = useCallback(
-    (state: ViewerState) => {
-      const proceed = () => {
+  const showViewer = useCallback((state: ViewerState) => {
+    const proceed = () => {
+      void requestDocumentTransition(() => {
         viewerStateRef.current = state;
         setViewerState(state);
-        switchTab("viewer", { skipHistory: true });
-      };
-      if (viewerStateRef.current && viewerExitGuardRef.current) {
-        viewerExitGuardRef.current("replace", proceed);
-      } else {
-        proceed();
-      }
-    },
-    [switchTab],
-  );
+        prevTabRef.current = activeTabRef.current;
+        activeTabRef.current = "viewer";
+        setActiveTab("viewer");
+      });
+    };
+    if (viewerStateRef.current && viewerExitGuardRef.current) {
+      viewerExitGuardRef.current("replace", proceed);
+    } else {
+      proceed();
+    }
+  }, []);
 
   // Just clear viewerState. RightPanel's effect detects viewer becoming invisible
   // (!vis[activeTab]) and calls restoreTab — same code path as all other tab transitions.
@@ -312,52 +315,54 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
         searchDocument?: DocumentSearchResult;
       },
     ) => {
-      const query = details.searchQuery?.trim();
-      const targetId =
-        tab === "memo" ? details.memoId : tab === "task" ? details.taskNode?.id : undefined;
-      const openedDocument =
-        query && targetId && (tab === "memo" || tab === "task")
-          ? (details.searchDocument ?? null)
-          : null;
+      void requestDocumentTransition(() => {
+        const query = details.searchQuery?.trim();
+        const targetId =
+          tab === "memo" ? details.memoId : tab === "task" ? details.taskNode?.id : undefined;
+        const openedDocument =
+          query && targetId && (tab === "memo" || tab === "task")
+            ? (details.searchDocument ?? null)
+            : null;
 
-      // 1. Update localStorage so hooks re-read the correct state
-      if (details.memoId) {
-        lsSet(STORAGE_KEYS.MEMO_ACTIVE, details.memoId);
-      }
-      if (details.taskNode) {
-        lsSetJSON(STORAGE_KEYS.TASK_SELECTED, details.taskNode);
-      }
+        // 1. Update localStorage so hooks re-read the correct state
+        if (details.memoId) {
+          lsSet(STORAGE_KEYS.MEMO_ACTIVE, details.memoId);
+        }
+        if (details.taskNode) {
+          lsSetJSON(STORAGE_KEYS.TASK_SELECTED, details.taskNode);
+        }
 
-      // 2. Update refs
-      if (details.memoId) memoIdRef.current = details.memoId;
-      if (details.taskNode) taskNodeRef.current = details.taskNode;
+        // 2. Update refs
+        if (details.memoId) memoIdRef.current = details.memoId;
+        if (details.taskNode) taskNodeRef.current = details.taskNode;
 
-      // 3. Switch tab (which also calls pushHash once)
-      prevTabRef.current = activeTabRef.current;
-      activeTabRef.current = tab;
-      setActiveTab(tab);
-      pushHash({
-        state: openedDocument ? { searchDocument: openedDocument } : null,
-      });
-
-      // 4. Carry the query only for navigation originating from document search.
-      if (query && targetId && (tab === "memo" || tab === "task")) {
-        searchOpenedDocumentRef.current = openedDocument;
-        setSearchOpenedDocument(openedDocument);
-        setSearchRevealRequest({
-          requestId: ++searchRequestSeqRef.current,
-          tab,
-          id: targetId,
-          query,
+        // 3. Switch tab (which also calls pushHash once)
+        prevTabRef.current = activeTabRef.current;
+        activeTabRef.current = tab;
+        setActiveTab(tab);
+        pushHash({
+          state: openedDocument ? { searchDocument: openedDocument } : null,
         });
-      } else {
-        searchOpenedDocumentRef.current = null;
-        setSearchOpenedDocument(null);
-        setSearchRevealRequest(null);
-      }
 
-      // 5. Signal hooks to re-read from localStorage
-      setRestoreSeq((s) => s + 1);
+        // 4. Carry the query only for navigation originating from document search.
+        if (query && targetId && (tab === "memo" || tab === "task")) {
+          searchOpenedDocumentRef.current = openedDocument;
+          setSearchOpenedDocument(openedDocument);
+          setSearchRevealRequest({
+            requestId: ++searchRequestSeqRef.current,
+            tab,
+            id: targetId,
+            query,
+          });
+        } else {
+          searchOpenedDocumentRef.current = null;
+          setSearchOpenedDocument(null);
+          setSearchRevealRequest(null);
+        }
+
+        // 5. Signal hooks to re-read from localStorage
+        setRestoreSeq((s) => s + 1);
+      });
     },
     [pushHash],
   );
@@ -381,36 +386,45 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
             parsed.taskNode.id === historyDocument.id))
           ? historyDocument
           : null;
+      const previousHash = buildHash({
+        tab: activeTabRef.current,
+        memoId: memoIdRef.current,
+        taskNode: taskNodeRef.current,
+      });
 
-      restoringRef.current = true;
-      setSearchRevealRequest(null);
-      searchOpenedDocumentRef.current = restoredSearchDocument;
-      setSearchOpenedDocument(restoredSearchDocument);
+      void requestDocumentTransition(() => {
+        restoringRef.current = true;
+        setSearchRevealRequest(null);
+        searchOpenedDocumentRef.current = restoredSearchDocument;
+        setSearchOpenedDocument(restoredSearchDocument);
 
-      // Restore tab
-      activeTabRef.current = parsed.tab;
-      setActiveTab(parsed.tab);
-      viewerStateRef.current = null;
-      setViewerState(null);
+        // Restore tab
+        activeTabRef.current = parsed.tab;
+        setActiveTab(parsed.tab);
+        viewerStateRef.current = null;
+        setViewerState(null);
 
-      // Update refs
-      taskNodeRef.current = parsed.taskNode;
-      memoIdRef.current = parsed.memoId;
+        // Update refs
+        taskNodeRef.current = parsed.taskNode;
+        memoIdRef.current = parsed.memoId;
 
-      // Persist to localStorage — hooks will re-read via restoreSeq
-      if (parsed.memoId) {
-        lsSet(STORAGE_KEYS.MEMO_ACTIVE, parsed.memoId);
-      }
-      if (parsed.taskNode) {
-        lsSetJSON(STORAGE_KEYS.TASK_SELECTED, parsed.taskNode);
-      }
+        // Persist to localStorage — hooks will re-read via restoreSeq
+        if (parsed.memoId) {
+          lsSet(STORAGE_KEYS.MEMO_ACTIVE, parsed.memoId);
+        }
+        if (parsed.taskNode) {
+          lsSetJSON(STORAGE_KEYS.TASK_SELECTED, parsed.taskNode);
+        }
 
-      // Signal hooks to re-read from localStorage
-      setRestoreSeq((s) => s + 1);
+        // Signal hooks to re-read from localStorage
+        setRestoreSeq((s) => s + 1);
 
-      // Release restoring guard after React has processed the state updates
-      queueMicrotask(() => {
-        restoringRef.current = false;
+        // Release restoring guard after React has processed the state updates
+        queueMicrotask(() => {
+          restoringRef.current = false;
+        });
+      }).then((transitioned) => {
+        if (!transitioned) history.replaceState(null, "", previousHash);
       });
     };
 

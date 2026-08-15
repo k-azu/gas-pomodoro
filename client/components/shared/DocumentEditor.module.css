@@ -9,6 +9,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 .page-root :global(.editor-full-container) {
   flex: initial;

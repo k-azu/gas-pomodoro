@@ -300,11 +300,7 @@ const PICKER_STATUS_ORDER: Record<string, number> = {
   docs: 5,
 };
 
-function comparePickerTasks(
-  a: TaskItem,
-  b: TaskItem,
-  recentRank: Map<string, number>,
-): number {
+function comparePickerTasks(a: TaskItem, b: TaskItem, recentRank: Map<string, number>): number {
   const recentA = recentRank.get(a.id);
   const recentB = recentRank.get(b.id);
   if (recentA !== undefined || recentB !== undefined) {

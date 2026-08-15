@@ -1,0 +1,441 @@
+type DocumentStoreName = "memos" | "projects" | "cases" | "tasks";
+
+interface DocumentSheetConfig {
+  sheetName: string;
+  contentColumn: number;
+  updatedAtColumn: number;
+  isActiveColumn: number;
+  contentRevisionColumn: number;
+  metadataRevisionColumn: number;
+  lastContentMutationColumn: number;
+  lastMetadataMutationColumn: number;
+  metadataColumns: Record<string, number>;
+}
+
+interface DocumentContentSnapshot {
+  documentKey: string;
+  content: string;
+  revision: number;
+  updatedAt: string;
+  lastMutationId: string;
+}
+
+interface DocumentMetadataSnapshot {
+  documentKey: string;
+  revision: number;
+  updatedAt: string;
+  lastMutationId: string;
+  metadata: Record<string, unknown>;
+}
+
+interface PutDocumentContentRequest {
+  documentKey: string;
+  content: string;
+  expectedRevision: number;
+  mutationId: string;
+}
+
+interface PatchDocumentMetadataRequest {
+  documentKey: string;
+  patch: Record<string, unknown>;
+  expectedRevision: number;
+  mutationId: string;
+}
+
+type DocumentContentMutationResult =
+  | { status: "applied"; mutationId: string; snapshot: DocumentContentSnapshot }
+  | { status: "conflict"; mutationId: string; snapshot: DocumentContentSnapshot }
+  | { status: "missing"; mutationId: string };
+
+type DocumentMetadataMutationResult =
+  | { status: "applied"; mutationId: string; snapshot: DocumentMetadataSnapshot }
+  | { status: "conflict"; mutationId: string; snapshot: DocumentMetadataSnapshot }
+  | { status: "missing"; mutationId: string }
+  | { status: "rejected"; mutationId: string; reason: string };
+
+const DOCUMENT_SHEETS: Record<DocumentStoreName, DocumentSheetConfig> = {
+  memos: {
+    sheetName: "Memos",
+    contentColumn: 3,
+    updatedAtColumn: 6,
+    isActiveColumn: 8,
+    contentRevisionColumn: 9,
+    metadataRevisionColumn: 10,
+    lastContentMutationColumn: 11,
+    lastMetadataMutationColumn: 12,
+    metadataColumns: { name: 2, tags: 4, isActive: 8 },
+  },
+  projects: {
+    sheetName: "Projects",
+    contentColumn: 3,
+    updatedAtColumn: 8,
+    isActiveColumn: 6,
+    contentRevisionColumn: 9,
+    metadataRevisionColumn: 10,
+    lastContentMutationColumn: 11,
+    lastMetadataMutationColumn: 12,
+    metadataColumns: { name: 2, color: 4, isActive: 6 },
+  },
+  cases: {
+    sheetName: "Cases",
+    contentColumn: 4,
+    updatedAtColumn: 8,
+    isActiveColumn: 6,
+    contentRevisionColumn: 9,
+    metadataRevisionColumn: 10,
+    lastContentMutationColumn: 11,
+    lastMetadataMutationColumn: 12,
+    metadataColumns: { projectId: 2, name: 3, isActive: 6 },
+  },
+  tasks: {
+    sheetName: "Tasks",
+    contentColumn: 5,
+    updatedAtColumn: 13,
+    isActiveColumn: 8,
+    contentRevisionColumn: 14,
+    metadataRevisionColumn: 15,
+    lastContentMutationColumn: 16,
+    lastMetadataMutationColumn: 17,
+    metadataColumns: {
+      projectId: 2,
+      caseId: 3,
+      name: 4,
+      status: 6,
+      isActive: 8,
+      startedAt: 11,
+      dueDate: 12,
+    },
+  },
+};
+
+function parseDocumentKey(documentKey: string): {
+  storeName: DocumentStoreName;
+  id: string;
+  config: DocumentSheetConfig;
+} {
+  const separator = documentKey.indexOf(":");
+  if (separator <= 0) throw new Error("Invalid document key");
+  const storeName = documentKey.slice(0, separator) as DocumentStoreName;
+  const id = documentKey.slice(separator + 1);
+  const config = DOCUMENT_SHEETS[storeName];
+  if (!config || !id) throw new Error("Invalid document key");
+  return { storeName, id, config };
+}
+
+function readRevision(value: unknown): number {
+  const revision = Number(value);
+  return Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
+}
+
+function findDocumentRow(sheet: GoogleAppsScript.Spreadsheet.Sheet, id: string): number | null {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return null;
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let index = ids.length - 1; index >= 0; index -= 1) {
+    if (String(ids[index][0]) === id) return index + 2;
+  }
+  return null;
+}
+
+function readContentSnapshot(
+  sheet: GoogleAppsScript.Spreadsheet.Sheet,
+  row: number,
+  documentKey: string,
+  config: DocumentSheetConfig,
+): DocumentContentSnapshot {
+  const width = Math.max(
+    config.contentColumn,
+    config.updatedAtColumn,
+    config.contentRevisionColumn,
+    config.lastContentMutationColumn,
+  );
+  const values = sheet.getRange(row, 1, 1, width).getValues()[0];
+  return {
+    documentKey,
+    content: String(values[config.contentColumn - 1] ?? ""),
+    revision: readRevision(values[config.contentRevisionColumn - 1]),
+    updatedAt: String(values[config.updatedAtColumn - 1] ?? ""),
+    lastMutationId: String(values[config.lastContentMutationColumn - 1] ?? ""),
+  };
+}
+
+function readMetadataValue(storeName: DocumentStoreName, field: string, value: unknown): unknown {
+  if (storeName === "memos" && field === "tags") return parseTags(value);
+  if (field === "isActive") return value === true;
+  return String(value ?? "");
+}
+
+function readMetadataSnapshot(
+  sheet: GoogleAppsScript.Spreadsheet.Sheet,
+  row: number,
+  documentKey: string,
+  storeName: DocumentStoreName,
+  config: DocumentSheetConfig,
+): DocumentMetadataSnapshot {
+  const width = Math.max(
+    config.updatedAtColumn,
+    config.metadataRevisionColumn,
+    config.lastMetadataMutationColumn,
+    ...Object.values(config.metadataColumns),
+  );
+  const values = sheet.getRange(row, 1, 1, width).getValues()[0];
+  const metadata: Record<string, unknown> = {};
+  Object.entries(config.metadataColumns).forEach(([field, column]) => {
+    metadata[field] = readMetadataValue(storeName, field, values[column - 1]);
+  });
+  if (storeName === "tasks") {
+    metadata.completedAt = String(values[9] ?? "");
+  }
+  return {
+    documentKey,
+    revision: readRevision(values[config.metadataRevisionColumn - 1]),
+    updatedAt: String(values[config.updatedAtColumn - 1] ?? ""),
+    lastMutationId: String(values[config.lastMetadataMutationColumn - 1] ?? ""),
+    metadata,
+  };
+}
+
+function validateMutationRequest(request: { expectedRevision: number; mutationId: string }): void {
+  if (!Number.isSafeInteger(request.expectedRevision) || request.expectedRevision < 0) {
+    throw new Error("Invalid expected revision");
+  }
+  if (!request.mutationId) throw new Error("mutationId is required");
+}
+
+function putDocumentContent(request: PutDocumentContentRequest): DocumentContentMutationResult {
+  validateMutationRequest(request);
+  if (typeof request.content !== "string") throw new Error("Invalid document content");
+
+  const { id, config } = parseDocumentKey(request.documentKey);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(config.sheetName)!;
+    const row = findDocumentRow(sheet, id);
+    if (row === null) return { status: "missing", mutationId: request.mutationId };
+    if (sheet.getRange(row, config.isActiveColumn).getValue() !== true) {
+      return { status: "missing", mutationId: request.mutationId };
+    }
+
+    const current = readContentSnapshot(sheet, row, request.documentKey, config);
+    if (current.lastMutationId === request.mutationId) {
+      return { status: "applied", mutationId: request.mutationId, snapshot: current };
+    }
+    if (current.revision !== request.expectedRevision) {
+      return { status: "conflict", mutationId: request.mutationId, snapshot: current };
+    }
+
+    const now = new Date().toISOString();
+    sheet.getRange(row, config.contentColumn).setValue(request.content);
+    sheet.getRange(row, config.updatedAtColumn).setValue(now);
+    sheet.getRange(row, config.contentRevisionColumn).setValue(current.revision + 1);
+    sheet.getRange(row, config.lastContentMutationColumn).setValue(request.mutationId);
+    return {
+      status: "applied",
+      mutationId: request.mutationId,
+      snapshot: {
+        documentKey: request.documentKey,
+        content: request.content,
+        revision: current.revision + 1,
+        updatedAt: now,
+        lastMutationId: request.mutationId,
+      },
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function serializeMetadataValue(
+  storeName: DocumentStoreName,
+  field: string,
+  value: unknown,
+): unknown {
+  if (storeName === "memos" && field === "tags") {
+    if (!Array.isArray(value) || value.some((tag) => typeof tag !== "string")) {
+      throw new Error("Invalid memo tags");
+    }
+    return JSON.stringify(value);
+  }
+  if (field === "isActive") {
+    if (typeof value !== "boolean") throw new Error("Invalid isActive value");
+    return value;
+  }
+  if (typeof value !== "string") throw new Error(`Invalid metadata field ${field}`);
+  return value;
+}
+
+function patchDocumentMetadata(
+  request: PatchDocumentMetadataRequest,
+): DocumentMetadataMutationResult {
+  validateMutationRequest(request);
+  if (!request.patch || typeof request.patch !== "object" || Array.isArray(request.patch)) {
+    throw new Error("Invalid metadata patch");
+  }
+
+  const { storeName, id, config } = parseDocumentKey(request.documentKey);
+  const fields = Object.keys(request.patch);
+  if (fields.length === 0) {
+    return { status: "rejected", mutationId: request.mutationId, reason: "empty patch" };
+  }
+  const invalidField = fields.find((field) => config.metadataColumns[field] === undefined);
+  if (invalidField) {
+    return {
+      status: "rejected",
+      mutationId: request.mutationId,
+      reason: `unsupported field: ${invalidField}`,
+    };
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(config.sheetName)!;
+    const row = findDocumentRow(sheet, id);
+    if (row === null) return { status: "missing", mutationId: request.mutationId };
+
+    const current = readMetadataSnapshot(sheet, row, request.documentKey, storeName, config);
+    if (
+      current.metadata.isActive === false &&
+      !(fields.length === 1 && request.patch.isActive === true)
+    ) {
+      return {
+        status: "rejected",
+        mutationId: request.mutationId,
+        reason: "archived document is read-only",
+      };
+    }
+    if (current.lastMutationId === request.mutationId) {
+      return { status: "applied", mutationId: request.mutationId, snapshot: current };
+    }
+    if (current.revision !== request.expectedRevision) {
+      return { status: "conflict", mutationId: request.mutationId, snapshot: current };
+    }
+
+    const oldStatus = storeName === "tasks" ? String(current.metadata.status ?? "") : "";
+    fields.forEach((field) => {
+      const column = config.metadataColumns[field];
+      sheet
+        .getRange(row, column)
+        .setValue(serializeMetadataValue(storeName, field, request.patch[field]));
+    });
+    if (storeName === "tasks" && request.patch.status !== undefined) {
+      const newStatus = String(request.patch.status);
+      if (newStatus === "done" && oldStatus !== "done") {
+        sheet.getRange(row, 10).setValue(new Date().toISOString());
+      } else if (newStatus !== "done" && oldStatus === "done") {
+        sheet.getRange(row, 10).setValue("");
+      }
+    }
+
+    const now = new Date().toISOString();
+    const nextRevision = current.revision + 1;
+    sheet.getRange(row, config.updatedAtColumn).setValue(now);
+    sheet.getRange(row, config.metadataRevisionColumn).setValue(nextRevision);
+    sheet.getRange(row, config.lastMetadataMutationColumn).setValue(request.mutationId);
+    return {
+      status: "applied",
+      mutationId: request.mutationId,
+      snapshot: readMetadataSnapshot(sheet, row, request.documentKey, storeName, config),
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getDocumentViewData(documentKey: string): {
+  memos: MemoMetadata[];
+  projects: ProjectMetadata[];
+  cases: CaseMetadata[];
+  tasks: TaskMetadata[];
+} {
+  const { storeName, id, config } = parseDocumentKey(documentKey);
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(config.sheetName)!;
+  const row = findDocumentRow(sheet, id);
+  const result = {
+    memos: [] as MemoMetadata[],
+    projects: [] as ProjectMetadata[],
+    cases: [] as CaseMetadata[],
+    tasks: [] as TaskMetadata[],
+  };
+  if (row === null) return result;
+
+  if (storeName === "memos") {
+    const values = sheet.getRange(row, 1, 1, 12).getValues()[0];
+    result.memos.push({
+      id: String(values[0]),
+      name: String(values[1]),
+      content: String(values[2]),
+      tags: parseTags(values[3]),
+      createdAt: String(values[4]),
+      updatedAt: String(values[5]),
+      sortOrder: Number(values[6]),
+      isActive: Boolean(values[7]),
+      contentRevision: readRevision(values[8]),
+      metadataRevision: readRevision(values[9]),
+      lastContentMutationId: String(values[10] ?? ""),
+      lastMetadataMutationId: String(values[11] ?? ""),
+    });
+    return result;
+  }
+
+  if (storeName === "projects") {
+    const values = sheet.getRange(row, 1, 1, 12).getValues()[0];
+    result.projects.push({
+      id: String(values[0]),
+      name: String(values[1]),
+      content: String(values[2]),
+      color: String(values[3]),
+      sortOrder: Number(values[4]),
+      isActive: Boolean(values[5]),
+      createdAt: String(values[6]),
+      updatedAt: String(values[7]),
+      contentRevision: readRevision(values[8]),
+      metadataRevision: readRevision(values[9]),
+      lastContentMutationId: String(values[10] ?? ""),
+      lastMetadataMutationId: String(values[11] ?? ""),
+    });
+    return result;
+  }
+
+  if (storeName === "cases") {
+    const values = sheet.getRange(row, 1, 1, 12).getValues()[0];
+    result.cases.push({
+      id: String(values[0]),
+      projectId: String(values[1]),
+      name: String(values[2]),
+      content: String(values[3]),
+      sortOrder: Number(values[4]),
+      isActive: Boolean(values[5]),
+      createdAt: String(values[6]),
+      updatedAt: String(values[7]),
+      contentRevision: readRevision(values[8]),
+      metadataRevision: readRevision(values[9]),
+      lastContentMutationId: String(values[10] ?? ""),
+      lastMetadataMutationId: String(values[11] ?? ""),
+    });
+    return result;
+  }
+
+  const values = sheet.getRange(row, 1, 1, 17).getValues()[0];
+  result.tasks.push({
+    id: String(values[0]),
+    projectId: String(values[1]),
+    caseId: String(values[2]),
+    name: String(values[3]),
+    content: String(values[4]),
+    status: String(values[5]),
+    sortOrder: Number(values[6]),
+    isActive: Boolean(values[7]),
+    createdAt: String(values[8]),
+    completedAt: String(values[9]),
+    startedAt: String(values[10]),
+    dueDate: String(values[11]),
+    updatedAt: String(values[12]),
+    contentRevision: readRevision(values[13]),
+    metadataRevision: readRevision(values[14]),
+    lastContentMutationId: String(values[15] ?? ""),
+    lastMetadataMutationId: String(values[16] ?? ""),
+  });
+  return result;
+}

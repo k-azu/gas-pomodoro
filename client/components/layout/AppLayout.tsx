@@ -2,9 +2,13 @@ import { LeftPanel } from "./LeftPanel";
 import { RightPanel } from "./RightPanel";
 import { useApp } from "../../contexts/AppContext";
 import s from "./AppLayout.module.css";
+import { MemoTab } from "../memo/MemoTab";
+import { TaskTab } from "../task/TaskTab";
+import { readCurrentStandaloneDocumentTarget } from "../../lib/documentWindow";
 
 export function AppLayout() {
   const { isLoading, error } = useApp();
+  const standaloneTarget = readCurrentStandaloneDocumentTarget();
 
   if (error) {
     return (
@@ -19,6 +23,18 @@ export function AppLayout() {
     return (
       <div className={`${s["loading-overlay"]} ${s.visible}`}>
         <div className={s.spinner} />
+      </div>
+    );
+  }
+
+  if (standaloneTarget) {
+    return (
+      <div className={s["document-layout"]} data-standalone-document>
+        {standaloneTarget.tab === "memo" ? (
+          <MemoTab standalone documentId={standaloneTarget.memoId} />
+        ) : (
+          <TaskTab standalone documentNode={standaloneTarget.taskNode} />
+        )}
       </div>
     );
   }
