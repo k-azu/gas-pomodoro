@@ -23,7 +23,7 @@
     "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
-    "@hitomd/editor-core": "^0.1.8",
+    "@hitomd/editor-core": "^0.1.9",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
