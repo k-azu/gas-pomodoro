@@ -40,7 +40,7 @@ export async function addProject(name: string, color = "#4285f4"): Promise<strin
     ...nowEntityBase(id, name, DocumentStore.getAll("projects").length + 1),
     color,
   } as Project);
-  DocumentStore.notifyServerConfirmed();
+  DocumentStore.notifyDocumentCollectionChanged();
   return id;
 }
 
@@ -52,7 +52,7 @@ export async function addCase(projectId: string, name: string): Promise<string> 
     ...nowEntityBase(id, name, DocumentStore.getAll("cases").length + 1),
     projectId,
   } as Case);
-  DocumentStore.notifyServerConfirmed();
+  DocumentStore.notifyDocumentCollectionChanged();
   return id;
 }
 
@@ -71,7 +71,7 @@ export async function addTask(projectId: string, caseId: string, name: string): 
     startedAt: "",
     dueDate: "",
   } as Task);
-  DocumentStore.notifyServerConfirmed();
+  DocumentStore.notifyDocumentCollectionChanged();
   return id;
 }
 
@@ -245,7 +245,7 @@ async function reorder(
   DocumentStore.reorderLocal(storeName, ids);
   const result = (await serverCall(functionName, ...args)) as { success?: boolean };
   if (!result?.success) throw new Error("並び順を保存できませんでした");
-  DocumentStore.notifyServerConfirmed();
+  DocumentStore.notifyDocumentCollectionChanged();
 }
 
 export function reorderProjects(ids: string[]): Promise<void> {

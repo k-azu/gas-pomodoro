@@ -48,7 +48,22 @@ test("非表示の選択中文書も編集権を保持する", async ({ context,
   await expect(second.getByText("別タブで本文編集中", { exact: true })).toBeVisible();
 });
 
-test("別タブで確定したmetadataをBroadcast後の再取得で反映する", async ({ context, page }) => {
+test("別タブで確定した本文snapshotを全件再取得せず反映する", async ({ context, page }) => {
+  await gotoApp(page);
+  await waitForSyncComplete(page);
+
+  const second = await context.newPage();
+  await gotoApp(second);
+  await typeInEditor(page, "別タブへ反映する本文");
+  await page.locator("[data-id='mock-memo-2']").click();
+  await expect(page.locator("[data-id='mock-memo-2']")).toHaveClass(/active/);
+
+  await expect(second.locator(".ProseMirror")).toContainText("別タブへ反映する本文");
+  const calls = await second.evaluate(() => window.__mockServerCallCounts ?? {});
+  expect(calls.getAllDocumentData ?? 0).toBe(0);
+});
+
+test("別タブで確定したmetadata snapshotを全件再取得せず反映する", async ({ context, page }) => {
   await gotoApp(page);
   await waitForSyncComplete(page);
 
@@ -64,5 +79,5 @@ test("別タブで確定したmetadataをBroadcast後の再取得で反映する
     { timeout: 5_000 },
   );
   const calls = await page.evaluate(() => window.__mockServerCallCounts ?? {});
-  expect(calls.getAllDocumentData).toBeGreaterThanOrEqual(1);
+  expect(calls.getAllDocumentData ?? 0).toBe(0);
 });

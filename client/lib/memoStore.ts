@@ -42,7 +42,7 @@ export async function addMemo(name: string): Promise<string> {
     lastContentMutationId: "",
     lastMetadataMutationId: "",
   } as Memo);
-  DocumentStore.notifyServerConfirmed();
+  DocumentStore.notifyDocumentCollectionChanged();
   return id;
 }
 
@@ -72,7 +72,7 @@ export async function reorderMemos(orderedIds: string[]): Promise<void> {
   DocumentStore.reorderLocal("memos", orderedIds);
   const result = (await serverCall("updateMemoSortOrders", orderedIds)) as { success?: boolean };
   if (!result?.success) throw new Error("メモの並び順を保存できませんでした");
-  DocumentStore.notifyServerConfirmed();
+  DocumentStore.notifyDocumentCollectionChanged();
 }
 
 export function updateTags(id: string, tags: string[]): Promise<void> {

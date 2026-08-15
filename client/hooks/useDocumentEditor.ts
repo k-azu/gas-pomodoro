@@ -405,8 +405,10 @@ export function useDocumentEditor({
 
   useEffect(() => {
     if (!id) return;
-    const handleStoreChange = (event: { op: string }) => {
-      if (event.op === "serverRefresh" && !dirtyRef.current) {
+    const handleStoreChange = (event: DocumentStore.DocumentEvent) => {
+      const appliesToCurrentDocument =
+        event.op === "remoteContentApplied" && event.storeName === scope && event.id === id;
+      if ((event.op === "serverRefresh" || appliesToCurrentDocument) && !dirtyRef.current) {
         suppressSaveRef.current = true;
         setContentReady(false);
         setSyncStatus("syncing");

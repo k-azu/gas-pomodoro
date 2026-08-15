@@ -11,7 +11,10 @@ import * as MemoStore from "../lib/memoStore";
 import * as RecordCache from "../lib/recordCache";
 import * as EntityStore from "../lib/entityStore";
 import * as DocumentStore from "../lib/documentStore";
-import { runWithDocumentEditorsFrozen } from "../lib/documentNavigationGuard";
+import {
+  runWithDocumentEditorsFrozen,
+  runWithDocumentKeyFrozen,
+} from "../lib/documentNavigationGuard";
 import { readCurrentStandaloneDocumentTarget } from "../lib/documentWindow";
 
 interface AppContextValue {
@@ -154,7 +157,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
-    const handleDocumentEvent = (event: { op: string }) => {
+    const handleDocumentEvent = (event: DocumentStore.DocumentEvent) => {
+      if (
+        event.op === "remoteContentConfirmed" &&
+        event.storeName &&
+        event.id &&
+        event.contentSnapshot
+      ) {
+        const { storeName, id, contentSnapshot } = event;
+        void runWithDocumentKeyFrozen(`${storeName}:${id}`, async () => {
+          DocumentStore.applyRemoteContentSnapshot(storeName, id, contentSnapshot);
+          return true;
+        });
+        return;
+      }
+      if (
+        event.op === "remoteMetadataConfirmed" &&
+        event.storeName &&
+        event.id &&
+        event.metadataSnapshot
+      ) {
+        DocumentStore.applyRemoteMetadataSnapshot(
+          event.storeName,
+          event.id,
+          event.metadataSnapshot,
+        );
+        return;
+      }
       if (event.op !== "remoteInvalidation") return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {

@@ -137,19 +137,24 @@ function findDocumentRow(sheet: GoogleAppsScript.Spreadsheet.Sheet, id: string):
   return null;
 }
 
-function readContentSnapshot(
-  sheet: GoogleAppsScript.Spreadsheet.Sheet,
-  row: number,
+function documentRowWidth(config: DocumentSheetConfig): number {
+  return Math.max(
+    config.contentColumn,
+    config.updatedAtColumn,
+    config.isActiveColumn,
+    config.contentRevisionColumn,
+    config.metadataRevisionColumn,
+    config.lastContentMutationColumn,
+    config.lastMetadataMutationColumn,
+    ...Object.values(config.metadataColumns),
+  );
+}
+
+function readContentSnapshotValues(
+  values: unknown[],
   documentKey: string,
   config: DocumentSheetConfig,
 ): DocumentContentSnapshot {
-  const width = Math.max(
-    config.contentColumn,
-    config.updatedAtColumn,
-    config.contentRevisionColumn,
-    config.lastContentMutationColumn,
-  );
-  const values = sheet.getRange(row, 1, 1, width).getValues()[0];
   return {
     documentKey,
     content: String(values[config.contentColumn - 1] ?? ""),
@@ -165,20 +170,12 @@ function readMetadataValue(storeName: DocumentStoreName, field: string, value: u
   return String(value ?? "");
 }
 
-function readMetadataSnapshot(
-  sheet: GoogleAppsScript.Spreadsheet.Sheet,
-  row: number,
+function readMetadataSnapshotValues(
+  values: unknown[],
   documentKey: string,
   storeName: DocumentStoreName,
   config: DocumentSheetConfig,
 ): DocumentMetadataSnapshot {
-  const width = Math.max(
-    config.updatedAtColumn,
-    config.metadataRevisionColumn,
-    config.lastMetadataMutationColumn,
-    ...Object.values(config.metadataColumns),
-  );
-  const values = sheet.getRange(row, 1, 1, width).getValues()[0];
   const metadata: Record<string, unknown> = {};
   Object.entries(config.metadataColumns).forEach(([field, column]) => {
     metadata[field] = readMetadataValue(storeName, field, values[column - 1]);
@@ -213,11 +210,13 @@ function putDocumentContent(request: PutDocumentContentRequest): DocumentContent
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(config.sheetName)!;
     const row = findDocumentRow(sheet, id);
     if (row === null) return { status: "missing", mutationId: request.mutationId };
-    const current = readContentSnapshot(sheet, row, request.documentKey, config);
+    const rowRange = sheet.getRange(row, 1, 1, documentRowWidth(config));
+    const values = rowRange.getValues()[0];
+    const current = readContentSnapshotValues(values, request.documentKey, config);
     if (current.lastMutationId === request.mutationId) {
       return { status: "applied", mutationId: request.mutationId, snapshot: current };
     }
-    if (sheet.getRange(row, config.isActiveColumn).getValue() !== true) {
+    if (values[config.isActiveColumn - 1] !== true) {
       return { status: "missing", mutationId: request.mutationId };
     }
     if (current.revision !== request.expectedRevision) {
@@ -225,10 +224,11 @@ function putDocumentContent(request: PutDocumentContentRequest): DocumentContent
     }
 
     const now = new Date().toISOString();
-    sheet.getRange(row, config.contentColumn).setValue(request.content);
-    sheet.getRange(row, config.updatedAtColumn).setValue(now);
-    sheet.getRange(row, config.contentRevisionColumn).setValue(current.revision + 1);
-    sheet.getRange(row, config.lastContentMutationColumn).setValue(request.mutationId);
+    values[config.contentColumn - 1] = request.content;
+    values[config.updatedAtColumn - 1] = now;
+    values[config.contentRevisionColumn - 1] = current.revision + 1;
+    values[config.lastContentMutationColumn - 1] = request.mutationId;
+    rowRange.setValues([values]);
     return {
       status: "applied",
       mutationId: request.mutationId,
@@ -293,7 +293,9 @@ function patchDocumentMetadata(
     const row = findDocumentRow(sheet, id);
     if (row === null) return { status: "missing", mutationId: request.mutationId };
 
-    const current = readMetadataSnapshot(sheet, row, request.documentKey, storeName, config);
+    const rowRange = sheet.getRange(row, 1, 1, documentRowWidth(config));
+    const values = rowRange.getValues()[0];
+    const current = readMetadataSnapshotValues(values, request.documentKey, storeName, config);
     if (current.lastMutationId === request.mutationId) {
       return { status: "applied", mutationId: request.mutationId, snapshot: current };
     }
@@ -314,28 +316,27 @@ function patchDocumentMetadata(
     const oldStatus = storeName === "tasks" ? String(current.metadata.status ?? "") : "";
     fields.forEach((field) => {
       const column = config.metadataColumns[field];
-      sheet
-        .getRange(row, column)
-        .setValue(serializeMetadataValue(storeName, field, request.patch[field]));
+      values[column - 1] = serializeMetadataValue(storeName, field, request.patch[field]);
     });
     if (storeName === "tasks" && request.patch.status !== undefined) {
       const newStatus = String(request.patch.status);
       if (newStatus === "done" && oldStatus !== "done") {
-        sheet.getRange(row, 10).setValue(new Date().toISOString());
+        values[9] = new Date().toISOString();
       } else if (newStatus !== "done" && oldStatus === "done") {
-        sheet.getRange(row, 10).setValue("");
+        values[9] = "";
       }
     }
 
     const now = new Date().toISOString();
     const nextRevision = current.revision + 1;
-    sheet.getRange(row, config.updatedAtColumn).setValue(now);
-    sheet.getRange(row, config.metadataRevisionColumn).setValue(nextRevision);
-    sheet.getRange(row, config.lastMetadataMutationColumn).setValue(request.mutationId);
+    values[config.updatedAtColumn - 1] = now;
+    values[config.metadataRevisionColumn - 1] = nextRevision;
+    values[config.lastMetadataMutationColumn - 1] = request.mutationId;
+    rowRange.setValues([values]);
     return {
       status: "applied",
       mutationId: request.mutationId,
-      snapshot: readMetadataSnapshot(sheet, row, request.documentKey, storeName, config),
+      snapshot: readMetadataSnapshotValues(values, request.documentKey, storeName, config),
     };
   } finally {
     lock.releaseLock();

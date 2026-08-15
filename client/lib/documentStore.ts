@@ -19,7 +19,7 @@ export interface ContentSnapshot {
   lastMutationId: string;
 }
 
-interface MetadataSnapshot {
+export interface MetadataSnapshot {
   documentKey: string;
   revision: number;
   updatedAt: string;
@@ -55,10 +55,13 @@ export class DocumentMetadataConflictError extends Error {
   }
 }
 
-type DocumentEvent = {
+export type DocumentEvent = {
   entityType: "memo" | "project" | "case" | "task" | "all";
   op: string;
   id?: string;
+  storeName?: DocumentStoreName;
+  contentSnapshot?: ContentSnapshot;
+  metadataSnapshot?: MetadataSnapshot;
 };
 type Listener = (event: DocumentEvent) => void;
 
@@ -91,14 +94,53 @@ const metadataPending = new Map<
   }
 >();
 const channelSource = crypto.randomUUID();
+type ConfirmedChange =
+  | {
+      kind: "content";
+      storeName: DocumentStoreName;
+      id: string;
+      snapshot: ContentSnapshot;
+    }
+  | {
+      kind: "metadata";
+      storeName: DocumentStoreName;
+      id: string;
+      snapshot: MetadataSnapshot;
+    };
 const syncChannel =
   typeof window === "undefined" || typeof BroadcastChannel === "undefined"
     ? null
     : new BroadcastChannel("gas-pomodoro:document-confirmed:v1");
 
 syncChannel?.addEventListener("message", (event: MessageEvent) => {
-  const message = event.data as { source?: string; type?: string } | null;
+  const message = event.data as {
+    source?: string;
+    type?: string;
+    change?: ConfirmedChange;
+  } | null;
   if (!message || message.source === channelSource || message.type !== "document-confirmed") {
+    return;
+  }
+  if (message.change?.kind === "content") {
+    const { storeName, id, snapshot } = message.change;
+    emit({
+      entityType: entityTypeFor(storeName),
+      op: "remoteContentConfirmed",
+      id,
+      storeName,
+      contentSnapshot: snapshot,
+    });
+    return;
+  }
+  if (message.change?.kind === "metadata") {
+    const { storeName, id, snapshot } = message.change;
+    emit({
+      entityType: entityTypeFor(storeName),
+      op: "remoteMetadataConfirmed",
+      id,
+      storeName,
+      metadataSnapshot: snapshot,
+    });
     return;
   }
   emit({ entityType: "all", op: "remoteInvalidation" });
@@ -106,6 +148,10 @@ syncChannel?.addEventListener("message", (event: MessageEvent) => {
 
 function documentKey(storeName: DocumentStoreName, id: string): string {
   return `${storeName}:${id}`;
+}
+
+function latestUpdatedAt(current: string, incoming: string): string {
+  return current.localeCompare(incoming) >= 0 ? current : incoming;
 }
 
 function entityTypeFor(storeName: DocumentStoreName): DocumentEvent["entityType"] {
@@ -125,8 +171,32 @@ function emit(event: DocumentEvent): void {
   });
 }
 
-export function notifyServerConfirmed(): void {
+export function notifyDocumentCollectionChanged(): void {
   syncChannel?.postMessage({ source: channelSource, type: "document-confirmed" });
+}
+
+function notifyContentConfirmed(
+  storeName: DocumentStoreName,
+  id: string,
+  snapshot: ContentSnapshot,
+): void {
+  syncChannel?.postMessage({
+    source: channelSource,
+    type: "document-confirmed",
+    change: { kind: "content", storeName, id, snapshot } satisfies ConfirmedChange,
+  });
+}
+
+function notifyMetadataConfirmed(
+  storeName: DocumentStoreName,
+  id: string,
+  snapshot: MetadataSnapshot,
+): void {
+  syncChannel?.postMessage({
+    source: channelSource,
+    type: "document-confirmed",
+    change: { kind: "metadata", storeName, id, snapshot } satisfies ConfirmedChange,
+  });
 }
 
 function replaceStore<T extends DocumentEntity>(storeName: DocumentStoreName, entities: T[]): void {
@@ -204,7 +274,7 @@ export function getByIndex(
 export function putLocal(storeName: DocumentStoreName, entity: DocumentEntity): void {
   stores[storeName].set(entity.id, entity);
   localGeneration += 1;
-  emit({ entityType: entityTypeFor(storeName), op: "localUpdate", id: entity.id });
+  emit({ entityType: entityTypeFor(storeName), op: "localUpdate", id: entity.id, storeName });
 }
 
 export function updateLocal(
@@ -217,7 +287,7 @@ export function updateLocal(
   if (!current) return;
   stores[storeName].set(id, { ...current, ...patch } as DocumentEntity);
   localGeneration += 1;
-  emit({ entityType: entityTypeFor(storeName), op, id });
+  emit({ entityType: entityTypeFor(storeName), op, id, storeName });
 }
 
 export function getLocalGeneration(): number {
@@ -272,6 +342,7 @@ export async function saveContent(
     throw new Error("Mismatched content mutation response");
   }
   contentAttempts.delete(key);
+  const latestEntity = get(storeName, id) ?? entity;
 
   updateLocal(
     storeName,
@@ -280,11 +351,11 @@ export async function saveContent(
       content: result.snapshot.content,
       contentRevision: result.snapshot.revision,
       lastContentMutationId: result.snapshot.lastMutationId,
-      updatedAt: result.snapshot.updatedAt,
+      updatedAt: latestUpdatedAt(latestEntity.updatedAt, result.snapshot.updatedAt),
     },
     "contentSaved",
   );
-  notifyServerConfirmed();
+  notifyContentConfirmed(storeName, id, result.snapshot);
   return content === attempt.content ? result.snapshot : saveContent(storeName, id, content);
 }
 
@@ -293,6 +364,8 @@ export function applyContentSnapshot(
   id: string,
   snapshot: ContentSnapshot,
 ): void {
+  const current = get(storeName, id);
+  if (!current) return;
   updateLocal(
     storeName,
     id,
@@ -300,9 +373,30 @@ export function applyContentSnapshot(
       content: snapshot.content,
       contentRevision: snapshot.revision,
       lastContentMutationId: snapshot.lastMutationId,
-      updatedAt: snapshot.updatedAt,
+      updatedAt: latestUpdatedAt(current.updatedAt, snapshot.updatedAt),
     },
     "contentSnapshot",
+  );
+}
+
+export function applyRemoteContentSnapshot(
+  storeName: DocumentStoreName,
+  id: string,
+  snapshot: ContentSnapshot,
+): void {
+  const current = get(storeName, id);
+  if (!current || snapshot.documentKey !== documentKey(storeName, id)) return;
+  if (snapshot.revision <= current.contentRevision) return;
+  updateLocal(
+    storeName,
+    id,
+    {
+      content: snapshot.content,
+      contentRevision: snapshot.revision,
+      lastContentMutationId: snapshot.lastMutationId,
+      updatedAt: latestUpdatedAt(current.updatedAt, snapshot.updatedAt),
+    },
+    "remoteContentApplied",
   );
 }
 
@@ -311,6 +405,8 @@ function applyMetadataSnapshot(
   id: string,
   snapshot: MetadataSnapshot,
 ): void {
+  const current = get(storeName, id);
+  if (!current) return;
   updateLocal(
     storeName,
     id,
@@ -318,10 +414,23 @@ function applyMetadataSnapshot(
       ...snapshot.metadata,
       metadataRevision: snapshot.revision,
       lastMetadataMutationId: snapshot.lastMutationId,
-      updatedAt: snapshot.updatedAt,
+      updatedAt: latestUpdatedAt(current.updatedAt, snapshot.updatedAt),
     },
     "metadataSaved",
   );
+}
+
+export function applyRemoteMetadataSnapshot(
+  storeName: DocumentStoreName,
+  id: string,
+  snapshot: MetadataSnapshot,
+): void {
+  const current = get(storeName, id);
+  if (!current || snapshot.documentKey !== documentKey(storeName, id)) return;
+  if (snapshot.revision <= current.metadataRevision) return;
+  applyMetadataSnapshot(storeName, id, snapshot);
+  const pending = metadataPending.get(documentKey(storeName, id));
+  if (pending) updateLocal(storeName, id, pending.patch, "metadataPending");
 }
 
 export function patchMetadata(
@@ -379,7 +488,7 @@ async function flushMetadata(key: string): Promise<void> {
       throw new Error("Mismatched metadata mutation response");
     }
     applyMetadataSnapshot(pending.storeName, pending.id, result.snapshot);
-    notifyServerConfirmed();
+    notifyMetadataConfirmed(pending.storeName, pending.id, result.snapshot);
     const latest = metadataPending.get(key);
     if (!latest || latest.version === attempt.version) {
       metadataPending.delete(key);

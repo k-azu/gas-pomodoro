@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create ADR"
+  short_description: "設計判断を調査しADRの作成・置換・索引更新まで一貫して支援する"
+  default_prompt: "Use $create-adr to record this architecture decision and update the ADR index."

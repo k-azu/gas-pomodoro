@@ -4,6 +4,7 @@ import {
   hasUnsavedDocument,
   registerDocumentEditGuard,
   requestDocumentTransition,
+  runWithDocumentKeyFrozen,
   runWithDocumentEditorsFrozen,
   type DocumentEditGuard,
 } from "./documentNavigationGuard";
@@ -52,6 +53,38 @@ test("文書遷移は指定された種類のEditorStateだけを保存する", 
     assert.equal(memoSaves, 1);
     assert.equal(taskSaves, 0);
     assert.equal(hasUnsavedDocument(), true);
+  } finally {
+    unregisterMemo();
+    unregisterTask();
+  }
+});
+
+test("対象文書の更新は一致するEditorStateだけを固定する", async () => {
+  const events: string[] = [];
+  const makeGuard = (documentKey: string, name: string) =>
+    guard({
+      documentKey,
+      runWhileFrozen: async (operation) => {
+        events.push(`${name}:freeze`);
+        try {
+          return await operation();
+        } finally {
+          events.push(`${name}:unfreeze`);
+        }
+      },
+    });
+  const unregisterMemo = registerDocumentEditGuard("memo", makeGuard("memos:memo-1", "memo"));
+  const unregisterTask = registerDocumentEditGuard("task", makeGuard("tasks:task-1", "task"));
+
+  try {
+    assert.equal(
+      await runWithDocumentKeyFrozen("tasks:task-1", async () => {
+        events.push("operation");
+        return true;
+      }),
+      true,
+    );
+    assert.deepEqual(events, ["task:freeze", "operation", "task:unfreeze"]);
   } finally {
     unregisterMemo();
     unregisterTask();

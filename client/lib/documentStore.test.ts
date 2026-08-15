@@ -4,6 +4,8 @@ import type { Case, Memo, Project, Task } from "../types/entities";
 import * as TaskStore from "./taskStore";
 import {
   DocumentContentConflictError,
+  applyRemoteContentSnapshot,
+  applyRemoteMetadataSnapshot,
   get,
   hasAnyPendingMetadata,
   initialize,
@@ -98,6 +100,63 @@ test("古い本文revisionはremote snapshotを上書きしない", async () => 
   await assert.rejects(saveContent("memos", "memo-1", "stale local"), DocumentContentConflictError);
   assert.equal(get("memos", "memo-1")?.content, "server base");
   assert.equal(get("memos", "memo-1")?.contentRevision, 0);
+});
+
+test("別タブの本文snapshotは新しいrevisionだけを反映する", () => {
+  applyRemoteContentSnapshot("memos", "memo-1", {
+    documentKey: "memos:memo-1",
+    content: "new remote",
+    revision: 2,
+    updatedAt: "2026-08-15T00:00:02.000Z",
+    lastMutationId: "remote-2",
+  });
+  applyRemoteContentSnapshot("memos", "memo-1", {
+    documentKey: "memos:memo-1",
+    content: "stale remote",
+    revision: 1,
+    updatedAt: "2026-08-15T00:00:01.000Z",
+    lastMutationId: "remote-1",
+  });
+
+  assert.equal(get("memos", "memo-1")?.content, "new remote");
+  assert.equal(get("memos", "memo-1")?.contentRevision, 2);
+});
+
+test("別タブのmetadata snapshotへ未確認local patchを重ね直す", async () => {
+  let finishRequest!: () => void;
+  setServerCallHandlerForTests((_functionName, args) => {
+    const request = args[0] as { documentKey: string; mutationId: string };
+    return new Promise((resolve) => {
+      finishRequest = () =>
+        resolve({
+          status: "applied",
+          mutationId: request.mutationId,
+          snapshot: {
+            documentKey: request.documentKey,
+            revision: 2,
+            updatedAt: "2026-08-15T00:00:02.000Z",
+            lastMutationId: request.mutationId,
+            metadata: { name: "Local name", tags: ["remote"], isActive: true },
+          },
+        });
+    });
+  });
+
+  updateLocal("memos", "memo-1", { name: "Local name" });
+  const pending = patchMetadata("memos", "memo-1", { name: "Local name" });
+  await Promise.resolve();
+  applyRemoteMetadataSnapshot("memos", "memo-1", {
+    documentKey: "memos:memo-1",
+    revision: 1,
+    updatedAt: "2026-08-15T00:00:01.000Z",
+    lastMutationId: "other-tab",
+    metadata: { name: "Remote name", tags: ["remote"], isActive: true },
+  });
+
+  assert.equal((get("memos", "memo-1") as Memo).name, "Local name");
+  assert.deepEqual((get("memos", "memo-1") as Memo).tags, ["remote"]);
+  finishRequest();
+  await pending;
 });
 
 test("metadata CAS競合後はremoteをbaseに同じpatchを再適用する", async () => {
