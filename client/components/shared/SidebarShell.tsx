@@ -63,15 +63,18 @@ export function SidebarAddButton({
   onClick,
   children = "+",
   className,
+  disabled = false,
 }: {
   onClick: () => void;
   children?: ReactNode;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       className={`${s["sidebar-add-btn"]}${className ? ` ${className}` : ""}`}
       onClick={onClick}
+      disabled={disabled}
     >
       {children}
     </button>

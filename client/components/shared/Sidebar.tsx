@@ -26,6 +26,7 @@ export interface SidebarProps<T extends { id: string; name: string }> {
   extraFilter?: (item: T) => boolean;
   /** Slot rendered between search and list (e.g. tag filter button) */
   filterSlot?: ReactNode;
+  disabled?: boolean;
 }
 
 export function Sidebar<T extends { id: string; name: string }>({
@@ -43,12 +44,13 @@ export function Sidebar<T extends { id: string; name: string }>({
   emptyLabel = "アイテムがありません",
   extraFilter,
   filterSlot,
+  disabled = false,
 }: SidebarProps<T>) {
   const [searchQuery, setSearchQuery] = useState("");
 
   const q = searchQuery.toLowerCase();
   const hasFilter = !!q || extraFilter != null;
-  const canReorder = !!onReorder && !hasFilter && items.length > 1;
+  const canReorder = !!onReorder && !disabled && !hasFilter && items.length > 1;
 
   const visibleItems = items.filter((item) => {
     const matchSearch =
@@ -72,8 +74,11 @@ export function Sidebar<T extends { id: string; name: string }>({
         placeholder="検索..."
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
+        disabled={disabled}
       />
-      <SidebarAddButton onClick={onAdd}>{addLabel}</SidebarAddButton>
+      <SidebarAddButton onClick={onAdd} disabled={disabled}>
+        {addLabel}
+      </SidebarAddButton>
     </>
   );
 
@@ -123,6 +128,7 @@ export function Sidebar<T extends { id: string; name: string }>({
             onPointerUp={handlers.onPointerUp}
             onPointerCancel={handlers.onPointerCancel}
             onClick={() => {
+              if (disabled) return;
               if (drag.didActivate.current) {
                 drag.didActivate.current = false;
                 return;
@@ -131,6 +137,7 @@ export function Sidebar<T extends { id: string; name: string }>({
             }}
             onContextMenu={(e) => {
               e.preventDefault();
+              if (disabled) return;
               onContextMenu?.(e, item);
             }}
           >

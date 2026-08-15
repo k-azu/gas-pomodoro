@@ -418,6 +418,7 @@ const CONTENT_FUNCTIONS = new Set([
   "updateInterruptionDetails",
   "putDocumentContent",
 ]);
+const DOCUMENT_CREATE_FUNCTIONS = new Set(["saveMemo", "addProject", "addCase", "addTask"]);
 
 /** Generate large mock content for char-count limit testing. Includes `prefix` for keyword matching. */
 function generateLargeContent(charTarget: number, prefix: string): string {
@@ -1107,6 +1108,9 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
       return getContentMockResponse(functionName, args[0] as string);
 
     // ---- Memo ----
+    case "saveMemo":
+      return { success: true, id: (args[0] as { id?: string }).id };
+
     case "getMemoContent":
       return getContentMockResponse(functionName, args[0] as string);
 
@@ -1161,13 +1165,14 @@ export function serverCall(functionName: string, ...args: unknown[]): Promise<un
     window.__mockServerCallCounts[functionName] =
       (window.__mockServerCallCounts[functionName] ?? 0) + 1;
     const baseDelay = 100;
-    const extraDelay = CONTENT_FUNCTIONS.has(functionName)
-      ? mockParams.delay
-      : functionName === "getAllDocumentData"
+    const extraDelay =
+      CONTENT_FUNCTIONS.has(functionName) || DOCUMENT_CREATE_FUNCTIONS.has(functionName)
         ? mockParams.delay
-        : functionName === "getImageBase64"
-          ? mockParams.imageDelay
-          : 0;
+        : functionName === "getAllDocumentData"
+          ? mockParams.delay
+          : functionName === "getImageBase64"
+            ? mockParams.imageDelay
+            : 0;
 
     if (CONTENT_FUNCTIONS.has(functionName) && (window as any).__mockContentShouldFail) {
       return new Promise((_, reject) => {

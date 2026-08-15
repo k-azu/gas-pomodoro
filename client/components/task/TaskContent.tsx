@@ -227,7 +227,7 @@ function TaskDocumentContent({
         readOnly={readOnly}
         onImageUpload={editorConfig.editorProps.onImageUpload}
         scrollRef={scrollRef}
-        saving={savingForTransition}
+        saving={savingForTransition && !tasks.isLoading}
         toolbarLeft={toolbarLeftSlot}
         toolbarRight={toolbarRightSlot}
         searchNavigation={

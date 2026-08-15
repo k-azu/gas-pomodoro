@@ -4,6 +4,7 @@ import {
   hasUnsavedDocument,
   registerDocumentEditGuard,
   requestDocumentTransition,
+  runWithDocumentEditorFrozen,
   runWithDocumentKeyFrozen,
   runWithDocumentEditorsFrozen,
   type DocumentEditGuard,
@@ -85,6 +86,39 @@ test("対象文書の更新は一致するEditorStateだけを固定する", asy
       true,
     );
     assert.deepEqual(events, ["task:freeze", "operation", "task:unfreeze"]);
+  } finally {
+    unregisterMemo();
+    unregisterTask();
+  }
+});
+
+test("文書作成中は対象種類のEditorStateだけを固定し続ける", async () => {
+  const events: string[] = [];
+  const makeGuard = (name: string) =>
+    guard({
+      runWhileFrozen: async (operation) => {
+        events.push(`${name}:freeze`);
+        try {
+          return await operation();
+        } finally {
+          events.push(`${name}:unfreeze`);
+        }
+      },
+    });
+  const unregisterMemo = registerDocumentEditGuard("memo", makeGuard("memo"));
+  const unregisterTask = registerDocumentEditGuard("task", makeGuard("task"));
+
+  try {
+    assert.equal(
+      await runWithDocumentEditorFrozen("memo", async () => {
+        events.push("create:start");
+        await Promise.resolve();
+        events.push("create:end");
+        return true;
+      }),
+      true,
+    );
+    assert.deepEqual(events, ["memo:freeze", "create:start", "create:end", "memo:unfreeze"]);
   } finally {
     unregisterMemo();
     unregisterTask();

@@ -28,6 +28,25 @@ test("取得済みclean文書の切り替えではサーバーを待たない", 
   expect(calls.putDocumentContent ?? 0).toBe(0);
 });
 
+test("新規メモ作成中は元のEditorStateとメモUIを固定する", async ({ page }) => {
+  await gotoApp(page, { params: { mockDelay: "800" } });
+  await waitForSyncComplete(page);
+  await typeInEditor(page, "作成前に保存する本文");
+
+  await page.getByRole("button", { name: "+", exact: true }).click();
+  await expect(page.getByText("メモを処理中...", { exact: true })).toBeVisible();
+  await expect(page.getByText("保存中...", { exact: true })).toHaveCount(0);
+  const editor = page.locator(".ProseMirror:visible");
+  await expect(editor).toHaveAttribute("contenteditable", "false");
+  await page.keyboard.insertText("作成待機中に失われる入力");
+
+  await expect(page.getByText("新しいメモ", { exact: true })).toBeVisible();
+  await expect(page.getByText("メモを処理中...", { exact: true })).not.toBeVisible();
+  await selectMemo(page, "開発メモ");
+  await expect(page.locator(".ProseMirror:visible")).toContainText("作成前に保存する本文");
+  await expect(page.locator(".ProseMirror:visible")).not.toContainText("作成待機中に失われる入力");
+});
+
 test("dirtyなメモとタスクを独立して保持し、種類間遷移はACKを待たない", async ({ page }) => {
   await gotoApp(page, { params: { mockDelay: "800" } });
   await waitForSyncComplete(page);

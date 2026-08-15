@@ -94,6 +94,22 @@ export function runWithDocumentEditorsFrozen(operation: () => Promise<boolean>):
   return transition;
 }
 
+export function runWithDocumentEditorFrozen(
+  editorKey: DocumentEditorKey,
+  operation: () => Promise<boolean>,
+): Promise<boolean> {
+  const run = async (): Promise<boolean> => {
+    const guard = guards.get(editorKey);
+    try {
+      return guard ? await guard.runWhileFrozen(operation) : await operation();
+    } catch {
+      return false;
+    }
+  };
+  transition = transition.then(run, run);
+  return transition;
+}
+
 export function runWithDocumentKeyFrozen(
   documentKey: string,
   operation: () => Promise<boolean>,

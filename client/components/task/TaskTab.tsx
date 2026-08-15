@@ -8,6 +8,7 @@ import { ContextMenu } from "../shared/ContextMenu";
 import type { ContextMenuSection } from "../shared/ContextMenu";
 import { SidebarShell, SidebarAddButton } from "../shared/SidebarShell";
 import { ContentHeader } from "../shared/ContentHeader";
+import { SaveOverlay } from "../shared/SaveOverlay";
 import { TaskTree } from "./TaskTree";
 import { TaskContent } from "./TaskContent";
 import { lsGet, lsSet } from "../../lib/localStorage";
@@ -141,7 +142,11 @@ export function TaskTab({
   );
 
   return (
-    <div className={`${s["task-tab-layout"]}${standalone ? ` ${s.standalone}` : ""}`}>
+    <div
+      className={`${s["task-tab-layout"]}${standalone ? ` ${s.standalone}` : ""}`}
+      aria-busy={tasks.isLoading}
+    >
+      <SaveOverlay visible={tasks.isLoading} label="文書を処理中..." />
       {/* Sidebar */}
       {!standalone && (
         <SidebarShell
@@ -149,6 +154,7 @@ export function TaskTab({
           onToggle={toggleSidebar}
           headerSlot={
             <SidebarAddButton
+              disabled={tasks.isLoading}
               onClick={() => {
                 const name = prompt("プロジェクト名:");
                 if (name?.trim()) tasks.addProject(name.trim());

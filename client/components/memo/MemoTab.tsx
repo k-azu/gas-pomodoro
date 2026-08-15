@@ -22,6 +22,7 @@ import { SyncIndicator } from "../shared/SyncIndicator";
 import { DocumentSearchNavigation } from "../search/DocumentSearchNavigation";
 import { DocumentContentConflict } from "../shared/DocumentContentConflict";
 import { OpenDocumentWindowButton } from "../shared/OpenDocumentWindowButton";
+import { SaveOverlay } from "../shared/SaveOverlay";
 import * as MemoStore from "../../lib/memoStore";
 import * as DocumentStore from "../../lib/documentStore";
 import s from "./MemoTab.module.css";
@@ -209,7 +210,11 @@ export function MemoTab({
     ) : null;
 
   return (
-    <div className={`${s["memo-tab-layout"]}${standalone ? ` ${s.standalone}` : ""}`}>
+    <div
+      className={`${s["memo-tab-layout"]}${standalone ? ` ${s.standalone}` : ""}`}
+      aria-busy={memo.isLoading}
+    >
+      <SaveOverlay visible={memo.isLoading} label="メモを処理中..." />
       {!standalone && (
         <Sidebar<MemoItem>
           items={memo.memos}
@@ -238,6 +243,7 @@ export function MemoTab({
           emptyLabel="メモがありません"
           extraFilter={extraFilter}
           filterSlot={filterSlot}
+          disabled={memo.isLoading}
         />
       )}
 
@@ -255,7 +261,7 @@ export function MemoTab({
             readOnly={readOnly || isArchivedSearchDocument}
             onImageUpload={editorConfig.editorProps.onImageUpload}
             scrollRef={scrollRef}
-            saving={savingForTransition}
+            saving={savingForTransition && !memo.isLoading}
             searchNavigation={
               searchNavigation ? (
                 <DocumentSearchNavigation controller={searchNavigation} />

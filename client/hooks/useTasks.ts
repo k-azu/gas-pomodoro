@@ -7,7 +7,10 @@ import * as DocumentStore from "../lib/documentStore";
 import { STORAGE_KEYS, lsGetJSON, lsSetJSON, lsSet } from "../lib/localStorage";
 import { useNavigation } from "../contexts/NavigationContext";
 import type { TaskStatus } from "../types/entities";
-import { flushDocument, requestDocumentTransition } from "../lib/documentNavigationGuard";
+import {
+  requestDocumentTransition,
+  runWithDocumentEditorFrozen,
+} from "../lib/documentNavigationGuard";
 
 // =========================================================
 // Types
@@ -149,6 +152,15 @@ export function useTasks(): UseTasksReturn {
   const [isLoading, setIsLoading] = useState(false);
   const selectedRef = useRef(selectedNode);
   selectedRef.current = selectedNode;
+
+  const commitSelection = useCallback(
+    (node: SelectedNode) => {
+      setSelectedNode(node);
+      lsSetJSON(STORAGE_KEYS.TASK_SELECTED, node);
+      nav.notifyTaskNodeChange(node);
+    },
+    [nav],
+  );
 
   // Load persisted UI state (expand/collapse, view modes)
   // Note: selectedNode is validated in the initial load effect below
@@ -303,12 +315,10 @@ export function useTasks(): UseTasksReturn {
       const node = { type, id };
       if (selectedRef.current?.type === type && selectedRef.current.id === id) return;
       void requestDocumentTransition("task", () => {
-        setSelectedNode(node);
-        lsSetJSON(STORAGE_KEYS.TASK_SELECTED, node);
-        nav.notifyTaskNodeChange(node);
+        commitSelection(node);
       });
     },
-    [nav],
+    [commitSelection],
   );
 
   const clearSelection = useCallback(() => {
@@ -346,55 +356,76 @@ export function useTasks(): UseTasksReturn {
     async (name: string, color?: string) => {
       setIsLoading(true);
       try {
-        if (!(await flushDocument("task"))) return;
-        const id = await TaskStore.addProject(name, color);
-        await refreshFromStore();
-        selectNode("project", id);
+        await runWithDocumentEditorFrozen("task", async () => {
+          try {
+            const id = await TaskStore.addProject(name, color);
+            await refreshFromStore();
+            commitSelection({ type: "project", id });
+            return true;
+          } catch (error) {
+            console.error("Project creation failed", error);
+            throw error;
+          }
+        });
       } finally {
         setIsLoading(false);
       }
     },
-    [refreshFromStore, selectNode],
+    [commitSelection, refreshFromStore],
   );
 
   const addCase = useCallback(
     async (projectId: string, name: string) => {
       setIsLoading(true);
       try {
-        if (!(await flushDocument("task"))) return;
-        const id = await TaskStore.addCase(projectId, name);
-        await refreshFromStore();
-        setExpandedNodes((prev) => {
-          const next = { ...prev, [projectId]: true };
-          lsSetJSON(EXPANDED_KEY, next);
-          return next;
+        await runWithDocumentEditorFrozen("task", async () => {
+          try {
+            const id = await TaskStore.addCase(projectId, name);
+            await refreshFromStore();
+            setExpandedNodes((prev) => {
+              const next = { ...prev, [projectId]: true };
+              lsSetJSON(EXPANDED_KEY, next);
+              return next;
+            });
+            commitSelection({ type: "case", id });
+            return true;
+          } catch (error) {
+            console.error("Case creation failed", error);
+            throw error;
+          }
         });
-        selectNode("case", id);
       } finally {
         setIsLoading(false);
       }
     },
-    [refreshFromStore, selectNode],
+    [commitSelection, refreshFromStore],
   );
 
   const addTask = useCallback(
     async (projectId: string, caseId: string, name: string) => {
       setIsLoading(true);
       try {
-        if (!(await flushDocument("task"))) return;
-        const id = await TaskStore.addTask(projectId, caseId, name);
-        await refreshFromStore();
-        setExpandedNodes((prev) => {
-          const next = { ...prev, [projectId]: true, ...(caseId ? { [caseId]: true } : {}) };
-          lsSetJSON(EXPANDED_KEY, next);
-          return next;
+        await runWithDocumentEditorFrozen("task", async () => {
+          try {
+            const id = await TaskStore.addTask(projectId, caseId, name);
+            await refreshFromStore();
+            setExpandedNodes((prev) => {
+              const next = { ...prev, [projectId]: true, ...(caseId ? { [caseId]: true } : {}) };
+              lsSetJSON(EXPANDED_KEY, next);
+              return next;
+            });
+            commitSelection({ type: "task", id });
+            return true;
+          } catch (error) {
+            console.error("Task creation failed", error);
+            throw error;
+          }
         });
-        selectNode("task", id);
       } finally {
         setIsLoading(false);
       }
     },
-    [refreshFromStore, selectNode],
+    [commitSelection, refreshFromStore],
   );
 
   const rename = useCallback((type: EditableNodeType, id: string, name: string) => {
