@@ -126,11 +126,15 @@
 .toolbar-slot {
   display: flex;
   align-items: center;
-  padding: 0 2px;
+  gap: 8px;
+  padding: 0;
   flex-shrink: 0;
 }
+.toolbar-slot:first-child {
+  padding-left: 6px;
+}
 .toolbar-slot:last-child {
-  padding-right: 6px;
+  padding-right: 8px;
 }
 
 /* Editor mode switch button (chip style) */
@@ -138,7 +142,8 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
+  height: 24px;
+  padding: 0 8px;
   border: 1px solid #d1d5db;
   border-radius: 10px;
   background: #f9fafb;

@@ -78,7 +78,7 @@
 .view-mode-controls {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 /* View mode switch button (chip style) */
@@ -86,7 +86,8 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
+  height: 24px;
+  padding: 0 8px;
   border: 1px solid #d1d5db;
   border-radius: 10px;
   background: #f9fafb;

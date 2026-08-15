@@ -1,9 +1,9 @@
 import s from "./SyncIndicator.module.css";
 
-export type SyncStatus = "idle" | "syncing" | "synced" | "error" | "locked";
+export type SyncStatus = "idle" | "loading" | "syncing" | "synced" | "error" | "locked";
 
 export function SyncIndicator({ status }: { status: SyncStatus }) {
-  if (status === "idle" || status === "synced") return null;
+  if (status === "idle" || status === "loading" || status === "synced") return null;
 
   return (
     <span className={s["sync-indicator"]} data-status={status}>

@@ -318,7 +318,7 @@ export function useDocumentEditor({
     setContentConflict(null);
     setContentReady(false);
     suppressSaveRef.current = true;
-    setSyncStatus("syncing");
+    setSyncStatus("loading");
     setMode("wysiwyg");
 
     loadContent(id)
@@ -411,7 +411,7 @@ export function useDocumentEditor({
       if ((event.op === "serverRefresh" || appliesToCurrentDocument) && !dirtyRef.current) {
         suppressSaveRef.current = true;
         setContentReady(false);
-        setSyncStatus("syncing");
+        setSyncStatus("loading");
         void loadContent(id)
           .then(async (raw) => (transformOnLoad ? transformOnLoad(raw ?? "") : (raw ?? "")))
           .then((content) => {
