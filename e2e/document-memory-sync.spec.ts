@@ -97,6 +97,45 @@ test("ページ非表示時はdirtyなメモとタスクを通常保存し、保
   await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "true");
 });
 
+test("保存中の追加入力を本文競合のlocal側に保持する", async ({ page }) => {
+  await gotoApp(page, { params: { mockDelay: "800" } });
+  await waitForSyncComplete(page);
+  await typeInEditor(page, "競合前のlocal本文");
+  await page.evaluate(async () => {
+    const mock = await import("/lib/serverCall.ts");
+    mock.setMockRemoteDocumentContentForTests("mock-memo-1", "別端末の新しい本文");
+    (window as any).__testVisibilityState = "hidden";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => (window as any).__testVisibilityState,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(page.locator('[data-status="syncing"]:visible')).toBeVisible();
+  await typeInEditor(page, "・保存開始後の追加入力");
+
+  const conflict = page.locator("[data-document-content-conflict]");
+  await expect(conflict).toBeVisible();
+  await expect(conflict.locator("textarea").nth(0)).toHaveValue(/競合前のlocal本文/);
+  await expect(conflict.locator("textarea").nth(0)).toHaveValue(/保存開始後の追加入力/);
+  await expect(conflict.locator("textarea").nth(1)).toHaveValue("別端末の新しい本文");
+
+  await conflict.getByRole("button", { name: "このタブの本文で置換" }).click();
+  await expect(conflict).not.toBeVisible();
+  await expect
+    .poll(async () => {
+      const server = await page.evaluate(() =>
+        JSON.parse(localStorage.getItem("gas-pomodoro:mock-document-server:v1") || "{}"),
+      );
+      const content = server["mock-memo-1"]?.content ?? "";
+      return {
+        beforeConflict: content.includes("競合前のlocal本文"),
+        afterSaveStarted: content.includes("保存開始後の追加入力"),
+      };
+    })
+    .toEqual({ beforeConflict: true, afterSaveStarted: true });
+});
+
 test("dirty文書は保存ACKまで選択を変えず、ACK後はメモリから復元する", async ({ page }) => {
   await gotoApp(page, { params: { mockDelay: "800" } });
   await waitForSyncComplete(page);
@@ -271,7 +310,7 @@ test("30分以上非表示だった場合だけ表示復帰時に再取得する
   expect(calls.getAllDocumentData).toBe(1);
 });
 
-test("選択中taskのarchiveはdirty本文のACK後に実行する", async ({ page }) => {
+test("選択中taskのarchiveはEditorStateを維持し、本文を通常のCASで保存できる", async ({ page }) => {
   await gotoApp(page, {
     params: { mockDelay: "500" },
     hash: "tab=task&type=task&id=mock-task-1",
@@ -286,16 +325,64 @@ test("選択中taskのarchiveはdirty本文のACK後に実行する", async ({ p
   await expect
     .poll(() => page.evaluate(() => window.__mockServerCallCounts?.patchDocumentMetadata ?? 0))
     .toBe(1);
-  const result = await page.evaluate(() => ({
-    sequence: window.__mockServerCallSequence ?? [],
-    server: JSON.parse(localStorage.getItem("gas-pomodoro:mock-document-server:v1") || "{}"),
-  }));
-  const contentCall = result.sequence.indexOf("putDocumentContent");
-  const archiveCall = result.sequence.indexOf("patchDocumentMetadata");
-  expect(contentCall).toBeGreaterThanOrEqual(0);
-  expect(archiveCall).toBeGreaterThan(contentCall);
-  expect(result.server["mock-task-1"].content).toContain("archive前に保存する本文");
-  expect(result.server["mock-task-1"].metadata.isActive).toBe(false);
+  await expect(page.getByText("アーカイブ済み", { exact: true })).toBeVisible();
+  await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "true");
+  await expect(page.locator(".ProseMirror:visible")).toContainText("archive前に保存する本文");
+  await expect(
+    page.locator("[class*='task-tree-task']", { hasText: "Phase 6: RecordForm実装" }),
+  ).toHaveCount(0);
+
+  await page.evaluate(() => {
+    (window as any).__testVisibilityState = "hidden";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => (window as any).__testVisibilityState,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect
+    .poll(async () => {
+      const server = await page.evaluate(() =>
+        JSON.parse(localStorage.getItem("gas-pomodoro:mock-document-server:v1") || "{}"),
+      );
+      return {
+        content: server["mock-task-1"]?.content ?? "",
+        isActive: server["mock-task-1"]?.metadata?.isActive,
+      };
+    })
+    .toEqual({
+      content: expect.stringContaining("archive前に保存する本文"),
+      isActive: false,
+    });
+});
+
+test("projectのarchiveは子を変更せず、archive一覧から開いて復元できる", async ({ page }) => {
+  await gotoApp(page, { hash: "tab=task&type=task&id=mock-task-1" });
+  await waitForSyncComplete(page);
+  const project = page.locator("[data-type='project'][data-id='mock-proj-1']");
+  await project.locator(":scope > div").click({ button: "right" });
+  await page.getByText("アーカイブ", { exact: true }).click();
+
+  await expect(project).toHaveCount(0);
+  await expect(page.getByText("アーカイブ済み", { exact: true })).toBeVisible();
+  await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "true");
+
+  const archivedProjects = page.locator("details", { hasText: "アーカイブ済みプロジェクト" });
+  await archivedProjects.locator("summary").click();
+  const archivedProject = archivedProjects.getByText("GAS Pomodoro", { exact: true });
+  await expect(archivedProject).toBeVisible();
+  await archivedProject.click();
+  await expect(page.locator('input[value="GAS Pomodoro"]')).toBeVisible();
+  await archivedProjects.getByRole("button", { name: "解除" }).click();
+
+  await expect(project).toBeVisible();
+  await project.locator("[class*='task-tree-toggle']").click();
+  const taskCase = page.locator("[data-type='case'][data-id='mock-case-1']");
+  await expect(taskCase).toBeVisible();
+  await taskCase.locator("[class*='task-tree-toggle']").click();
+  await expect(
+    page.locator("[class*='task-tree-task']", { hasText: "Phase 6: RecordForm実装" }),
+  ).toBeVisible();
 });
 
 test("metadata保存失敗を表示し、再送ACKまで文書遷移を止める", async ({ page }) => {

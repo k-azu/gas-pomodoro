@@ -28,6 +28,7 @@ export interface ProjectItem {
   name: string;
   color: string;
   sortOrder: number;
+  isActive: boolean;
 }
 
 export interface CaseItem {
@@ -36,6 +37,7 @@ export interface CaseItem {
   name: string;
   color?: string;
   sortOrder: number;
+  isActive: boolean;
 }
 
 export interface TaskItem {
@@ -48,6 +50,7 @@ export interface TaskItem {
   dueDate: string;
   completedAt: string;
   sortOrder: number;
+  isActive: boolean;
   _cachedTimeSeconds?: number;
   _cachedPomodoroCount?: number;
 }
@@ -92,6 +95,7 @@ const TABLE_LAYOUT_MODE_KEY = "gas_pomodoro_task_table_layout_mode";
 
 export interface UseTasksReturn {
   projects: ProjectItem[];
+  archivedProjects: ProjectItem[];
   allCases: CaseItem[];
   allTasks: TaskItem[];
   getCasesFor: (projectId: string) => CaseItem[];
@@ -125,6 +129,7 @@ export interface UseTasksReturn {
   loadArchived: (projectId: string) => Promise<void>;
   getArchivedCasesFor: (projectId: string) => CaseItem[];
   getArchivedDirectTasks: (projectId: string) => TaskItem[];
+  unarchiveProject: (projectId: string) => Promise<void>;
   unarchiveCase: (caseId: string) => Promise<void>;
   unarchiveTask: (taskId: string, status: TaskStatus) => Promise<void>;
 
@@ -134,6 +139,7 @@ export interface UseTasksReturn {
 export function useTasks(): UseTasksReturn {
   const nav = useNavigation();
   const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const [archivedProjects, setArchivedProjects] = useState<ProjectItem[]>([]);
   const [allCases, setAllCases] = useState<CaseItem[]>([]);
   const [allTasks, setAllTasks] = useState<TaskItem[]>([]);
   const [selectedNode, setSelectedNode] = useState<SelectedNode | null>(null);
@@ -165,12 +171,14 @@ export function useTasks(): UseTasksReturn {
 
   // Refresh from store
   const refreshFromStore = useCallback(async () => {
-    const [projs, cases, tasks] = await Promise.all([
+    const [projs, archivedProjs, cases, tasks] = await Promise.all([
       TaskStore.getProjects(),
+      TaskStore.getArchivedProjects(),
       TaskStore.getAllCases(),
       TaskStore.getAllTasks(),
     ]);
     setProjects(projs as ProjectItem[]);
+    setArchivedProjects(archivedProjs as ProjectItem[]);
     setAllCases(cases as CaseItem[]);
     setAllTasks(tasks as TaskItem[]);
     return {
@@ -430,65 +438,15 @@ export function useTasks(): UseTasksReturn {
     async (type: EditableNodeType, id: string) => {
       setIsLoading(true);
       try {
-        const selected = selectedRef.current;
-        const selectedCase =
-          selected?.type === "case"
-            ? (DocumentStore.get("cases", selected.id) as CaseItem | null)
-            : null;
-        const selectedTask =
-          selected?.type === "task"
-            ? (DocumentStore.get("tasks", selected.id) as TaskItem | null)
-            : null;
-        const archivedCase =
-          type === "case" ? (DocumentStore.get("cases", id) as CaseItem | null) : null;
-        const archivedTask =
-          type === "task" ? (DocumentStore.get("tasks", id) as TaskItem | null) : null;
-        const archivesSelectedDocument =
-          selected?.id === id ||
-          (type === "project" &&
-            (selectedCase?.projectId === id || selectedTask?.projectId === id)) ||
-          (type === "case" && selectedTask?.caseId === id);
-        if (archivesSelectedDocument && !(await flushDocument("task"))) return;
         if (type === "project") await TaskStore.archiveProject(id);
         else if (type === "case") await TaskStore.archiveCase(id);
         else await TaskStore.archiveTask(id);
-        const { projs } = await refreshFromStore();
-        if (archivesSelectedDocument) {
-          // Auto-select next node after archive
-          if (type === "project") {
-            // Select first remaining active project
-            const active = projs.filter((p) => (p as any).isActive !== false);
-            if (active.length > 0) {
-              selectNode("project", active[0].id);
-            } else {
-              setSelectedNode(null);
-              lsSet(STORAGE_KEYS.TASK_SELECTED, "");
-            }
-          } else if (type === "case") {
-            // Select parent project
-            if (archivedCase) {
-              selectNode("project", archivedCase.projectId);
-            } else {
-              setSelectedNode(null);
-              lsSet(STORAGE_KEYS.TASK_SELECTED, "");
-            }
-          } else {
-            // task: select parent case or project
-            if (archivedTask?.caseId) {
-              selectNode("case", archivedTask.caseId);
-            } else if (archivedTask) {
-              selectNode("project", archivedTask.projectId);
-            } else {
-              setSelectedNode(null);
-              lsSet(STORAGE_KEYS.TASK_SELECTED, "");
-            }
-          }
-        }
+        await refreshFromStore();
       } finally {
         setIsLoading(false);
       }
     },
-    [refreshFromStore, selectNode],
+    [refreshFromStore],
   );
 
   // =========================================================
@@ -518,9 +476,15 @@ export function useTasks(): UseTasksReturn {
 
   const unarchiveCase = useCallback(
     async (caseId: string) => {
-      const caseTasks = await TaskStore.getArchivedTasksForCase(caseId);
-      await Promise.all(caseTasks.map((t) => TaskStore.unarchiveTask(t.id)));
       await TaskStore.unarchiveCase(caseId);
+      await refreshFromStore();
+    },
+    [refreshFromStore],
+  );
+
+  const unarchiveProject = useCallback(
+    async (projectId: string) => {
+      await TaskStore.unarchiveProject(projectId);
       await refreshFromStore();
     },
     [refreshFromStore],
@@ -561,6 +525,7 @@ export function useTasks(): UseTasksReturn {
 
   return {
     projects,
+    archivedProjects,
     allCases,
     allTasks,
     getCasesFor,
@@ -588,6 +553,7 @@ export function useTasks(): UseTasksReturn {
     loadArchived,
     getArchivedCasesFor,
     getArchivedDirectTasks,
+    unarchiveProject,
     unarchiveCase,
     unarchiveTask,
     isLoading,

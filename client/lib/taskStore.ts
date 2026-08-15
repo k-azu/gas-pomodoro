@@ -123,22 +123,10 @@ async function archiveOne(
 }
 
 export async function archiveProject(id: string): Promise<void> {
-  const tasks = DocumentStore.getByIndex("tasks", "projectId", id).filter(
-    (entity) => entity.isActive !== false,
-  );
-  await Promise.all(tasks.map((task) => archiveOne("tasks", task.id)));
-  const cases = DocumentStore.getByIndex("cases", "projectId", id).filter(
-    (entity) => entity.isActive !== false,
-  );
-  await Promise.all(cases.map((caseItem) => archiveOne("cases", caseItem.id)));
   await archiveOne("projects", id);
 }
 
 export async function archiveCase(id: string): Promise<void> {
-  const tasks = DocumentStore.getByIndex("tasks", "caseId", id).filter(
-    (entity) => entity.isActive !== false,
-  );
-  await Promise.all(tasks.map((task) => archiveOne("tasks", task.id)));
   await archiveOne("cases", id);
 }
 
@@ -157,6 +145,10 @@ async function reactivateOne(
 
 export function unarchiveCase(id: string): Promise<void> {
   return reactivateOne("cases", id);
+}
+
+export function unarchiveProject(id: string): Promise<void> {
+  return reactivateOne("projects", id);
 }
 
 export async function unarchiveTask(id: string, status?: TaskStatus): Promise<void> {
@@ -211,17 +203,45 @@ export function getAllProjects(): Promise<Project[]> {
 }
 
 export async function getAllCases(): Promise<Case[]> {
-  return (DocumentStore.getAll("cases") as Case[]).filter((item) => item.isActive !== false);
+  const activeProjectIds = new Set(
+    (DocumentStore.getAll("projects") as Project[])
+      .filter((project) => project.isActive !== false)
+      .map((project) => project.id),
+  );
+  return (DocumentStore.getAll("cases") as Case[]).filter(
+    (item) => item.isActive !== false && activeProjectIds.has(item.projectId),
+  );
 }
 
 export async function getAllTasks(): Promise<Task[]> {
-  return (DocumentStore.getAll("tasks") as Task[]).filter((item) => item.isActive !== false);
+  const activeProjectIds = new Set(
+    (DocumentStore.getAll("projects") as Project[])
+      .filter((project) => project.isActive !== false)
+      .map((project) => project.id),
+  );
+  const activeCaseIds = new Set(
+    (DocumentStore.getAll("cases") as Case[])
+      .filter((item) => item.isActive !== false && activeProjectIds.has(item.projectId))
+      .map((item) => item.id),
+  );
+  return (DocumentStore.getAll("tasks") as Task[]).filter(
+    (item) =>
+      item.isActive !== false &&
+      activeProjectIds.has(item.projectId) &&
+      (!item.caseId || activeCaseIds.has(item.caseId)),
+  );
 }
 
 export async function getArchivedCases(projectId: string): Promise<Case[]> {
   return (DocumentStore.getByIndex("cases", "projectId", projectId) as Case[]).filter(
     (item) => item.isActive === false,
   );
+}
+
+export async function getArchivedProjects(): Promise<Project[]> {
+  return (DocumentStore.getAll("projects") as Project[])
+    .filter((project) => project.isActive === false)
+    .sort((left, right) => left.sortOrder - right.sortOrder);
 }
 
 export async function getArchivedDirectTasks(projectId: string): Promise<Task[]> {
@@ -234,6 +254,10 @@ export async function getArchivedTasksForCase(caseId: string): Promise<Task[]> {
   return (DocumentStore.getByIndex("tasks", "caseId", caseId) as Task[]).filter(
     (item) => item.isActive === false,
   );
+}
+
+export async function getTasksForArchivedCase(caseId: string): Promise<Task[]> {
+  return DocumentStore.getByIndex("tasks", "caseId", caseId) as Task[];
 }
 
 async function reorder(

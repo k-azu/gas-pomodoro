@@ -7,3 +7,4 @@
 | [0001](0001-use-server-confirmed-memory-document-state.md)               | Superseded by ADR 0002 | 文書をサーバー確認済みメモリ状態から編集し、遷移前に保存する |
 | [0002](0002-keep-one-editor-state-per-document-type.md)                  | Superseded by ADR 0003 | メモとタスクでEditorStateを一つずつ保持する                  |
 | [0003](0003-keep-selected-document-editors-independent-of-visibility.md) | Accepted               | 選択中のメモ・タスクを表示状態と独立して保持する             |
+| [0004](0004-treat-archive-as-document-visibility.md)                    | Accepted               | タスク文書のアーカイブを可視性属性として扱う                 |

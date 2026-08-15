@@ -127,6 +127,33 @@ export function TaskTree({
           />
         );
       })}
+      {tasks.archivedProjects.length > 0 && (
+        <details className={s["archived-projects"]}>
+          <summary>アーカイブ済みプロジェクト</summary>
+          {tasks.archivedProjects.map((project) => (
+            <div
+              key={project.id}
+              className={`${s["task-tree-item"]} ${s["archived-project"]}`}
+              onClick={() => tasks.selectNode("project", project.id)}
+            >
+              <span className={s["task-tree-icon"]}>
+                <FolderIcon size={16} color={project.color || "#9e9e9e"} />
+              </span>
+              <span className={s["task-tree-name"]}>{project.name}</span>
+              <button
+                type="button"
+                className={s["unarchive-project"]}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void tasks.unarchiveProject(project.id);
+                }}
+              >
+                解除
+              </button>
+            </div>
+          ))}
+        </details>
+      )}
     </>
   );
 }

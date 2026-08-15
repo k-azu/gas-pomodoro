@@ -203,7 +203,7 @@ function putDocumentContent(request: PutDocumentContentRequest): DocumentContent
   validateMutationRequest(request);
   if (typeof request.content !== "string") throw new Error("Invalid document content");
 
-  const { id, config } = parseDocumentKey(request.documentKey);
+  const { storeName, id, config } = parseDocumentKey(request.documentKey);
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -216,7 +216,7 @@ function putDocumentContent(request: PutDocumentContentRequest): DocumentContent
     if (current.lastMutationId === request.mutationId) {
       return { status: "applied", mutationId: request.mutationId, snapshot: current };
     }
-    if (values[config.isActiveColumn - 1] !== true) {
+    if (storeName === "memos" && values[config.isActiveColumn - 1] !== true) {
       return { status: "missing", mutationId: request.mutationId };
     }
     if (current.revision !== request.expectedRevision) {
@@ -300,6 +300,7 @@ function patchDocumentMetadata(
       return { status: "applied", mutationId: request.mutationId, snapshot: current };
     }
     if (
+      storeName === "memos" &&
       current.metadata.isActive === false &&
       !(fields.length === 1 && request.patch.isActive === true)
     ) {

@@ -108,8 +108,15 @@ function TaskDocumentContent({
   const isContainerType = type === "project" || type === "case";
   const showingDoc = standalone || (isContainerType ? tasks.taskViewMode !== "table" : true);
   const selectedEntity = DocumentStore.get(storeName as DocumentStore.DocumentStoreName, id);
-  const isArchivedSearchDocument =
+  const selectedRecord = selectedEntity as unknown as Record<string, unknown> | null;
+  const projectId = String(selectedRecord?.projectId ?? "");
+  const caseId = String(selectedRecord?.caseId ?? "");
+  const hiddenByArchivedParent =
+    (projectId && DocumentStore.get("projects", projectId)?.isActive !== true) ||
+    (caseId && DocumentStore.get("cases", caseId)?.isActive !== true);
+  const isArchivedDocument =
     selectedEntity?.isActive === false ||
+    Boolean(hiddenByArchivedParent) ||
     (type === "task" &&
       nav.searchOpenedDocument?.type === "task" &&
       nav.searchOpenedDocument.id === id &&
@@ -151,7 +158,6 @@ function TaskDocumentContent({
     ),
     ...editorConfig.editorProps,
     ...editorConfig.hookOptions,
-    forceReadOnly: isArchivedSearchDocument,
     hasAfterMeta: !showingDoc && isContainerType,
   });
 
@@ -218,7 +224,7 @@ function TaskDocumentContent({
         charCount={charCount}
         maxCharCount={50000}
         placeholder="ドキュメントを入力..."
-        readOnly={readOnly || isArchivedSearchDocument}
+        readOnly={readOnly}
         onImageUpload={editorConfig.editorProps.onImageUpload}
         scrollRef={scrollRef}
         saving={savingForTransition}
@@ -242,7 +248,7 @@ function TaskDocumentContent({
             id={id}
             tasks={tasks}
             syncStatus={syncStatus}
-            readOnly={isArchivedSearchDocument}
+            archived={isArchivedDocument}
           />
         )}
         {type === "case" && (
@@ -251,7 +257,7 @@ function TaskDocumentContent({
             id={id}
             tasks={tasks}
             syncStatus={syncStatus}
-            readOnly={isArchivedSearchDocument}
+            archived={isArchivedDocument}
           />
         )}
         {type === "task" && (
@@ -260,15 +266,13 @@ function TaskDocumentContent({
             id={id}
             tasks={tasks}
             syncStatus={syncStatus}
-            readOnly={isArchivedSearchDocument}
+            archived={isArchivedDocument}
           />
         )}
       </EditorLayout>
 
       {/* Work records — task only */}
-      {type === "task" && !standalone && !isArchivedSearchDocument && (
-        <TaskWorkRecords key={id} id={id} />
-      )}
+      {type === "task" && !standalone && <TaskWorkRecords key={id} id={id} />}
     </div>
   );
 }
@@ -327,12 +331,12 @@ function ProjectMeta({
   id,
   tasks,
   syncStatus,
-  readOnly = false,
+  archived = false,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
-  readOnly?: boolean;
+  archived?: boolean;
 }) {
   const [entity, setEntity] = useEntity("projects", "project", id);
   const colorRef = useRef<HTMLInputElement>(null);
@@ -346,7 +350,6 @@ function ProjectMeta({
           className={s["meta-color-folder"]}
           onClick={(e) => {
             e.stopPropagation();
-            if (readOnly) return;
             colorRef.current?.click();
           }}
         >
@@ -356,7 +359,6 @@ function ProjectMeta({
             type="color"
             value={entity.color || "#4285f4"}
             onChange={(e) => tasks.updateProjectFields(id, { color: e.target.value })}
-            disabled={readOnly}
             style={{
               position: "absolute",
               inset: 0,
@@ -367,19 +369,16 @@ function ProjectMeta({
             }}
           />
         </span>
+        {archived && <span className={s["archived-label"]}>アーカイブ済み</span>}
         <SyncIndicator status={syncStatus} />
       </div>
       <MetaTitle>
         <ContentHeaderName
           name={entity.name}
-          onRename={
-            readOnly
-              ? undefined
-              : (name) => {
-                  setEntity((prev: any) => ({ ...prev, name }));
-                  tasks.rename("project", id, name);
-                }
-          }
+          onRename={(name) => {
+            setEntity((prev: any) => ({ ...prev, name }));
+            tasks.rename("project", id, name);
+          }}
         />
       </MetaTitle>
     </>
@@ -390,12 +389,12 @@ function CaseMeta({
   id,
   tasks,
   syncStatus,
-  readOnly = false,
+  archived = false,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
-  readOnly?: boolean;
+  archived?: boolean;
 }) {
   const [entity, setEntity] = useEntity("cases", "case", id);
 
@@ -404,19 +403,16 @@ function CaseMeta({
   return (
     <>
       <div className={s["meta-status-row"]}>
+        {archived && <span className={s["archived-label"]}>アーカイブ済み</span>}
         <SyncIndicator status={syncStatus} />
       </div>
       <MetaTitle>
         <ContentHeaderName
           name={entity.name}
-          onRename={
-            readOnly
-              ? undefined
-              : (name) => {
-                  setEntity((prev: any) => ({ ...prev, name }));
-                  tasks.rename("case", id, name);
-                }
-          }
+          onRename={(name) => {
+            setEntity((prev: any) => ({ ...prev, name }));
+            tasks.rename("case", id, name);
+          }}
         />
       </MetaTitle>
     </>
@@ -427,12 +423,12 @@ function TaskMeta({
   id,
   tasks,
   syncStatus,
-  readOnly = false,
+  archived = false,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
-  readOnly?: boolean;
+  archived?: boolean;
 }) {
   const [entity, setEntity] = useEntity("tasks", "task", id);
 
@@ -443,55 +439,47 @@ function TaskMeta({
   return (
     <>
       <div className={s["meta-status-row"]}>
-        {readOnly ? (
-          <span className={s["archived-label"]}>アーカイブ済み・読み取り専用</span>
-        ) : (
-          <SyncIndicator status={syncStatus} />
-        )}
+        {archived && <span className={s["archived-label"]}>アーカイブ済み</span>}
+        <SyncIndicator status={syncStatus} />
       </div>
       <MetaTitle>
         <ContentHeaderName
           name={entity.name}
-          onRename={
-            readOnly
-              ? undefined
-              : (name) => {
-                  setEntity((prev: any) => ({ ...prev, name }));
-                  tasks.rename("task", id, name);
-                }
-          }
+          onRename={(name) => {
+            setEntity((prev: any) => ({ ...prev, name }));
+            tasks.rename("task", id, name);
+          }}
         />
       </MetaTitle>
       <RecordField label="ステータス">
-        {readOnly ? (
-          <span className={s["readonly-value"]}>{sc.label}</span>
-        ) : (
-          <ItemPicker
-            mode="single"
-            items={STATUS_ITEMS_WITH_ARCHIVED}
-            selected={[sc.label]}
-            removable={false}
-            onSelect={(selected) => {
-              if (selected.length > 0) {
-                const label = selected[0];
-                if (label === "Archived") {
-                  void tasks.archiveNode("task", id);
+        <ItemPicker
+          mode="single"
+          items={STATUS_ITEMS_WITH_ARCHIVED}
+          selected={[entity.isActive === false ? "Archived" : sc.label]}
+          removable={false}
+          onSelect={(selected) => {
+            if (selected.length > 0) {
+              const label = selected[0];
+              if (label === "Archived") {
+                void tasks.archiveNode("task", id);
+              } else {
+                const key = statusLabelToKey(label);
+                if (entity.isActive === false) {
+                  void tasks.unarchiveTask(id, key);
                 } else {
-                  const key = statusLabelToKey(label);
                   tasks.updateTaskFields(id, { status: key });
                 }
               }
-            }}
-            placeholder="ステータス"
-          />
-        )}
+            }
+          }}
+          placeholder="ステータス"
+        />
       </RecordField>
       <RecordField label="開始">
         <input
           type="date"
           className={s["task-date-input"]}
           value={entity.startedAt ? entity.startedAt.slice(0, 10) : ""}
-          disabled={readOnly}
           onChange={(e) => tasks.updateTaskFields(id, { startedAt: e.target.value || "" })}
         />
       </RecordField>
@@ -500,7 +488,6 @@ function TaskMeta({
           type="date"
           className={s["task-date-input"]}
           value={entity.dueDate ? entity.dueDate.slice(0, 10) : ""}
-          disabled={readOnly}
           onChange={(e) => tasks.updateTaskFields(id, { dueDate: e.target.value || "" })}
         />
       </RecordField>

@@ -81,3 +81,40 @@ test("別タブで確定したmetadata snapshotを全件再取得せず反映す
   const calls = await page.evaluate(() => window.__mockServerCallCounts ?? {});
   expect(calls.getAllDocumentData ?? 0).toBe(0);
 });
+
+test("別タブで選択中文書がarchiveされてもdirty本文と編集権を維持する", async ({
+  context,
+  page,
+}) => {
+  const target = { hash: "tab=task&type=task&id=mock-task-1" };
+  await gotoApp(page, target);
+  await waitForSyncComplete(page);
+  await typeInEditor(page, "別タブarchive後も保存する本文");
+
+  const second = await context.newPage();
+  await gotoApp(second, target);
+  const statusField = second.locator("[class*='record-field']", { hasText: "ステータス" });
+  await statusField.locator("[class*='item-picker-trigger']").click();
+  await second.getByText("Archived", { exact: true }).click();
+
+  await expect(page.getByText("アーカイブ済み", { exact: true })).toBeVisible();
+  await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "true");
+  await expect(page.locator(".ProseMirror:visible")).toContainText("別タブarchive後も保存する本文");
+
+  await page.evaluate(() => {
+    (window as any).__testVisibilityState = "hidden";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => (window as any).__testVisibilityState,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect
+    .poll(async () => {
+      const server = await page.evaluate(() =>
+        JSON.parse(localStorage.getItem("gas-pomodoro:mock-document-server:v1") || "{}"),
+      );
+      return server["mock-task-1"]?.content ?? "";
+    })
+    .toContain("別タブarchive後も保存する本文");
+});

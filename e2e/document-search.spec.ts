@@ -84,7 +84,7 @@ test.describe("保存済み文書の検索", () => {
     await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "false");
   });
 
-  test("アーカイブ済みタスクを検索して読み取り専用で開ける", async ({ page }) => {
+  test("アーカイブ済みタスクを検索して通常文書と同じように編集できる", async ({ page }) => {
     await page.getByRole("button", { name: "検索を開く" }).click();
     const dialog = page.getByRole("dialog", { name: "文書を検索" });
 
@@ -94,21 +94,21 @@ test.describe("保存済み文書の検索", () => {
     await result.click();
 
     await expect(page.locator('input[value="旧ビルド設定の削除"]')).toBeVisible();
-    await expect(page.getByText("アーカイブ済み・読み取り専用")).toBeVisible();
-    await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "false");
-    await expect(page.locator("[class*='task-date-input']").first()).toBeDisabled();
+    await expect(page.getByText("アーカイブ済み", { exact: true })).toBeVisible();
+    await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "true");
+    await expect(page.locator("[class*='task-date-input']").first()).toBeEnabled();
 
     await page.getByRole("button", { name: "メモ", exact: true }).click();
     await page.getByRole("button", { name: "タスク", exact: true }).click();
     await expect(page.locator('input[value="旧ビルド設定の削除"]')).toBeVisible();
-    await expect(page.getByText("アーカイブ済み・読み取り専用")).toBeVisible();
-    await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "false");
+    await expect(page.getByText("アーカイブ済み", { exact: true })).toBeVisible();
+    await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "true");
 
     await page.goBack();
     await page.goForward();
     await expect(page.locator('input[value="旧ビルド設定の削除"]')).toBeVisible();
-    await expect(page.getByText("アーカイブ済み・読み取り専用")).toBeVisible();
-    await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "false");
+    await expect(page.getByText("アーカイブ済み", { exact: true })).toBeVisible();
+    await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "true");
   });
 
   test("履歴で戻ってもアーカイブ済みメモを読み取り専用で復元する", async ({ page }) => {

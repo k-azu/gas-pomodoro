@@ -78,21 +78,17 @@ const contentAttempts = new Map<
   string,
   { content: string; expectedRevision: number; mutationId: string }
 >();
-const metadataPending = new Map<
-  string,
-  {
-    storeName: DocumentStoreName;
-    id: string;
+interface PendingMetadata {
+  storeName: DocumentStoreName;
+  id: string;
+  patch: Record<string, unknown>;
+  attempt?: {
     patch: Record<string, unknown>;
-    version: number;
-    attempt?: {
-      patch: Record<string, unknown>;
-      version: number;
-      expectedRevision: number;
-      mutationId: string;
-    };
-  }
->();
+    expectedRevision: number;
+    mutationId: string;
+  };
+}
+const metadataPending = new Map<string, PendingMetadata>();
 const channelSource = crypto.randomUUID();
 type ConfirmedChange =
   | {
@@ -406,7 +402,8 @@ function applyMetadataSnapshot(
   snapshot: MetadataSnapshot,
 ): void {
   const current = get(storeName, id);
-  if (!current) return;
+  if (!current || snapshot.documentKey !== documentKey(storeName, id)) return;
+  if (snapshot.revision < current.metadataRevision) return;
   updateLocal(
     storeName,
     id,
@@ -420,6 +417,11 @@ function applyMetadataSnapshot(
   );
 }
 
+function pendingMetadataOverlay(pending: PendingMetadata | undefined): Record<string, unknown> {
+  if (!pending) return {};
+  return { ...(pending.attempt?.patch ?? {}), ...pending.patch };
+}
+
 export function applyRemoteMetadataSnapshot(
   storeName: DocumentStoreName,
   id: string,
@@ -430,7 +432,7 @@ export function applyRemoteMetadataSnapshot(
   if (snapshot.revision <= current.metadataRevision) return;
   applyMetadataSnapshot(storeName, id, snapshot);
   const pending = metadataPending.get(documentKey(storeName, id));
-  if (pending) updateLocal(storeName, id, pending.patch, "metadataPending");
+  if (pending) updateLocal(storeName, id, pendingMetadataOverlay(pending), "metadataPending");
 }
 
 export function patchMetadata(
@@ -440,13 +442,11 @@ export function patchMetadata(
 ): Promise<void> {
   const key = documentKey(storeName, id);
   const pending = metadataPending.get(key);
-  metadataPending.set(key, {
-    storeName,
-    id,
-    patch: { ...(pending?.patch ?? {}), ...patch },
-    version: (pending?.version ?? 0) + 1,
-    attempt: pending?.attempt,
-  });
+  if (pending) {
+    pending.patch = { ...pending.patch, ...patch };
+  } else {
+    metadataPending.set(key, { storeName, id, patch: { ...patch } });
+  }
   return scheduleMetadataFlush(key);
 }
 
@@ -456,13 +456,16 @@ async function flushMetadata(key: string): Promise<void> {
     const pending = metadataPending.get(key)!;
     const entity = get(pending.storeName, pending.id);
     if (!entity) throw new Error(`Document not found: ${key}`);
-    const attempt = pending.attempt ?? {
-      patch: { ...pending.patch },
-      version: pending.version,
-      expectedRevision: entity.metadataRevision,
-      mutationId: crypto.randomUUID(),
-    };
-    pending.attempt = attempt;
+    let attempt = pending.attempt;
+    if (!attempt) {
+      attempt = {
+        patch: { ...pending.patch },
+        expectedRevision: entity.metadataRevision,
+        mutationId: crypto.randomUUID(),
+      };
+      pending.patch = {};
+      pending.attempt = attempt;
+    }
 
     const result = parseMetadataMutationResult(
       await serverCall("patchDocumentMetadata", {
@@ -476,12 +479,18 @@ async function flushMetadata(key: string): Promise<void> {
     if (result.status === "rejected") throw new Error(result.reason);
     if (result.status === "conflict") {
       applyMetadataSnapshot(pending.storeName, pending.id, result.snapshot);
+      pending.patch = { ...attempt.patch, ...pending.patch };
+      pending.attempt = undefined;
+      updateLocal(
+        pending.storeName,
+        pending.id,
+        pendingMetadataOverlay(pending),
+        "metadataPending",
+      );
       conflictCount += 1;
       if (conflictCount >= 10) {
         throw new DocumentMetadataConflictError(result.snapshot);
       }
-      pending.attempt = undefined;
-      updateLocal(pending.storeName, pending.id, pending.patch, "metadataPending");
       continue;
     }
     if (result.mutationId !== attempt.mutationId) {
@@ -490,7 +499,11 @@ async function flushMetadata(key: string): Promise<void> {
     applyMetadataSnapshot(pending.storeName, pending.id, result.snapshot);
     notifyMetadataConfirmed(pending.storeName, pending.id, result.snapshot);
     const latest = metadataPending.get(key);
-    if (!latest || latest.version === attempt.version) {
+    if (!latest) {
+      continue;
+    }
+    latest.attempt = undefined;
+    if (Object.keys(latest.patch).length === 0) {
       metadataPending.delete(key);
       emit({
         entityType: entityTypeFor(pending.storeName),
@@ -498,8 +511,7 @@ async function flushMetadata(key: string): Promise<void> {
         id: pending.id,
       });
     } else {
-      latest.attempt = undefined;
-      updateLocal(latest.storeName, latest.id, latest.patch, "metadataPending");
+      updateLocal(latest.storeName, latest.id, pendingMetadataOverlay(latest), "metadataPending");
     }
   }
 }

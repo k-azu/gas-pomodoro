@@ -116,7 +116,10 @@ export function useDocumentEditor({
         }
       } catch (error) {
         if (error instanceof DocumentContentConflictError) {
-          const conflict = { localContent: error.localContent, remote: error.remote };
+          const conflict = {
+            localContent: pendingContentRef.current ?? error.localContent,
+            remote: error.remote,
+          };
           conflictRef.current = conflict;
           setContentConflict(conflict);
         }

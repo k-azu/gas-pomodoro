@@ -628,7 +628,7 @@ function ArchivedCaseGroup({ caseItem, tasks }: { caseItem: CaseItem; tasks: Use
   const [caseTasks, setCaseTasks] = useState<TaskItem[]>([]);
 
   useEffect(() => {
-    TaskStore.getArchivedTasksForCase(caseItem.id).then((items) =>
+    TaskStore.getTasksForArchivedCase(caseItem.id).then((items) =>
       setCaseTasks(items as TaskItem[]),
     );
   }, [caseItem.id]);

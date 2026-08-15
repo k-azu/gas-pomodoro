@@ -159,6 +159,72 @@ test("別タブのmetadata snapshotへ未確認local patchを重ね直す", asyn
   await pending;
 });
 
+test("古いmetadata ACKは新しいremote snapshotを戻さず、後続patchだけを送る", async () => {
+  const requests: Array<{
+    documentKey: string;
+    patch: Record<string, unknown>;
+    expectedRevision: number;
+    mutationId: string;
+  }> = [];
+  let finishFirstRequest!: () => void;
+  setServerCallHandlerForTests((_functionName, args) => {
+    const request = args[0] as (typeof requests)[number];
+    requests.push(request);
+    if (requests.length === 1) {
+      return new Promise((resolve) => {
+        finishFirstRequest = () =>
+          resolve({
+            status: "applied",
+            mutationId: request.mutationId,
+            snapshot: {
+              documentKey: request.documentKey,
+              revision: 1,
+              updatedAt: "2026-08-15T00:00:01.000Z",
+              lastMutationId: request.mutationId,
+              metadata: { name: "Local name", tags: [], isActive: true },
+            },
+          });
+      });
+    }
+    assert.equal(request.expectedRevision, 2);
+    assert.deepEqual(request.patch, { tags: ["local"] });
+    return {
+      status: "applied",
+      mutationId: request.mutationId,
+      snapshot: {
+        documentKey: request.documentKey,
+        revision: 3,
+        updatedAt: "2026-08-15T00:00:03.000Z",
+        lastMutationId: request.mutationId,
+        metadata: { name: "Remote newer", tags: ["local"], isActive: true },
+      },
+    };
+  });
+
+  updateLocal("memos", "memo-1", { name: "Local name" });
+  const first = patchMetadata("memos", "memo-1", { name: "Local name" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  updateLocal("memos", "memo-1", { tags: ["local"] });
+  const second = patchMetadata("memos", "memo-1", { tags: ["local"] });
+  applyRemoteMetadataSnapshot("memos", "memo-1", {
+    documentKey: "memos:memo-1",
+    revision: 2,
+    updatedAt: "2026-08-15T00:00:02.000Z",
+    lastMutationId: "other-tab-2",
+    metadata: { name: "Remote newer", tags: [], isActive: true },
+  });
+
+  assert.equal((get("memos", "memo-1") as Memo).name, "Local name");
+  assert.deepEqual((get("memos", "memo-1") as Memo).tags, ["local"]);
+  finishFirstRequest();
+  await Promise.all([first, second]);
+
+  assert.equal(requests.length, 2);
+  assert.equal((get("memos", "memo-1") as Memo).name, "Remote newer");
+  assert.deepEqual((get("memos", "memo-1") as Memo).tags, ["local"]);
+  assert.equal(get("memos", "memo-1")?.metadataRevision, 3);
+});
+
 test("metadata CAS競合後はremoteをbaseに同じpatchを再適用する", async () => {
   let callCount = 0;
   setServerCallHandlerForTests((_functionName, args) => {
@@ -207,6 +273,61 @@ test("metadata CAS競合後はremoteをbaseに同じpatchを再適用する", as
   assert.equal(get("memos", "memo-1")?.metadataRevision, 2);
 });
 
+test("metadata送信中の後続patchをCAS競合後の再送へ統合する", async () => {
+  let callCount = 0;
+  let finishConflict!: () => void;
+  setServerCallHandlerForTests((_functionName, args) => {
+    const request = args[0] as {
+      documentKey: string;
+      patch: Record<string, unknown>;
+      expectedRevision: number;
+      mutationId: string;
+    };
+    callCount += 1;
+    if (callCount === 1) {
+      return new Promise((resolve) => {
+        finishConflict = () =>
+          resolve({
+            status: "conflict",
+            mutationId: request.mutationId,
+            snapshot: {
+              documentKey: request.documentKey,
+              revision: 1,
+              updatedAt: "2026-08-15T00:00:01.000Z",
+              lastMutationId: "other-tab",
+              metadata: { name: "Remote name", tags: ["remote"], isActive: true },
+            },
+          });
+      });
+    }
+    assert.equal(request.expectedRevision, 1);
+    assert.deepEqual(request.patch, { name: "Local name", tags: ["local"] });
+    return {
+      status: "applied",
+      mutationId: request.mutationId,
+      snapshot: {
+        documentKey: request.documentKey,
+        revision: 2,
+        updatedAt: "2026-08-15T00:00:02.000Z",
+        lastMutationId: request.mutationId,
+        metadata: { name: "Local name", tags: ["local"], isActive: true },
+      },
+    };
+  });
+
+  updateLocal("memos", "memo-1", { name: "Local name" });
+  const first = patchMetadata("memos", "memo-1", { name: "Local name" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  updateLocal("memos", "memo-1", { tags: ["local"] });
+  const second = patchMetadata("memos", "memo-1", { tags: ["local"] });
+  finishConflict();
+  await Promise.all([first, second]);
+
+  assert.equal(callCount, 2);
+  assert.equal((get("memos", "memo-1") as Memo).name, "Local name");
+  assert.deepEqual((get("memos", "memo-1") as Memo).tags, ["local"]);
+});
+
 test("metadata ACK喪失時も未確認patchとmutation IDを保持する", async () => {
   const mutationIds: string[] = [];
   setServerCallHandlerForTests((_functionName, args) => {
@@ -241,7 +362,7 @@ test("metadata ACK喪失時も未確認patchとmutation IDを保持する", asyn
   assert.equal(hasAnyPendingMetadata(), false);
 });
 
-test("子文書のarchive ACK喪失後も同じmutationを再送し、親を最後にarchiveする", async () => {
+test("親のarchiveと復元は子を変更せず、ACK喪失後も同じmutationを再送する", async () => {
   const parentProject: Project = {
     id: "project-1",
     name: "Project",
@@ -292,12 +413,8 @@ test("子文書のarchive ACK喪失後も同じmutationを再送し、親を最�
   initialize({ memos: [], projects: [parentProject], cases: [childCase], tasks: [childTask] });
 
   const calls: Array<{ documentKey: string; mutationId: string }> = [];
-  const server = new Map<string, { isActive: boolean; revision: number; lastMutationId: string }>([
-    ["projects:project-1", { isActive: true, revision: 0, lastMutationId: "" }],
-    ["cases:case-1", { isActive: true, revision: 0, lastMutationId: "" }],
-    ["tasks:task-1", { isActive: true, revision: 0, lastMutationId: "" }],
-  ]);
-  let loseTaskResponse = true;
+  const state = { isActive: true, revision: 0, lastMutationId: "" };
+  let loseProjectResponse = true;
   setServerCallHandlerForTests((functionName, args) => {
     assert.equal(functionName, "patchDocumentMetadata");
     const request = args[0] as {
@@ -307,7 +424,7 @@ test("子文書のarchive ACK喪失後も同じmutationを再送し、親を最�
       mutationId: string;
     };
     calls.push({ documentKey: request.documentKey, mutationId: request.mutationId });
-    const state = server.get(request.documentKey)!;
+    assert.equal(request.documentKey, "projects:project-1");
     if (state.lastMutationId === request.mutationId) {
       return metadataResult(request, state);
     }
@@ -315,8 +432,8 @@ test("子文書のarchive ACK喪失後も同じmutationを再送し、親を最�
     state.isActive = request.patch.isActive;
     state.revision += 1;
     state.lastMutationId = request.mutationId;
-    if (request.documentKey === "tasks:task-1" && loseTaskResponse) {
-      loseTaskResponse = false;
+    if (loseProjectResponse) {
+      loseProjectResponse = false;
       throw new Error("response lost");
     }
     return metadataResult(request, state);
@@ -331,12 +448,29 @@ test("子文書のarchive ACK喪失後も同じmutationを再送し、親を最�
 
   assert.deepEqual(
     calls.map((call) => call.documentKey),
-    ["tasks:task-1", "tasks:task-1", "cases:case-1", "projects:project-1"],
+    ["projects:project-1", "projects:project-1"],
   );
   assert.equal(calls[0].mutationId, calls[1].mutationId);
-  assert.equal(get("tasks", "task-1")?.isActive, false);
-  assert.equal(get("cases", "case-1")?.isActive, false);
   assert.equal(get("projects", "project-1")?.isActive, false);
+  assert.equal(get("cases", "case-1")?.isActive, true);
+  assert.equal(get("tasks", "task-1")?.isActive, true);
+  assert.deepEqual(await TaskStore.getAllCases(), []);
+  assert.deepEqual(await TaskStore.getAllTasks(), []);
+
+  await TaskStore.unarchiveProject("project-1");
+
+  assert.deepEqual(
+    calls.map((call) => call.documentKey),
+    ["projects:project-1", "projects:project-1", "projects:project-1"],
+  );
+  assert.deepEqual(
+    (await TaskStore.getAllCases()).map((item) => item.id),
+    ["case-1"],
+  );
+  assert.deepEqual(
+    (await TaskStore.getAllTasks()).map((item) => item.id),
+    ["task-1"],
+  );
 });
 
 test("archive済みtaskの復元はisActiveだけを先にCASし、その後statusを更新する", async () => {

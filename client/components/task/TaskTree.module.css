@@ -26,3 +26,7 @@
 .task-tree-group > .task-tree-children::before { content: ""; position: absolute; left: 21px; top: 0; bottom: 8px; width: 1px; background: var(--border, #e0e0e0); }
 .task-tree-case-group > .task-tree-children::before { content: ""; position: absolute; left: 41px; top: 0; bottom: 8px; width: 1px; background: var(--border, #e0e0e0); }
 .drag-placeholder { background: #e3f2fd; border: 2px dashed #90caf9; border-radius: 4px; margin: 1px 4px; }
+.archived-projects { margin: 10px 4px 0; color: var(--text-secondary); font-size: 0.76rem; }
+.archived-projects > summary { cursor: pointer; padding: 4px; }
+.archived-project { margin: 2px 0; opacity: 0.82; }
+.unarchive-project { border: 0; background: transparent; color: var(--primary, #1976d2); cursor: pointer; padding: 2px 4px; font-size: 0.72rem; }
