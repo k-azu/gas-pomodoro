@@ -475,7 +475,7 @@ function TaskMeta({
               if (selected.length > 0) {
                 const label = selected[0];
                 if (label === "Archived") {
-                  tasks.updateTaskFields(id, { isActive: false });
+                  void tasks.archiveNode("task", id);
                 } else {
                   const key = statusLabelToKey(label);
                   tasks.updateTaskFields(id, { status: key });

@@ -213,13 +213,12 @@ function putDocumentContent(request: PutDocumentContentRequest): DocumentContent
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(config.sheetName)!;
     const row = findDocumentRow(sheet, id);
     if (row === null) return { status: "missing", mutationId: request.mutationId };
-    if (sheet.getRange(row, config.isActiveColumn).getValue() !== true) {
-      return { status: "missing", mutationId: request.mutationId };
-    }
-
     const current = readContentSnapshot(sheet, row, request.documentKey, config);
     if (current.lastMutationId === request.mutationId) {
       return { status: "applied", mutationId: request.mutationId, snapshot: current };
+    }
+    if (sheet.getRange(row, config.isActiveColumn).getValue() !== true) {
+      return { status: "missing", mutationId: request.mutationId };
     }
     if (current.revision !== request.expectedRevision) {
       return { status: "conflict", mutationId: request.mutationId, snapshot: current };
@@ -295,6 +294,9 @@ function patchDocumentMetadata(
     if (row === null) return { status: "missing", mutationId: request.mutationId };
 
     const current = readMetadataSnapshot(sheet, row, request.documentKey, storeName, config);
+    if (current.lastMutationId === request.mutationId) {
+      return { status: "applied", mutationId: request.mutationId, snapshot: current };
+    }
     if (
       current.metadata.isActive === false &&
       !(fields.length === 1 && request.patch.isActive === true)
@@ -304,9 +306,6 @@ function patchDocumentMetadata(
         mutationId: request.mutationId,
         reason: "archived document is read-only",
       };
-    }
-    if (current.lastMutationId === request.mutationId) {
-      return { status: "applied", mutationId: request.mutationId, snapshot: current };
     }
     if (current.revision !== request.expectedRevision) {
       return { status: "conflict", mutationId: request.mutationId, snapshot: current };

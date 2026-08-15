@@ -1,6 +1,7 @@
 # ADR 0001: 文書をサーバー確認済みメモリ状態から編集し、遷移前に保存する
 
-- Status: Accepted
+- Status: Superseded by ADR 0002
+- Superseded by: [ADR 0002](0002-keep-one-editor-state-per-document-type.md)
 - Date: 2026-08-15
 - Deciders: Repository owner
 

@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { gotoApp, selectMemo, typeInEditor, waitForSyncComplete } from "./helpers/app";
+import {
+  gotoApp,
+  selectMemo,
+  setMockTransformOnLoadShouldFailOnce,
+  typeInEditor,
+  waitForSyncComplete,
+} from "./helpers/app";
 
 const MEMO_1 = "[data-id='mock-memo-1']";
 const MEMO_2 = "[data-id='mock-memo-2']";
@@ -20,6 +26,35 @@ test("取得済みclean文書の切り替えではサーバーを待たない", 
   const calls = await page.evaluate(() => window.__mockServerCallCounts ?? {});
   expect(calls.getAllDocumentData ?? 0).toBe(0);
   expect(calls.putDocumentContent ?? 0).toBe(0);
+});
+
+test("メモとタスクでEditorStateを一つずつ保持し、dirtyな種類間遷移はACKを待つ", async ({
+  page,
+}) => {
+  await gotoApp(page, { params: { mockDelay: "800" } });
+  await waitForSyncComplete(page);
+
+  await expect(page.locator(".ProseMirror")).toHaveCount(1);
+  await expect(page.locator(".ProseMirror:visible")).toHaveCount(1);
+  await typeInEditor(page, "タスクへ移る前に保存する本文");
+
+  const memoTab = page.getByRole("button", { name: "メモ", exact: true });
+  const taskTab = page.getByRole("button", { name: "タスク", exact: true });
+  await taskTab.click();
+  await expect(memoTab).toHaveClass(/active/);
+  await expect(page.getByText("保存中...", { exact: true })).toBeVisible();
+  await expect(taskTab).toHaveClass(/active/);
+  await page.getByText("GAS Pomodoro", { exact: true }).click();
+  await waitForSyncComplete(page);
+  await expect(page.locator(".ProseMirror")).toHaveCount(2);
+  await expect(page.locator(".ProseMirror:visible")).toHaveCount(1);
+
+  await memoTab.click();
+  await expect(memoTab).toHaveClass(/active/);
+  await expect(page.locator(".ProseMirror:visible")).toContainText("タスクへ移る前に保存する本文");
+  const calls = await page.evaluate(() => window.__mockServerCallCounts ?? {});
+  expect(calls.putDocumentContent).toBe(1);
+  expect(calls.getAllDocumentData ?? 0).toBe(0);
 });
 
 test("dirty文書は保存ACKまで選択を変えず、ACK後はメモリから復元する", async ({ page }) => {
@@ -141,6 +176,20 @@ test("明示的な更新でサーバー本文をバックグラウンド再取�
   expect(calls.getAllDocumentData).toBe(1);
 });
 
+test("初回本文変換の失敗中は編集させず、明示更新の成功後に復旧する", async ({ page }) => {
+  await setMockTransformOnLoadShouldFailOnce(page);
+  await gotoApp(page);
+
+  const editor = page.locator(".ProseMirror:visible");
+  await expect(page.getByText("同期エラー", { exact: true })).toBeVisible();
+  await expect(editor).toHaveAttribute("contenteditable", "false");
+
+  await page.getByRole("button", { name: "更新", exact: true }).click();
+  await waitForSyncComplete(page);
+  await expect(editor).toHaveAttribute("contenteditable", "true");
+  await expect(editor).toContainText("今週のタスク");
+});
+
 test("30分以上非表示だった場合だけ表示復帰時に再取得する", async ({ page }) => {
   await gotoApp(page);
   await waitForSyncComplete(page);
@@ -175,4 +224,96 @@ test("30分以上非表示だった場合だけ表示復帰時に再取得する
     .toBe(1);
   calls = await page.evaluate(() => window.__mockServerCallCounts ?? {});
   expect(calls.getAllDocumentData).toBe(1);
+});
+
+test("選択中taskのarchiveはdirty本文のACK後に実行する", async ({ page }) => {
+  await gotoApp(page, {
+    params: { mockDelay: "500" },
+    hash: "tab=task&type=task&id=mock-task-1",
+  });
+  await waitForSyncComplete(page);
+  await typeInEditor(page, "archive前に保存する本文");
+
+  const statusField = page.locator("[class*='record-field']", { hasText: "ステータス" });
+  await statusField.locator("[class*='item-picker-trigger']").click();
+  await page.getByText("Archived", { exact: true }).click();
+
+  await expect
+    .poll(() => page.evaluate(() => window.__mockServerCallCounts?.patchDocumentMetadata ?? 0))
+    .toBe(1);
+  const result = await page.evaluate(() => ({
+    sequence: window.__mockServerCallSequence ?? [],
+    server: JSON.parse(localStorage.getItem("gas-pomodoro:mock-document-server:v1") || "{}"),
+  }));
+  const contentCall = result.sequence.indexOf("putDocumentContent");
+  const archiveCall = result.sequence.indexOf("patchDocumentMetadata");
+  expect(contentCall).toBeGreaterThanOrEqual(0);
+  expect(archiveCall).toBeGreaterThan(contentCall);
+  expect(result.server["mock-task-1"].content).toContain("archive前に保存する本文");
+  expect(result.server["mock-task-1"].metadata.isActive).toBe(false);
+});
+
+test("metadata保存失敗を表示し、再送ACKまで文書遷移を止める", async ({ page }) => {
+  await gotoApp(page);
+  await waitForSyncComplete(page);
+  await page.evaluate(() => {
+    window.__mockMetadataShouldFail = true;
+  });
+
+  const title = page.locator(".mdg-content-area:visible input").first();
+  await title.click();
+  await title.fill("未送信の名前");
+  await title.press("Enter");
+  await expect(page.getByText("同期エラー", { exact: true })).toBeVisible();
+
+  await page.locator(MEMO_2).click();
+  await expectActive(page, MEMO_1);
+  await expect(title).toHaveValue("未送信の名前");
+
+  await page.evaluate(() => {
+    window.__mockMetadataShouldFail = false;
+  });
+  await page.locator(MEMO_2).click();
+  await expectActive(page, MEMO_2);
+});
+
+test("文書editor未選択でもmetadata失敗を表示し、ACKまでタブ遷移を止める", async ({ page }) => {
+  await gotoApp(page, { hash: "tab=task" });
+  await expect(page.locator(".ProseMirror:visible")).toHaveCount(0);
+  await page.evaluate(() => {
+    window.__mockMetadataShouldFail = true;
+  });
+  const project = page.locator("[data-type='project'][data-id='mock-proj-1']");
+  await project.locator(":scope > div").click({ button: "right" });
+  await page.getByText("名前変更", { exact: true }).click();
+  const renameInput = project.locator("input");
+  await renameInput.fill("未送信のプロジェクト名");
+  await renameInput.press("Enter");
+  await expect(page.getByText("同期エラー", { exact: true })).toBeVisible();
+
+  const memoTab = page.getByRole("button", { name: "メモ", exact: true });
+  const taskTab = page.getByRole("button", { name: "タスク", exact: true });
+  await memoTab.click();
+  await expect(taskTab).toHaveClass(/active/);
+
+  await page.evaluate(() => {
+    window.__mockMetadataShouldFail = false;
+  });
+  await memoTab.click();
+  await expect(memoTab).toHaveClass(/active/);
+});
+
+test("再取得中の更新通知を消費せず、完了後に追従再取得する", async ({ page }) => {
+  await gotoApp(page, { params: { mockDelay: "500" } });
+  await waitForSyncComplete(page);
+
+  await page.getByRole("button", { name: "更新", exact: true }).click();
+  await expect(page.getByRole("button", { name: "更新中...", exact: true })).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+
+  await expect(page.getByRole("button", { name: "更新", exact: true })).toBeVisible({
+    timeout: 5_000,
+  });
+  const calls = await page.evaluate(() => window.__mockServerCallCounts ?? {});
+  expect(calls.getAllDocumentData).toBe(2);
 });

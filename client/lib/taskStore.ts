@@ -118,32 +118,50 @@ async function archiveOne(
   id: string,
 ): Promise<void> {
   await DocumentStore.waitForMetadata(storeName, id);
+  if (DocumentStore.get(storeName, id)?.isActive === false) return;
   await DocumentStore.patchMetadata(storeName, id, { isActive: false });
 }
 
 export async function archiveProject(id: string): Promise<void> {
-  await archiveOne("projects", id);
-  const children = [
-    ...DocumentStore.getByIndex("cases", "projectId", id),
-    ...DocumentStore.getByIndex("tasks", "projectId", id),
-  ];
-  await Promise.all(
-    children
-      .filter((entity) => entity.isActive !== false)
-      .map((entity) => archiveOne("caseId" in entity ? "tasks" : "cases", entity.id)),
+  const tasks = DocumentStore.getByIndex("tasks", "projectId", id).filter(
+    (entity) => entity.isActive !== false,
   );
+  await Promise.all(tasks.map((task) => archiveOne("tasks", task.id)));
+  const cases = DocumentStore.getByIndex("cases", "projectId", id).filter(
+    (entity) => entity.isActive !== false,
+  );
+  await Promise.all(cases.map((caseItem) => archiveOne("cases", caseItem.id)));
+  await archiveOne("projects", id);
 }
 
 export async function archiveCase(id: string): Promise<void> {
-  await archiveOne("cases", id);
   const tasks = DocumentStore.getByIndex("tasks", "caseId", id).filter(
     (entity) => entity.isActive !== false,
   );
   await Promise.all(tasks.map((task) => archiveOne("tasks", task.id)));
+  await archiveOne("cases", id);
 }
 
 export function archiveTask(id: string): Promise<void> {
   return archiveOne("tasks", id);
+}
+
+async function reactivateOne(
+  storeName: Exclude<DocumentStoreName, "memos">,
+  id: string,
+): Promise<void> {
+  await DocumentStore.waitForMetadata(storeName, id);
+  if (DocumentStore.get(storeName, id)?.isActive === true) return;
+  await DocumentStore.patchMetadata(storeName, id, { isActive: true });
+}
+
+export function unarchiveCase(id: string): Promise<void> {
+  return reactivateOne("cases", id);
+}
+
+export async function unarchiveTask(id: string, status?: TaskStatus): Promise<void> {
+  await reactivateOne("tasks", id);
+  if (status) await updateMetadata("tasks", id, { status });
 }
 
 export async function adjustTaskStats(

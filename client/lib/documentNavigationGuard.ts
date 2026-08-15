@@ -1,3 +1,5 @@
+import * as DocumentStore from "./documentStore";
+
 export interface DocumentEditGuard {
   documentKey: string;
   isDirty: () => boolean;
@@ -16,7 +18,7 @@ export function registerDocumentEditGuard(guard: DocumentEditGuard): () => void 
 }
 
 export function hasUnsavedDocument(): boolean {
-  return activeGuard?.isDirty() ?? false;
+  return (activeGuard?.isDirty() ?? false) || DocumentStore.hasAnyPendingMetadata();
 }
 
 export function requestDocumentTransition(proceed: () => void): Promise<boolean> {
@@ -25,6 +27,12 @@ export function requestDocumentTransition(proceed: () => void): Promise<boolean>
     if (guard?.isDirty()) {
       try {
         await guard.saveBeforeTransition();
+      } catch {
+        return false;
+      }
+    } else if (DocumentStore.hasAnyPendingMetadata()) {
+      try {
+        await DocumentStore.waitForAllMetadata();
       } catch {
         return false;
       }
@@ -38,19 +46,35 @@ export function requestDocumentTransition(proceed: () => void): Promise<boolean>
 
 export async function flushActiveDocument(): Promise<boolean> {
   const guard = activeGuard;
-  if (!guard?.isDirty()) return true;
-  try {
-    await guard.saveBeforeTransition();
-    return true;
-  } catch {
-    return false;
+  if (guard?.isDirty()) {
+    try {
+      await guard.saveBeforeTransition();
+      return true;
+    } catch {
+      return false;
+    }
   }
+  if (DocumentStore.hasAnyPendingMetadata()) {
+    try {
+      await DocumentStore.waitForAllMetadata();
+    } catch {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function runWithActiveDocumentFrozen(operation: () => Promise<boolean>): Promise<boolean> {
   const run = async (): Promise<boolean> => {
     const guard = activeGuard;
     if (guard) return guard.runWhileFrozen(operation);
+    if (DocumentStore.hasAnyPendingMetadata()) {
+      try {
+        await DocumentStore.waitForAllMetadata();
+      } catch {
+        return false;
+      }
+    }
     return operation();
   };
   transition = transition.then(run, run);

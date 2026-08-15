@@ -41,6 +41,26 @@ interface RecordDetailsUpdate {
   taskId?: string;
 }
 
+function setTaskStartedAtFromRecord(taskId: string, recordId: string, startTime: string): void {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const tasksSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Tasks");
+    if (!tasksSheet) return;
+    const row = findDocumentRow(tasksSheet, taskId);
+    if (row === null || tasksSheet.getRange(row, 11).getValue()) return;
+
+    const now = new Date().toISOString();
+    const metadataRevision = readRevision(tasksSheet.getRange(row, 15).getValue());
+    tasksSheet.getRange(row, 11).setValue(startTime);
+    tasksSheet.getRange(row, 13).setValue(now);
+    tasksSheet.getRange(row, 15).setValue(metadataRevision + 1);
+    tasksSheet.getRange(row, 17).setValue(`record:${recordId}:startedAt`);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function saveRecord(record: PomodoroRecord): { success: boolean } {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("PomodoroLog")!;
@@ -70,21 +90,10 @@ function saveRecord(record: PomodoroRecord): { success: boolean } {
 
   // Auto-set task startedAt if not already set
   if (taskId) {
-    const tasksSheet = ss.getSheetByName("Tasks");
-    if (tasksSheet) {
-      const tasksLastRow = tasksSheet.getLastRow();
-      if (tasksLastRow > 1) {
-        const taskIds = tasksSheet.getRange(2, 1, tasksLastRow - 1, 1).getValues();
-        for (let i = taskIds.length - 1; i >= 0; i--) {
-          if (String(taskIds[i][0]) === taskId) {
-            const startedAt = tasksSheet.getRange(i + 2, 11).getValue();
-            if (!startedAt) {
-              tasksSheet.getRange(i + 2, 11).setValue(record.startTime);
-            }
-            break;
-          }
-        }
-      }
+    try {
+      setTaskStartedAtFromRecord(taskId, record.id, record.startTime);
+    } catch (error) {
+      console.error("Failed to auto-set task startedAt after saving record", error);
     }
   }
 

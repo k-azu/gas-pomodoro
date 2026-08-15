@@ -44,6 +44,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const hiddenAtRef = useRef<number | null>(null);
   const refreshPromiseRef = useRef<Promise<boolean> | null>(null);
+  const refreshRequestedRef = useRef(false);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!DocumentStore.hasAnyPendingMetadata()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "hidden" || !DocumentStore.hasAnyPendingMetadata()) return;
+      void DocumentStore.waitForAllMetadata().catch((metadataError) => {
+        console.error("Document metadata flush on page hide failed:", metadataError);
+      });
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   const saveBreakRecord = useCallback(async (timerState: import("../types").TimerState) => {
     const now = new Date();
@@ -88,28 +109,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const timer = useTimer(onTargetReached, saveBreakRecord, refreshAll);
 
   const refreshDocuments = useCallback((): Promise<boolean> => {
-    if (refreshPromiseRef.current) return refreshPromiseRef.current;
-    const operation = runWithActiveDocumentFrozen(async () => {
-      try {
-        await DocumentStore.waitForAllMetadata();
-        const generationBeforeFetch = DocumentStore.getLocalGeneration();
-        const data = (await serverCall("getAllDocumentData")) as Pick<
-          InitData,
-          "memos" | "projects" | "cases" | "tasks"
-        >;
-        if (DocumentStore.getLocalGeneration() !== generationBeforeFetch) return false;
-        DocumentStore.applyServerData({
-          memos: data.memos || [],
-          projects: data.projects || [],
-          cases: data.cases || [],
-          tasks: data.tasks || [],
+    if (refreshPromiseRef.current) {
+      refreshRequestedRef.current = true;
+      return refreshPromiseRef.current;
+    }
+    const operation = (async () => {
+      let refreshed = false;
+      do {
+        refreshRequestedRef.current = false;
+        refreshed = await runWithActiveDocumentFrozen(async () => {
+          try {
+            await DocumentStore.waitForAllMetadata();
+            const generationBeforeFetch = DocumentStore.getLocalGeneration();
+            const data = (await serverCall("getAllDocumentData")) as Pick<
+              InitData,
+              "memos" | "projects" | "cases" | "tasks"
+            >;
+            if (DocumentStore.getLocalGeneration() !== generationBeforeFetch) {
+              refreshRequestedRef.current = true;
+              return false;
+            }
+            DocumentStore.applyServerData({
+              memos: data.memos || [],
+              projects: data.projects || [],
+              cases: data.cases || [],
+              tasks: data.tasks || [],
+            });
+            return true;
+          } catch (refreshError) {
+            console.error("Document refresh failed:", refreshError);
+            return false;
+          }
         });
-        return true;
-      } catch (refreshError) {
-        console.error("Document refresh failed:", refreshError);
-        return false;
-      }
-    });
+      } while (refreshRequestedRef.current);
+      return refreshed;
+    })();
     refreshPromiseRef.current = operation;
     const cleanup = () => {
       if (refreshPromiseRef.current === operation) refreshPromiseRef.current = null;

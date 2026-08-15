@@ -383,6 +383,11 @@ async function flushMetadata(key: string): Promise<void> {
     const latest = metadataPending.get(key);
     if (!latest || latest.version === attempt.version) {
       metadataPending.delete(key);
+      emit({
+        entityType: entityTypeFor(pending.storeName),
+        op: "metadataSettled",
+        id: pending.id,
+      });
     } else {
       latest.attempt = undefined;
       updateLocal(latest.storeName, latest.id, latest.patch, "metadataPending");
@@ -393,7 +398,17 @@ async function flushMetadata(key: string): Promise<void> {
 function scheduleMetadataFlush(key: string): Promise<void> {
   const existing = metadataQueues.get(key);
   if (existing) return existing;
-  const operation = flushMetadata(key);
+  const pending = metadataPending.get(key);
+  if (pending) {
+    emit({ entityType: entityTypeFor(pending.storeName), op: "metadataPending", id: pending.id });
+  }
+  const operation = flushMetadata(key).catch((error) => {
+    const failed = metadataPending.get(key);
+    if (failed) {
+      emit({ entityType: entityTypeFor(failed.storeName), op: "metadataError", id: failed.id });
+    }
+    throw error;
+  });
   metadataQueues.set(key, operation);
   const cleanup = () => {
     if (metadataQueues.get(key) === operation) metadataQueues.delete(key);
@@ -416,6 +431,10 @@ export async function waitForAllMetadata(): Promise<void> {
 
 export function hasPendingMetadata(storeName: DocumentStoreName, id: string): boolean {
   return metadataPending.has(documentKey(storeName, id));
+}
+
+export function hasAnyPendingMetadata(): boolean {
+  return metadataPending.size > 0;
 }
 
 export function reorderLocal(storeName: DocumentStoreName, orderedIds: string[]): void {

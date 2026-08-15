@@ -19,7 +19,7 @@ export async function gotoApp(page: Page, opts?: GotoAppOptions): Promise<void> 
   const hash = opts?.hash ? `#${opts.hash}` : "#tab=memo";
   await page.goto(`/${qs}${hash}`);
   // Wait for app to render — the sidebar list should appear
-  await page.waitForSelector("[class*='sidebar']", { timeout: 10_000 });
+  await page.waitForSelector("[class*='sidebar']:visible", { timeout: 10_000 });
 }
 
 /**
@@ -74,7 +74,7 @@ export async function selectMemo(page: Page, name: string): Promise<void> {
  * Uses keyboard.insertText for reliable multi-byte (Japanese) input.
  */
 export async function typeInEditor(page: Page, text: string): Promise<void> {
-  const editor = page.locator(".ProseMirror");
+  const editor = page.locator(".ProseMirror:visible");
   await editor.click();
   await page.waitForTimeout(100);
   await page.keyboard.insertText(text);
@@ -85,7 +85,7 @@ export async function typeInEditor(page: Page, text: string): Promise<void> {
  * Use this when undo behavior matters.
  */
 export async function typeInEditorSequentially(page: Page, text: string): Promise<void> {
-  const editor = page.locator(".ProseMirror");
+  const editor = page.locator(".ProseMirror:visible");
   // Preserve the editor state's restored selection; clicking may move it into existing text.
   await editor.focus();
   await page.waitForTimeout(100);
@@ -100,7 +100,7 @@ export async function waitForSyncComplete(page: Page): Promise<void> {
     timeout: 15_000,
   });
   // Also wait for editor to become editable (readOnly is cleared after resolve)
-  const editor = page.locator(".ProseMirror");
+  const editor = page.locator(".ProseMirror:visible");
   if (await editor.count()) {
     await expect(editor).toHaveAttribute("contenteditable", "true", { timeout: 5_000 });
   }
@@ -110,7 +110,7 @@ export async function waitForSyncComplete(page: Page): Promise<void> {
  * Get the text content of the ProseMirror editor.
  */
 export async function getEditorText(page: Page): Promise<string> {
-  return page.locator(".ProseMirror").innerText();
+  return page.locator(".ProseMirror:visible").innerText();
 }
 
 /**

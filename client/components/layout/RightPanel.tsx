@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useApp } from "../../contexts/AppContext";
 import { useNavigation } from "../../contexts/NavigationContext";
 import type { TabId } from "../../contexts/NavigationContext";
+import * as DocumentStore from "../../lib/documentStore";
 import type { Phase } from "../../types/timer";
 import { MemoTab } from "../memo/MemoTab";
 import { TaskTab } from "../task/TaskTab";
@@ -10,6 +11,7 @@ import { InterruptionForm } from "../record/InterruptionForm";
 import { ViewerPanel } from "../record/ViewerPanel";
 import { SearchPalette } from "../search/SearchPalette";
 import { SearchIcon } from "../shared/Icons";
+import { SyncIndicator, type SyncStatus } from "../shared/SyncIndicator";
 import s from "./RightPanel.module.css";
 
 /** Which tabs are visible in each timer phase */
@@ -41,6 +43,19 @@ export function RightPanel() {
   const prevPhaseRef = useRef<Phase | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [refreshingDocuments, setRefreshingDocuments] = useState(false);
+  const [metadataSyncStatus, setMetadataSyncStatus] = useState<SyncStatus>("idle");
+
+  useEffect(() => {
+    const handleDocumentEvent = (event: { op: string }) => {
+      if (event.op === "metadataPending") setMetadataSyncStatus("syncing");
+      if (event.op === "metadataError") setMetadataSyncStatus("error");
+      if (event.op === "metadataSettled" && !DocumentStore.hasAnyPendingMetadata()) {
+        setMetadataSyncStatus("idle");
+      }
+    };
+    DocumentStore.on(handleDocumentEvent);
+    return () => DocumentStore.off(handleDocumentEvent);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -106,6 +121,7 @@ export function RightPanel() {
           );
         })}
         <div className={s["tab-spacer"]} />
+        <SyncIndicator status={metadataSyncStatus} />
         <button
           type="button"
           className={s["search-button"]}

@@ -126,6 +126,7 @@ export interface UseTasksReturn {
   getArchivedCasesFor: (projectId: string) => CaseItem[];
   getArchivedDirectTasks: (projectId: string) => TaskItem[];
   unarchiveCase: (caseId: string) => Promise<void>;
+  unarchiveTask: (taskId: string, status: TaskStatus) => Promise<void>;
 
   isLoading: boolean;
 }
@@ -435,6 +436,10 @@ export function useTasks(): UseTasksReturn {
           selected?.type === "task"
             ? (DocumentStore.get("tasks", selected.id) as TaskItem | null)
             : null;
+        const archivedCase =
+          type === "case" ? (DocumentStore.get("cases", id) as CaseItem | null) : null;
+        const archivedTask =
+          type === "task" ? (DocumentStore.get("tasks", id) as TaskItem | null) : null;
         const archivesSelectedDocument =
           selected?.id === id ||
           (type === "project" &&
@@ -444,8 +449,8 @@ export function useTasks(): UseTasksReturn {
         if (type === "project") await TaskStore.archiveProject(id);
         else if (type === "case") await TaskStore.archiveCase(id);
         else await TaskStore.archiveTask(id);
-        const { projs, cases, tasks } = await refreshFromStore();
-        if (selectedRef.current?.id === id) {
+        const { projs } = await refreshFromStore();
+        if (archivesSelectedDocument) {
           // Auto-select next node after archive
           if (type === "project") {
             // Select first remaining active project
@@ -458,7 +463,6 @@ export function useTasks(): UseTasksReturn {
             }
           } else if (type === "case") {
             // Select parent project
-            const archivedCase = cases.find((c) => c.id === id);
             if (archivedCase) {
               selectNode("project", archivedCase.projectId);
             } else {
@@ -467,7 +471,6 @@ export function useTasks(): UseTasksReturn {
             }
           } else {
             // task: select parent case or project
-            const archivedTask = tasks.find((t) => t.id === id);
             if (archivedTask?.caseId) {
               selectNode("case", archivedTask.caseId);
             } else if (archivedTask) {
@@ -512,9 +515,17 @@ export function useTasks(): UseTasksReturn {
 
   const unarchiveCase = useCallback(
     async (caseId: string) => {
-      await TaskStore.updateCase(caseId, { isActive: true });
       const caseTasks = await TaskStore.getArchivedTasksForCase(caseId);
-      await Promise.all(caseTasks.map((t) => TaskStore.updateTask(t.id, { isActive: true })));
+      await Promise.all(caseTasks.map((t) => TaskStore.unarchiveTask(t.id)));
+      await TaskStore.unarchiveCase(caseId);
+      await refreshFromStore();
+    },
+    [refreshFromStore],
+  );
+
+  const unarchiveTask = useCallback(
+    async (taskId: string, status: TaskStatus) => {
+      await TaskStore.unarchiveTask(taskId, status);
       await refreshFromStore();
     },
     [refreshFromStore],
@@ -575,6 +586,7 @@ export function useTasks(): UseTasksReturn {
     getArchivedCasesFor,
     getArchivedDirectTasks,
     unarchiveCase,
+    unarchiveTask,
     isLoading,
   };
 }

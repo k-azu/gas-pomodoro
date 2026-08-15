@@ -24,6 +24,7 @@ interface UseDocumentEditorOptions {
 }
 
 const SAVE_IDLE_MS = 15_000;
+const EDIT_LEASE_HANDOFF_TIMEOUT_MS = 30_000;
 const editLeaseSource = crypto.randomUUID();
 const editLeaseChannel =
   typeof window === "undefined" || typeof BroadcastChannel === "undefined"
@@ -47,6 +48,7 @@ export function useDocumentEditor({
   const [charCount, setCharCount] = useState(0);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
   const [savingForTransition, setSavingForTransition] = useState(false);
+  const [contentReady, setContentReady] = useState(false);
   const [contentRevision, setContentRevision] = useState(0);
   const lockSupported = typeof navigator !== "undefined" && "locks" in navigator;
   const [ownsEditLock, setOwnsEditLock] = useState(!lockSupported);
@@ -70,6 +72,14 @@ export function useDocumentEditor({
   const releaseEditLockRef = useRef<(() => void) | null>(null);
   const [editLeaseReleased, setEditLeaseReleased] = useState(false);
   const editLeaseReleasedRef = useRef(false);
+  const handoffRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearHandoffRecoveryTimer = useCallback(() => {
+    if (handoffRecoveryTimerRef.current) {
+      clearTimeout(handoffRecoveryTimerRef.current);
+      handoffRecoveryTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     saveContentRef.current = saveContent;
@@ -124,10 +134,7 @@ export function useDocumentEditor({
       setSavingForTransition(true);
       try {
         await saveLatest();
-        await DocumentStore.waitForMetadata(
-          currentScopeRef.current as DocumentStore.DocumentStoreName,
-          currentIdRef.current,
-        );
+        await DocumentStore.waitForAllMetadata();
         return await operation();
       } finally {
         frozenForTransitionRef.current = false;
@@ -167,6 +174,7 @@ export function useDocumentEditor({
     onCharCount: setCharCount,
     readOnly:
       forceReadOnly ||
+      !contentReady ||
       savingForTransition ||
       contentConflict !== null ||
       (lockSupported && !ownsEditLock),
@@ -187,10 +195,7 @@ export function useDocumentEditor({
     if (!navigationActive || !id) return;
     return registerDocumentEditGuard({
       documentKey: `${scope}:${id}`,
-      isDirty: () =>
-        dirtyRef.current ||
-        inFlightRef.current !== null ||
-        DocumentStore.hasPendingMetadata(scope as DocumentStore.DocumentStoreName, id),
+      isDirty: () => dirtyRef.current || inFlightRef.current !== null,
       saveBeforeTransition: saveForTransition,
       runWhileFrozen,
     });
@@ -259,34 +264,27 @@ export function useDocumentEditor({
       ) {
         return;
       }
+      clearHandoffRecoveryTimer();
       editLeaseReleasedRef.current = false;
       setEditLeaseReleased(false);
     };
     editLeaseChannel.addEventListener("message", handleLeaseMessage);
     return () => editLeaseChannel.removeEventListener("message", handleLeaseMessage);
-  }, [id, scope]);
+  }, [clearHandoffRecoveryTimer, id, scope]);
+
+  useEffect(() => clearHandoffRecoveryTimer, [clearHandoffRecoveryTimer]);
 
   useEffect(() => {
+    if (!navigationActive) return;
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (
-        !dirtyRef.current &&
-        !inFlightRef.current &&
-        !DocumentStore.hasPendingMetadata(
-          currentScopeRef.current as DocumentStore.DocumentStoreName,
-          currentIdRef.current,
-        )
-      ) {
+      if (!dirtyRef.current && !inFlightRef.current) {
         return;
       }
       event.preventDefault();
       event.returnValue = "";
     };
     const handleVisibilityChange = () => {
-      const hasPendingMetadata = DocumentStore.hasPendingMetadata(
-        currentScopeRef.current as DocumentStore.DocumentStoreName,
-        currentIdRef.current,
-      );
-      if (document.visibilityState !== "hidden" || (!dirtyRef.current && !hasPendingMetadata)) {
+      if (document.visibilityState !== "hidden" || !dirtyRef.current) {
         return;
       }
       void saveForTransition().catch((error) => {
@@ -299,7 +297,7 @@ export function useDocumentEditor({
       window.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [saveForTransition]);
+  }, [navigationActive, saveForTransition]);
 
   useEffect(() => {
     if (!id) return;
@@ -311,6 +309,7 @@ export function useDocumentEditor({
     }
     currentIdRef.current = id;
     currentScopeRef.current = scope;
+    clearHandoffRecoveryTimer();
     editLeaseReleasedRef.current = false;
     setEditLeaseReleased(false);
     dirtyRef.current = false;
@@ -318,6 +317,7 @@ export function useDocumentEditor({
     editVersionRef.current = 0;
     conflictRef.current = null;
     setContentConflict(null);
+    setContentReady(false);
     suppressSaveRef.current = true;
     setSyncStatus("syncing");
     setMode("wysiwyg");
@@ -329,6 +329,7 @@ export function useDocumentEditor({
         resetContent(content);
         setContentRevision((revision) => revision + 1);
         suppressSaveRef.current = false;
+        setContentReady(true);
         setSyncStatus("idle");
         const scrollTop = scrollPositionsRef.current.get(nextKey) ?? 0;
         if (scrollRef.current) scrollRef.current.scrollTop = scrollTop;
@@ -341,7 +342,7 @@ export function useDocumentEditor({
     return () => {
       cancelled = true;
     };
-  }, [id, loadContent, resetContent, scope, setMode, transformOnLoad]);
+  }, [clearHandoffRecoveryTimer, id, loadContent, resetContent, scope, setMode, transformOnLoad]);
 
   const keepLocalConflict = useCallback(async (): Promise<void> => {
     const conflict = conflictRef.current;
@@ -390,29 +391,42 @@ export function useDocumentEditor({
       releaseEditLockRef.current?.();
       releaseEditLockRef.current = null;
       setOwnsEditLock(false);
+      clearHandoffRecoveryTimer();
+      handoffRecoveryTimerRef.current = setTimeout(() => {
+        handoffRecoveryTimerRef.current = null;
+        if (!editLeaseReleasedRef.current) return;
+        editLeaseReleasedRef.current = false;
+        setEditLeaseReleased(false);
+      }, EDIT_LEASE_HANDOFF_TIMEOUT_MS);
       return true;
     } catch {
       return false;
     }
-  }, [lockSupported, ownsEditLock, saveForTransition]);
+  }, [clearHandoffRecoveryTimer, lockSupported, ownsEditLock, saveForTransition]);
 
   useEffect(() => {
     if (!id) return;
     const handleStoreChange = (event: { op: string }) => {
-      if (event.op !== "serverRefresh" || dirtyRef.current) return;
-      suppressSaveRef.current = true;
-      void loadContent(id)
-        .then(async (raw) => (transformOnLoad ? transformOnLoad(raw ?? "") : (raw ?? "")))
-        .then((content) => {
-          if (dirtyRef.current) return;
-          resetContent(content);
-          setContentRevision((revision) => revision + 1);
-          suppressSaveRef.current = false;
-        })
-        .catch((refreshError) => {
-          suppressSaveRef.current = false;
-          console.error("[useDocumentEditor] Failed to apply refreshed content", refreshError);
-        });
+      if (event.op === "serverRefresh" && !dirtyRef.current) {
+        suppressSaveRef.current = true;
+        setContentReady(false);
+        setSyncStatus("syncing");
+        void loadContent(id)
+          .then(async (raw) => (transformOnLoad ? transformOnLoad(raw ?? "") : (raw ?? "")))
+          .then((content) => {
+            if (dirtyRef.current) return;
+            resetContent(content);
+            setContentRevision((revision) => revision + 1);
+            suppressSaveRef.current = false;
+            setContentReady(true);
+            setSyncStatus("idle");
+          })
+          .catch((refreshError) => {
+            suppressSaveRef.current = false;
+            setSyncStatus("error");
+            console.error("[useDocumentEditor] Failed to apply refreshed content", refreshError);
+          });
+      }
     };
     DocumentStore.on(handleStoreChange);
     return () => DocumentStore.off(handleStoreChange);
@@ -428,10 +442,14 @@ export function useDocumentEditor({
     scrollRef,
     readOnly:
       forceReadOnly ||
+      !contentReady ||
       savingForTransition ||
       contentConflict !== null ||
       (lockSupported && !ownsEditLock),
-    syncStatus: lockSupported && !ownsEditLock && !forceReadOnly ? ("locked" as const) : syncStatus,
+    syncStatus:
+      lockSupported && !ownsEditLock && !forceReadOnly && contentReady
+        ? ("locked" as const)
+        : syncStatus,
     contentRevision,
     contentConflict: contentConflict
       ? {
@@ -443,7 +461,7 @@ export function useDocumentEditor({
     keepLocalConflict,
     acceptRemoteConflict,
     handoffEditLease,
-    canOpenInNewTab: lockSupported && ownsEditLock && !forceReadOnly,
+    canOpenInNewTab: lockSupported && ownsEditLock && !forceReadOnly && contentReady,
     flushPendingSave,
     savingForTransition,
   };

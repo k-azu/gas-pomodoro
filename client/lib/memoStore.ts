@@ -64,6 +64,7 @@ export function renameMemo(id: string, name: string): Promise<void> {
 
 export async function deleteMemo(id: string): Promise<void> {
   await DocumentStore.waitForMetadata("memos", id);
+  if (DocumentStore.get("memos", id)?.isActive === false) return;
   await DocumentStore.patchMetadata("memos", id, { isActive: false });
 }
 

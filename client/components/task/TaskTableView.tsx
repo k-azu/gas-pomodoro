@@ -575,7 +575,7 @@ function TaskTableRow({
               if (selected.length > 0) {
                 const label = selected[0];
                 if (label === "Archived") {
-                  tasks.updateTaskFields(task.id, { isActive: false });
+                  void tasks.archiveNode("task", task.id);
                 } else {
                   const key = statusLabelToKey(label);
                   tasks.updateTaskFields(task.id, { status: key });
@@ -753,7 +753,7 @@ function ArchivedTaskRow({
                 // Already archived — no-op
               } else {
                 const key = statusLabelToKey(label);
-                tasks.updateTaskFields(task.id, { status: key, isActive: true });
+                void tasks.unarchiveTask(task.id, key);
               }
             }}
             placeholder="ステータス"

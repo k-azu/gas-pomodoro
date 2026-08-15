@@ -9,7 +9,9 @@ declare global {
   interface Window {
     __mockDocumentSearchCallCount?: number;
     __mockServerCallCounts?: Record<string, number>;
+    __mockServerCallSequence?: string[];
     __mockContentShouldFail?: boolean;
+    __mockMetadataShouldFail?: boolean;
     google?: {
       script: {
         run: {
@@ -1153,19 +1155,28 @@ export function serverCall(functionName: string, ...args: unknown[]): Promise<un
   }
   if (isDev) {
     console.log(`[mock] serverCall: ${functionName}`, args);
+    window.__mockServerCallSequence = window.__mockServerCallSequence ?? [];
+    window.__mockServerCallSequence.push(functionName);
     window.__mockServerCallCounts = window.__mockServerCallCounts ?? {};
     window.__mockServerCallCounts[functionName] =
       (window.__mockServerCallCounts[functionName] ?? 0) + 1;
     const baseDelay = 100;
     const extraDelay = CONTENT_FUNCTIONS.has(functionName)
       ? mockParams.delay
-      : functionName === "getImageBase64"
-        ? mockParams.imageDelay
-        : 0;
+      : functionName === "getAllDocumentData"
+        ? mockParams.delay
+        : functionName === "getImageBase64"
+          ? mockParams.imageDelay
+          : 0;
 
     if (CONTENT_FUNCTIONS.has(functionName) && (window as any).__mockContentShouldFail) {
       return new Promise((_, reject) => {
         setTimeout(() => reject(new Error("Mock: forced content error")), baseDelay);
+      });
+    }
+    if (functionName === "patchDocumentMetadata" && window.__mockMetadataShouldFail) {
+      return new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Mock: forced metadata error")), baseDelay);
       });
     }
 
