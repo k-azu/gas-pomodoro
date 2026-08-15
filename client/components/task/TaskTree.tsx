@@ -455,21 +455,6 @@ function TaskNode({
       ) : (
         <span className={s["task-tree-name"]}>{task.name}</span>
       )}
-      {task._cachedTimeSeconds ? (
-        <span className={s["task-tree-time"]}>{formatTime(task._cachedTimeSeconds)}</span>
-      ) : null}
     </div>
   );
-}
-
-// =========================================================
-// Helpers
-// =========================================================
-
-function formatTime(seconds: number): string {
-  if (!seconds) return "";
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) return `${hours}h${mins > 0 ? `${mins}m` : ""}`;
-  return `${mins}m`;
 }

@@ -54,8 +54,6 @@ export interface TaskItem {
   completedAt: string;
   sortOrder: number;
   isActive: boolean;
-  _cachedTimeSeconds?: number;
-  _cachedPomodoroCount?: number;
 }
 
 export const STATUS_CONFIG: Record<string, { label: string; color: string }> = {

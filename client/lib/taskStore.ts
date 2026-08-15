@@ -156,19 +156,6 @@ export async function unarchiveTask(id: string, status?: TaskStatus): Promise<vo
   if (status) await updateMetadata("tasks", id, { status });
 }
 
-export async function adjustTaskStats(
-  taskId: string,
-  timeDelta: number,
-  countDelta: number,
-): Promise<void> {
-  const task = DocumentStore.get("tasks", taskId) as Task | null;
-  if (!task) return;
-  DocumentStore.updateLocal("tasks", taskId, {
-    _cachedTimeSeconds: (task._cachedTimeSeconds ?? 0) + timeDelta,
-    _cachedPomodoroCount: (task._cachedPomodoroCount ?? 0) + countDelta,
-  });
-}
-
 export async function getProjects(): Promise<Project[]> {
   return (DocumentStore.getAll("projects") as Project[])
     .filter((project) => project.isActive !== false)

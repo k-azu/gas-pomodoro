@@ -171,7 +171,6 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
   const origProjectId = useRef(vs.projectId || null);
   const origCaseId = useRef(vs.caseId || null);
   const origTaskId = useRef(vs.taskId || null);
-  const origActualDuration = useRef(vs.actualDurationSeconds ?? 0);
   const origMarkdown = useRef<string | null>(null);
   const [markdownDirty, setMarkdownDirty] = useState(false);
 
@@ -280,32 +279,6 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       // Write-through the single final server snapshot to IDB.
       if (result.record) await RecordCache.upsertRecord(result.record);
       if (result.interruption) await RecordCache.upsertInterruptions([result.interruption]);
-
-      // Update task stats (work records only)
-      if (vs.recordType === "record") {
-        const oldTid = origTaskId.current || "";
-        const newTid = newTaskId;
-        const oldDur = origActualDuration.current;
-        // Compute new duration: if time changed, recalculate from inputs; otherwise keep old
-        let newDur = oldDur;
-        if ((startChanged || endChanged) && startTime && endTime) {
-          const ns = new Date(startTime);
-          const ne = new Date(endTime);
-          newDur = Math.max(0, Math.round((ne.getTime() - ns.getTime()) / 1000));
-        }
-
-        if (oldTid === newTid) {
-          // Same task: time delta only
-          if (oldDur !== newDur && newTid) {
-            await TaskStore.adjustTaskStats(newTid, newDur - oldDur, 0);
-          }
-        } else {
-          // Task moved
-          if (oldTid) await TaskStore.adjustTaskStats(oldTid, -oldDur, -1);
-          if (newTid) await TaskStore.adjustTaskStats(newTid, newDur, 1);
-        }
-        origActualDuration.current = newDur;
-      }
 
       origCategory.current = newCategory;
       origType.current = newType as "work" | "nonWork";
@@ -599,23 +572,18 @@ function buildSavedViewerState(
 ): ViewerState {
   const start = startTime ? new Date(startTime) : null;
   const end = endTime ? new Date(endTime) : null;
-  const hasValidTimes =
-    start !== null &&
-    end !== null &&
-    Number.isFinite(start.getTime()) &&
-    Number.isFinite(end.getTime());
+  const savedStartTime =
+    start && Number.isFinite(start.getTime()) ? start.toISOString() : source.startTime;
+  const savedEndTime = end && Number.isFinite(end.getTime()) ? end.toISOString() : source.endTime;
   return {
     ...source,
     markdown,
     category,
     interruptionType: source.interruptionType ? interruptionType : null,
-    startTime: start?.toISOString() ?? source.startTime,
-    endTime: end?.toISOString() ?? source.endTime,
+    startTime: savedStartTime,
+    endTime: savedEndTime,
     projectId,
     caseId,
     taskId,
-    actualDurationSeconds: hasValidTimes
-      ? Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000))
-      : source.actualDurationSeconds,
   };
 }

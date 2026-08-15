@@ -46,11 +46,9 @@ interface TaskMetadata {
   metadataRevision: number;
   lastContentMutationId: string;
   lastMetadataMutationId: string;
-  _cachedTimeSeconds?: number;
-  _cachedPomodoroCount?: number;
 }
 
-function getAllTaskData(includeRecordStats = true): {
+function getAllTaskData(): {
   projects: ProjectMetadata[];
   cases: CaseMetadata[];
   tasks: TaskMetadata[];
@@ -132,31 +130,6 @@ function getAllTaskData(includeRecordStats = true): {
         lastMetadataMutationId: String(row[16] ?? ""),
       }))
       .sort((a, b) => a.sortOrder - b.sortOrder);
-  }
-
-  // Aggregate _cachedTimeSeconds from PomodoroLog column P (taskId)
-  const logSheet = ss.getSheetByName("PomodoroLog")!;
-  const logLastRow = includeRecordStats ? logSheet.getLastRow() : 0;
-  if (includeRecordStats && logLastRow > 1) {
-    // Read taskId (col 16) and actualDurationSeconds (col 6)
-    const logData = logSheet.getRange(2, 1, logLastRow - 1, 18).getValues();
-    const timeByTaskId: { [taskId: string]: number } = {};
-    const countByTaskId: { [taskId: string]: number } = {};
-    logData.forEach((row) => {
-      const taskId = String(row[15]);
-      if (!taskId) return;
-      const type = String(row[6]);
-      if (type !== "work") return;
-      const actualSeconds = Number(row[5]);
-      timeByTaskId[taskId] = (timeByTaskId[taskId] || 0) + actualSeconds;
-      countByTaskId[taskId] = (countByTaskId[taskId] || 0) + 1;
-    });
-
-    // Assign to tasks
-    tasks.forEach((t) => {
-      if (timeByTaskId[t.id]) t._cachedTimeSeconds = timeByTaskId[t.id];
-      if (countByTaskId[t.id]) t._cachedPomodoroCount = countByTaskId[t.id];
-    });
   }
 
   return { projects, cases, tasks };
@@ -475,18 +448,4 @@ function reorderTasks(_parentId: string, orderedIds: string[]): { success: boole
   } finally {
     lock.releaseLock();
   }
-}
-
-function getTaskPomodoroRecords(taskId: string): PomodoroRecord[] {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("PomodoroLog")!;
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return [];
-
-  const tz = Session.getScriptTimeZone();
-  const data = sheet.getRange(2, 1, lastRow - 1, 18).getValues();
-  return data
-    .filter((row) => String(row[15]) === taskId)
-    .map((row) => readRecordFromRow(row, tz))
-    .reverse();
 }

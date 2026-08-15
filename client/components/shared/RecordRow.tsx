@@ -1,6 +1,5 @@
 /**
- * RecordRow — Shared record/interruption row components.
- * Extracted from HistoryList for reuse in TaskWorkRecords.
+ * RecordRow — Record/interruption row components for history lists.
  */
 import type { PomodoroRecord, InterruptionRecord, CategoryItem } from "../../types";
 import type { ViewerState } from "../../contexts/NavigationContext";
@@ -84,7 +83,6 @@ export function RecordRow({
             projectId: r.projectId || "",
             caseId: r.caseId || "",
             taskId: r.taskId || "",
-            actualDurationSeconds: r.actualDurationSeconds,
           })
         }
       >

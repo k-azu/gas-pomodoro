@@ -353,12 +353,6 @@
   color: var(--text-secondary);
   white-space: nowrap;
 }
-.task-table-time {
-  font-size: 13px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  text-align: right;
-}
 .task-table-case {
   color: var(--text-secondary);
   overflow: hidden;

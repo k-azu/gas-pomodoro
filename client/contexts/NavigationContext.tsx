@@ -39,8 +39,6 @@ export interface ViewerState {
   caseId?: string;
   taskId?: string;
   onSaveHierarchy?: (projectId: string, caseId: string, taskId: string) => void;
-  /** Actual duration in seconds (work records, for task stats delta) */
-  actualDurationSeconds?: number;
   /** Stable identity for an in-memory interruption draft */
   draftId?: string;
 }

@@ -48,11 +48,6 @@
   transform: scale(1.1);
 }
 
-.task-detail-time {
-  font-size: 0.82rem;
-  color: rgba(55, 53, 47, 0.65);
-}
-
 .task-date-input {
   border: 1px solid transparent;
   border-radius: 4px;
@@ -153,40 +148,4 @@
   min-width: 0;
   display: flex;
   padding: 0 60px;
-}
-
-/* ===== Records section (fixed at bottom) ===== */
-.task-records-section {
-  flex-shrink: 0;
-  border-top: 1px solid var(--border);
-}
-
-.task-records-section summary {
-  padding: 8px 16px;
-  cursor: pointer;
-  font-size: 0.82rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.task-records-section summary:hover {
-  color: var(--text);
-}
-
-.task-records-list {
-  padding: 0 16px 8px;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.task-records-loading,
-.task-records-empty {
-  padding: 12px 0;
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  text-align: center;
-}
-
-.task-records-ul {
-  list-style: none;
 }

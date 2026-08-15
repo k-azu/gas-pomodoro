@@ -226,17 +226,7 @@ export function applyServerData(data: DocumentData): void {
   replaceStore("memos", data.memos);
   replaceStore("projects", data.projects);
   replaceStore("cases", data.cases);
-  replaceStore(
-    "tasks",
-    data.tasks.map((task) => {
-      const current = get("tasks", task.id) as Task | null;
-      return {
-        ...task,
-        _cachedTimeSeconds: task._cachedTimeSeconds ?? current?._cachedTimeSeconds,
-        _cachedPomodoroCount: task._cachedPomodoroCount ?? current?._cachedPomodoroCount,
-      };
-    }),
-  );
+  replaceStore("tasks", data.tasks);
   emit({ entityType: "all", op: "serverRefresh" });
 }
 

@@ -418,7 +418,6 @@ function TaskTableGroup({
             <th>開始</th>
             <th>期限</th>
             <th>完了</th>
-            <th>作業時間</th>
           </tr>
         </thead>
         <tbody>
@@ -611,11 +610,6 @@ function TaskTableRow({
       <td className={s["task-table-completed"]}>
         {task.completedAt ? task.completedAt.slice(0, 10) : "-"}
       </td>
-
-      {/* Time */}
-      <td className={s["task-table-time"]}>
-        {task._cachedTimeSeconds ? formatTime(task._cachedTimeSeconds) : "-"}
-      </td>
     </tr>
   );
 }
@@ -660,7 +654,6 @@ function ArchivedCaseGroup({ caseItem, tasks }: { caseItem: CaseItem; tasks: Use
               <th>開始</th>
               <th>期限</th>
               <th>完了</th>
-              <th>作業時間</th>
             </tr>
           </thead>
           <tbody>
@@ -771,19 +764,6 @@ function ArchivedTaskRow({
       <td className={s["task-table-completed"]}>
         {task.completedAt ? task.completedAt.slice(0, 10) : "-"}
       </td>
-
-      {/* Time */}
-      <td className={s["task-table-time"]}>
-        {task._cachedTimeSeconds ? formatTime(task._cachedTimeSeconds) : "-"}
-      </td>
     </tr>
   );
-}
-
-function formatTime(seconds: number): string {
-  if (!seconds) return "";
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) return `${hours}h${mins > 0 ? `${mins}m` : ""}`;
-  return `${mins}m`;
 }
