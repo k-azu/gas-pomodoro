@@ -135,6 +135,7 @@ function TaskDocumentContent({
     canOpenInNewTab,
     savingForTransition,
   } = useDocumentEditor({
+    editorKey: "task",
     scope: storeName,
     id,
     loadContent: useCallback((id: string) => TaskStore.getContent(id, storeName), [storeName]),
@@ -151,7 +152,6 @@ function TaskDocumentContent({
     ...editorConfig.editorProps,
     ...editorConfig.hookOptions,
     forceReadOnly: isArchivedSearchDocument,
-    navigationActive: standalone || nav.activeTab === "task",
     hasAfterMeta: !showingDoc && isContainerType,
   });
 

@@ -1,6 +1,7 @@
 # ADR 0002: メモとタスクでEditorStateを一つずつ保持する
 
-- Status: Accepted
+- Status: Superseded by ADR 0003
+- Superseded by: [ADR 0003](0003-keep-selected-document-editors-independent-of-visibility.md)
 - Date: 2026-08-15
 - Deciders: Repository owner
 - Supersedes: [ADR 0001](0001-use-server-confirmed-memory-document-state.md)

@@ -37,8 +37,8 @@
 
 .memo-tab-layout.standalone {
   width: 100%;
-  min-height: 100vh;
-  height: auto;
+  min-height: 0;
+  height: 100%;
 }
 
 /* ===== Editor panel ===== */

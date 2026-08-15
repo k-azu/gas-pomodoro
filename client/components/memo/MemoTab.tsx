@@ -88,6 +88,7 @@ export function MemoTab({
     canOpenInNewTab,
     savingForTransition,
   } = useDocumentEditor({
+    editorKey: "memo",
     scope: "memos",
     id: activeId || "",
     loadContent: useCallback((id: string) => MemoStore.getContent(id), []),
@@ -99,7 +100,6 @@ export function MemoTab({
     flushSync: useCallback((id: string) => MemoStore.flushContentSync(id), []),
     resolveContent: useCallback((id: string) => MemoStore.resolveWithServer(id), []),
     forceReadOnly: isArchivedSearchDocument,
-    navigationActive: standalone || nav.activeTab === "memo",
     ...editorConfig.editorProps,
     ...editorConfig.hookOptions,
   });

@@ -1,5 +1,7 @@
 import * as DocumentStore from "./documentStore";
 
+export type DocumentEditorKey = "memo" | "task";
+
 export interface DocumentEditGuard {
   documentKey: string;
   isDirty: () => boolean;
@@ -7,23 +9,31 @@ export interface DocumentEditGuard {
   runWhileFrozen: (operation: () => Promise<boolean>) => Promise<boolean>;
 }
 
-let activeGuard: DocumentEditGuard | null = null;
+const guards = new Map<DocumentEditorKey, DocumentEditGuard>();
 let transition: Promise<boolean> = Promise.resolve(true);
 
-export function registerDocumentEditGuard(guard: DocumentEditGuard): () => void {
-  activeGuard = guard;
+export function registerDocumentEditGuard(
+  editorKey: DocumentEditorKey,
+  guard: DocumentEditGuard,
+): () => void {
+  guards.set(editorKey, guard);
   return () => {
-    if (activeGuard === guard) activeGuard = null;
+    if (guards.get(editorKey) === guard) guards.delete(editorKey);
   };
 }
 
 export function hasUnsavedDocument(): boolean {
-  return (activeGuard?.isDirty() ?? false) || DocumentStore.hasAnyPendingMetadata();
+  return (
+    [...guards.values()].some((guard) => guard.isDirty()) || DocumentStore.hasAnyPendingMetadata()
+  );
 }
 
-export function requestDocumentTransition(proceed: () => void): Promise<boolean> {
+export function requestDocumentTransition(
+  editorKey: DocumentEditorKey,
+  proceed: () => void,
+): Promise<boolean> {
   const run = async (): Promise<boolean> => {
-    const guard = activeGuard;
+    const guard = guards.get(editorKey);
     if (guard?.isDirty()) {
       try {
         await guard.saveBeforeTransition();
@@ -44,8 +54,8 @@ export function requestDocumentTransition(proceed: () => void): Promise<boolean>
   return transition;
 }
 
-export async function flushActiveDocument(): Promise<boolean> {
-  const guard = activeGuard;
+export async function flushDocument(editorKey: DocumentEditorKey): Promise<boolean> {
+  const guard = guards.get(editorKey);
   if (guard?.isDirty()) {
     try {
       await guard.saveBeforeTransition();
@@ -64,16 +74,19 @@ export async function flushActiveDocument(): Promise<boolean> {
   return true;
 }
 
-export function runWithActiveDocumentFrozen(operation: () => Promise<boolean>): Promise<boolean> {
+export function runWithDocumentEditorsFrozen(operation: () => Promise<boolean>): Promise<boolean> {
   const run = async (): Promise<boolean> => {
-    const guard = activeGuard;
-    if (guard) return guard.runWhileFrozen(operation);
-    if (DocumentStore.hasAnyPendingMetadata()) {
-      try {
-        await DocumentStore.waitForAllMetadata();
-      } catch {
-        return false;
-      }
+    const registeredGuards = [...guards.values()];
+    let guardedOperation = operation;
+    for (const guard of registeredGuards.reverse()) {
+      const next = guardedOperation;
+      guardedOperation = () => guard.runWhileFrozen(next);
+    }
+    if (registeredGuards.length > 0) return guardedOperation();
+    try {
+      await DocumentStore.waitForAllMetadata();
+    } catch {
+      return false;
     }
     return operation();
   };

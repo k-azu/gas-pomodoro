@@ -16,6 +16,7 @@ test("本文をACKしてから単体表示タブへ編集権を移譲する", as
   await expect(popup.locator(".ProseMirror")).toHaveAttribute("contenteditable", "true");
   await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "false");
   await expect(popup.locator("[class*='sidebar']")).toHaveCount(0);
+
   const popupCalls = await popup.evaluate(() => window.__mockServerCallCounts ?? {});
   expect(popupCalls.getDocumentViewInitData).toBe(1);
   expect(popupCalls.getAllInitData ?? 0).toBe(0);
@@ -34,6 +35,17 @@ test("同じ文書の本文を編集できるタブは一つだけ", async ({ co
   await gotoApp(second);
   await expect(second.locator(".ProseMirror")).toHaveAttribute("contenteditable", "false");
   await expect(page.locator(".ProseMirror")).toHaveAttribute("contenteditable", "true");
+});
+
+test("非表示の選択中文書も編集権を保持する", async ({ context, page }) => {
+  await gotoApp(page);
+  await waitForSyncComplete(page);
+  await page.getByRole("button", { name: "タスク", exact: true }).click();
+
+  const second = await context.newPage();
+  await gotoApp(second);
+  await expect(second.locator(".ProseMirror")).toHaveAttribute("contenteditable", "false");
+  await expect(second.getByText("別タブで本文編集中", { exact: true })).toBeVisible();
 });
 
 test("別タブで確定したmetadataをBroadcast後の再取得で反映する", async ({ context, page }) => {

@@ -7,7 +7,7 @@ import * as DocumentStore from "../lib/documentStore";
 import { STORAGE_KEYS, lsGetJSON, lsSetJSON, lsSet } from "../lib/localStorage";
 import { useNavigation } from "../contexts/NavigationContext";
 import type { TaskStatus } from "../types/entities";
-import { flushActiveDocument, requestDocumentTransition } from "../lib/documentNavigationGuard";
+import { flushDocument, requestDocumentTransition } from "../lib/documentNavigationGuard";
 
 // =========================================================
 // Types
@@ -294,7 +294,7 @@ export function useTasks(): UseTasksReturn {
     (type: NodeType, id: string) => {
       const node = { type, id };
       if (selectedRef.current?.type === type && selectedRef.current.id === id) return;
-      void requestDocumentTransition(() => {
+      void requestDocumentTransition("task", () => {
         setSelectedNode(node);
         lsSetJSON(STORAGE_KEYS.TASK_SELECTED, node);
         nav.notifyTaskNodeChange(node);
@@ -304,9 +304,12 @@ export function useTasks(): UseTasksReturn {
   );
 
   const clearSelection = useCallback(() => {
-    setSelectedNode(null);
-    lsSet(STORAGE_KEYS.TASK_SELECTED, "");
-  }, []);
+    void requestDocumentTransition("task", () => {
+      setSelectedNode(null);
+      lsSet(STORAGE_KEYS.TASK_SELECTED, "");
+      nav.notifyTaskNodeChange(null);
+    });
+  }, [nav]);
 
   // Expand/collapse
   const toggleExpand = useCallback((id: string) => {
@@ -335,7 +338,7 @@ export function useTasks(): UseTasksReturn {
     async (name: string, color?: string) => {
       setIsLoading(true);
       try {
-        if (!(await flushActiveDocument())) return;
+        if (!(await flushDocument("task"))) return;
         const id = await TaskStore.addProject(name, color);
         await refreshFromStore();
         selectNode("project", id);
@@ -350,7 +353,7 @@ export function useTasks(): UseTasksReturn {
     async (projectId: string, name: string) => {
       setIsLoading(true);
       try {
-        if (!(await flushActiveDocument())) return;
+        if (!(await flushDocument("task"))) return;
         const id = await TaskStore.addCase(projectId, name);
         await refreshFromStore();
         setExpandedNodes((prev) => {
@@ -370,7 +373,7 @@ export function useTasks(): UseTasksReturn {
     async (projectId: string, caseId: string, name: string) => {
       setIsLoading(true);
       try {
-        if (!(await flushActiveDocument())) return;
+        if (!(await flushDocument("task"))) return;
         const id = await TaskStore.addTask(projectId, caseId, name);
         await refreshFromStore();
         setExpandedNodes((prev) => {
@@ -445,7 +448,7 @@ export function useTasks(): UseTasksReturn {
           (type === "project" &&
             (selectedCase?.projectId === id || selectedTask?.projectId === id)) ||
           (type === "case" && selectedTask?.caseId === id);
-        if (archivesSelectedDocument && !(await flushActiveDocument())) return;
+        if (archivesSelectedDocument && !(await flushDocument("task"))) return;
         if (type === "project") await TaskStore.archiveProject(id);
         else if (type === "case") await TaskStore.archiveCase(id);
         else await TaskStore.archiveTask(id);

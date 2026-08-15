@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MentionTrigger } from "../editor/hitomdEditor";
 import type { SyncStatus } from "../components/shared/SyncIndicator";
-import { registerDocumentEditGuard } from "../lib/documentNavigationGuard";
+import { registerDocumentEditGuard, type DocumentEditorKey } from "../lib/documentNavigationGuard";
 import * as DocumentStore from "../lib/documentStore";
 import { DocumentContentConflictError, type ContentSnapshot } from "../lib/documentStore";
 import { useMarkdownEditor } from "./useMarkdownEditor";
 
 interface UseDocumentEditorOptions {
+  editorKey: DocumentEditorKey;
   scope: string;
   id: string;
   loadContent: (id: string) => Promise<string | null>;
@@ -20,7 +21,6 @@ interface UseDocumentEditorOptions {
   mentions?: MentionTrigger[];
   forceReadOnly?: boolean;
   hasAfterMeta?: boolean;
-  navigationActive?: boolean;
 }
 
 const SAVE_IDLE_MS = 15_000;
@@ -32,6 +32,7 @@ const editLeaseChannel =
     : new BroadcastChannel("gas-pomodoro:document-edit-lease:v1");
 
 export function useDocumentEditor({
+  editorKey,
   scope,
   id,
   loadContent,
@@ -43,7 +44,6 @@ export function useDocumentEditor({
   mentions,
   forceReadOnly = false,
   hasAfterMeta = false,
-  navigationActive = true,
 }: UseDocumentEditorOptions) {
   const [charCount, setCharCount] = useState(0);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
@@ -192,14 +192,14 @@ export function useDocumentEditor({
   );
 
   useEffect(() => {
-    if (!navigationActive || !id) return;
-    return registerDocumentEditGuard({
+    if (!id) return;
+    return registerDocumentEditGuard(editorKey, {
       documentKey: `${scope}:${id}`,
       isDirty: () => dirtyRef.current || inFlightRef.current !== null,
       saveBeforeTransition: saveForTransition,
       runWhileFrozen,
     });
-  }, [id, navigationActive, runWhileFrozen, saveForTransition, scope]);
+  }, [editorKey, id, runWhileFrozen, saveForTransition, scope]);
 
   useEffect(() => {
     releaseEditLockRef.current?.();
@@ -208,7 +208,7 @@ export function useDocumentEditor({
       setOwnsEditLock(true);
       return;
     }
-    if (!navigationActive || !id || forceReadOnly || editLeaseReleased) {
+    if (!id || forceReadOnly || editLeaseReleased) {
       setOwnsEditLock(false);
       return;
     }
@@ -245,7 +245,7 @@ export function useDocumentEditor({
       releaseEditLockRef.current?.();
       releaseEditLockRef.current = null;
     };
-  }, [editLeaseReleased, forceReadOnly, id, lockSupported, navigationActive, scope]);
+  }, [editLeaseReleased, forceReadOnly, id, lockSupported, scope]);
 
   useEffect(() => {
     if (!editLeaseChannel || !id) return;
@@ -275,7 +275,6 @@ export function useDocumentEditor({
   useEffect(() => clearHandoffRecoveryTimer, [clearHandoffRecoveryTimer]);
 
   useEffect(() => {
-    if (!navigationActive) return;
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!dirtyRef.current && !inFlightRef.current) {
         return;
@@ -287,7 +286,7 @@ export function useDocumentEditor({
       if (document.visibilityState !== "hidden" || !dirtyRef.current) {
         return;
       }
-      void saveForTransition().catch((error) => {
+      void saveLatest().catch((error) => {
         console.error("[useDocumentEditor] Hidden-page save failed", error);
       });
     };
@@ -297,7 +296,7 @@ export function useDocumentEditor({
       window.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [navigationActive, saveForTransition]);
+  }, [saveLatest]);
 
   useEffect(() => {
     if (!id) return;

@@ -28,9 +28,7 @@ test("取得済みclean文書の切り替えではサーバーを待たない", 
   expect(calls.putDocumentContent ?? 0).toBe(0);
 });
 
-test("メモとタスクでEditorStateを一つずつ保持し、dirtyな種類間遷移はACKを待つ", async ({
-  page,
-}) => {
+test("dirtyなメモとタスクを独立して保持し、種類間遷移はACKを待たない", async ({ page }) => {
   await gotoApp(page, { params: { mockDelay: "800" } });
   await waitForSyncComplete(page);
 
@@ -41,9 +39,10 @@ test("メモとタスクでEditorStateを一つずつ保持し、dirtyな種類�
   const memoTab = page.getByRole("button", { name: "メモ", exact: true });
   const taskTab = page.getByRole("button", { name: "タスク", exact: true });
   await taskTab.click();
-  await expect(memoTab).toHaveClass(/active/);
-  await expect(page.getByText("保存中...", { exact: true })).toBeVisible();
   await expect(taskTab).toHaveClass(/active/);
+  let calls = await page.evaluate(() => window.__mockServerCallCounts ?? {});
+  expect(calls.putDocumentContent ?? 0).toBe(0);
+
   await page.getByText("GAS Pomodoro", { exact: true }).click();
   await waitForSyncComplete(page);
   await expect(page.locator(".ProseMirror")).toHaveCount(2);
@@ -52,9 +51,50 @@ test("メモとタスクでEditorStateを一つずつ保持し、dirtyな種類�
   await memoTab.click();
   await expect(memoTab).toHaveClass(/active/);
   await expect(page.locator(".ProseMirror:visible")).toContainText("タスクへ移る前に保存する本文");
-  const calls = await page.evaluate(() => window.__mockServerCallCounts ?? {});
-  expect(calls.putDocumentContent).toBe(1);
+  calls = await page.evaluate(() => window.__mockServerCallCounts ?? {});
+  expect(calls.putDocumentContent ?? 0).toBe(0);
   expect(calls.getAllDocumentData ?? 0).toBe(0);
+});
+
+test("ページ非表示時はdirtyなメモとタスクを通常保存し、保存中も編集できる", async ({ page }) => {
+  await gotoApp(page, {
+    params: { mockDelay: "800" },
+    hash: "tab=task&type=task&id=mock-task-1",
+  });
+  await waitForSyncComplete(page);
+  await typeInEditor(page, "非表示で保存するタスク本文");
+
+  await page.getByRole("button", { name: "メモ", exact: true }).click();
+  await waitForSyncComplete(page);
+  await typeInEditor(page, "非表示で保存するメモ本文");
+  await page.evaluate(() => {
+    (window as any).__testVisibilityState = "hidden";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => (window as any).__testVisibilityState,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+
+  await expect(page.locator('[data-status="syncing"]:visible')).toBeVisible();
+  await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "true");
+  await typeInEditor(page, "・保存開始後の追加入力");
+
+  await expect
+    .poll(async () => {
+      const server = await page.evaluate(() =>
+        JSON.parse(localStorage.getItem("gas-pomodoro:mock-document-server:v1") || "{}"),
+      );
+      return {
+        memo: server["mock-memo-1"]?.content ?? "",
+        task: server["mock-task-1"]?.content ?? "",
+      };
+    })
+    .toEqual({
+      memo: expect.stringContaining("非表示で保存するメモ本文・保存開始後の追加入力"),
+      task: expect.stringContaining("非表示で保存するタスク本文"),
+    });
+  await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "true");
 });
 
 test("dirty文書は保存ACKまで選択を変えず、ACK後はメモリから復元する", async ({ page }) => {
@@ -76,12 +116,17 @@ test("dirty文書は保存ACKまで選択を変えず、ACK後はメモリから
   expect(calls.getAllDocumentData ?? 0).toBe(0);
 });
 
-test("本文は最後の入力から15秒後に保存する", async ({ page }) => {
-  await gotoApp(page);
+test("メモとタスクの本文はそれぞれ最後の入力から15秒後に保存する", async ({ page }) => {
+  await gotoApp(page, { hash: "tab=task&type=task&id=mock-task-1" });
+  await waitForSyncComplete(page);
+  await page.getByRole("button", { name: "メモ", exact: true }).click();
   await waitForSyncComplete(page);
   await page.clock.install();
-  await page.locator(".ProseMirror").click();
-  await page.keyboard.insertText("15秒idle保存");
+  await page.locator(".ProseMirror:visible").click();
+  await page.keyboard.insertText("15秒idle保存するメモ");
+  await page.getByRole("button", { name: "タスク", exact: true }).click();
+  await page.locator(".ProseMirror:visible").click();
+  await page.keyboard.insertText("15秒idle保存するタスク");
 
   // Leave margin for the editor input event's own clock tick.
   await page.clock.fastForward(14_000);
@@ -91,9 +136,9 @@ test("本文は最後の入力から15秒後に保存する", async ({ page }) =
   await page.clock.fastForward(1_100);
   await expect
     .poll(() => page.evaluate(() => window.__mockServerCallCounts?.putDocumentContent ?? 0))
-    .toBe(1);
+    .toBe(2);
   calls = await page.evaluate(() => window.__mockServerCallCounts ?? {});
-  expect(calls.putDocumentContent).toBe(1);
+  expect(calls.putDocumentContent).toBe(2);
 });
 
 test("本文保存失敗時は遷移せずEditorStateを維持する", async ({ page }) => {
@@ -277,7 +322,7 @@ test("metadata保存失敗を表示し、再送ACKまで文書遷移を止める
   await expectActive(page, MEMO_2);
 });
 
-test("文書editor未選択でもmetadata失敗を表示し、ACKまでタブ遷移を止める", async ({ page }) => {
+test("metadata保存失敗中も画面タブだけは切り替えられる", async ({ page }) => {
   await gotoApp(page, { hash: "tab=task" });
   await expect(page.locator(".ProseMirror:visible")).toHaveCount(0);
   await page.evaluate(() => {
@@ -294,13 +339,13 @@ test("文書editor未選択でもmetadata失敗を表示し、ACKまでタブ遷
   const memoTab = page.getByRole("button", { name: "メモ", exact: true });
   const taskTab = page.getByRole("button", { name: "タスク", exact: true });
   await memoTab.click();
-  await expect(taskTab).toHaveClass(/active/);
+  await expect(memoTab).toHaveClass(/active/);
 
   await page.evaluate(() => {
     window.__mockMetadataShouldFail = false;
   });
-  await memoTab.click();
-  await expect(memoTab).toHaveClass(/active/);
+  await taskTab.click();
+  await expect(taskTab).toHaveClass(/active/);
 });
 
 test("再取得中の更新通知を消費せず、完了後に追従再取得する", async ({ page }) => {

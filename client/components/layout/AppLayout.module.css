@@ -4,10 +4,12 @@
 }
 
 .document-layout {
-  display: block;
+  display: flex;
   width: 100%;
   min-width: 0;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   background: var(--surface);
 }
 

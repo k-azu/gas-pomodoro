@@ -11,7 +11,7 @@ import * as MemoStore from "../lib/memoStore";
 import * as RecordCache from "../lib/recordCache";
 import * as EntityStore from "../lib/entityStore";
 import * as DocumentStore from "../lib/documentStore";
-import { flushActiveDocument, runWithActiveDocumentFrozen } from "../lib/documentNavigationGuard";
+import { runWithDocumentEditorsFrozen } from "../lib/documentNavigationGuard";
 import { readCurrentStandaloneDocumentTarget } from "../lib/documentWindow";
 
 interface AppContextValue {
@@ -117,7 +117,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let refreshed = false;
       do {
         refreshRequestedRef.current = false;
-        refreshed = await runWithActiveDocumentFrozen(async () => {
+        refreshed = await runWithDocumentEditorsFrozen(async () => {
           try {
             await DocumentStore.waitForAllMetadata();
             const generationBeforeFetch = DocumentStore.getLocalGeneration();

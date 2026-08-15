@@ -7,7 +7,7 @@ import * as DocumentStore from "../lib/documentStore";
 import type { MemoTag } from "../types";
 import { STORAGE_KEYS, lsGet, lsSet, lsRemove } from "../lib/localStorage";
 import { useNavigation } from "../contexts/NavigationContext";
-import { flushActiveDocument, requestDocumentTransition } from "../lib/documentNavigationGuard";
+import { flushDocument, requestDocumentTransition } from "../lib/documentNavigationGuard";
 
 export interface MemoItem {
   id: string;
@@ -95,7 +95,7 @@ export function useMemos(): UseMemosReturn {
   const selectMemo = useCallback(
     (id: string) => {
       if (id === activeIdRef.current) return;
-      void requestDocumentTransition(() => {
+      void requestDocumentTransition("memo", () => {
         setActiveId(id);
         lsSet(STORAGE_KEYS.MEMO_ACTIVE, id);
         nav.notifyMemoChange(id);
@@ -107,7 +107,7 @@ export function useMemos(): UseMemosReturn {
   const createMemo = useCallback(async () => {
     setIsLoading(true);
     try {
-      if (!(await flushActiveDocument())) return;
+      if (!(await flushDocument("memo"))) return;
       const id = await MemoStore.addMemo("新しいメモ");
       await refreshFromStore();
       setActiveId(id);
@@ -122,7 +122,7 @@ export function useMemos(): UseMemosReturn {
     async (id: string) => {
       setIsLoading(true);
       try {
-        if (activeIdRef.current === id && !(await flushActiveDocument())) return;
+        if (activeIdRef.current === id && !(await flushDocument("memo"))) return;
         await MemoStore.deleteMemo(id);
         const list = await refreshFromStore();
         if (activeIdRef.current === id) {

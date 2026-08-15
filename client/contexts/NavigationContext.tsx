@@ -9,7 +9,7 @@ import { createContext, useContext, useState, useCallback, useRef, useEffect } f
 import { STORAGE_KEYS, lsSet, lsSetJSON } from "../lib/localStorage";
 import { clearActiveViewerSnapshot, loadActiveViewerSnapshot } from "../lib/viewerDraft";
 import type { DocumentSearchResult } from "../types/search";
-import { requestDocumentTransition } from "../lib/documentNavigationGuard";
+import { requestDocumentTransition, type DocumentEditorKey } from "../lib/documentNavigationGuard";
 
 export type TabId = "memo" | "task" | "record" | "interruption" | "viewer" | "settings";
 
@@ -211,17 +211,26 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
     [],
   );
 
+  const runDocumentSelectionChange = useCallback(
+    (editorKey: DocumentEditorKey, changesSelection: boolean, proceed: () => void) => {
+      if (changesSelection) {
+        void requestDocumentTransition(editorKey, proceed);
+      } else {
+        proceed();
+      }
+    },
+    [],
+  );
+
   // --- switchTab ---
   const switchTab = useCallback(
     (tab: TabId, opts?: { skipHistory?: boolean }) => {
       if (tab === activeTabRef.current) return;
-      void requestDocumentTransition(() => {
-        setSearchRevealRequest(null);
-        prevTabRef.current = activeTabRef.current;
-        activeTabRef.current = tab;
-        setActiveTab(tab);
-        if (!opts?.skipHistory) pushHash();
-      });
+      setSearchRevealRequest(null);
+      prevTabRef.current = activeTabRef.current;
+      activeTabRef.current = tab;
+      setActiveTab(tab);
+      if (!opts?.skipHistory) pushHash();
     },
     [pushHash],
   );
@@ -240,13 +249,11 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
   // Viewer is transient like record/interruption — no browser history entry.
   const showViewer = useCallback((state: ViewerState) => {
     const proceed = () => {
-      void requestDocumentTransition(() => {
-        viewerStateRef.current = state;
-        setViewerState(state);
-        prevTabRef.current = activeTabRef.current;
-        activeTabRef.current = "viewer";
-        setActiveTab("viewer");
-      });
+      viewerStateRef.current = state;
+      setViewerState(state);
+      prevTabRef.current = activeTabRef.current;
+      activeTabRef.current = "viewer";
+      setActiveTab("viewer");
     };
     if (viewerStateRef.current && viewerExitGuardRef.current) {
       viewerExitGuardRef.current("replace", proceed);
@@ -315,10 +322,23 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
         searchDocument?: DocumentSearchResult;
       },
     ) => {
-      void requestDocumentTransition(() => {
+      const targetId =
+        tab === "memo" ? details.memoId : tab === "task" ? details.taskNode?.id : undefined;
+      const currentId =
+        tab === "memo" ? memoIdRef.current : tab === "task" ? taskNodeRef.current?.id : undefined;
+      const changesSelection =
+        tab === "memo"
+          ? Boolean(targetId && targetId !== currentId)
+          : tab === "task"
+            ? Boolean(
+                details.taskNode &&
+                (details.taskNode.id !== currentId ||
+                  details.taskNode.type !== taskNodeRef.current?.type),
+              )
+            : false;
+      const editorKey = tab === "memo" || tab === "task" ? tab : null;
+      const proceed = () => {
         const query = details.searchQuery?.trim();
-        const targetId =
-          tab === "memo" ? details.memoId : tab === "task" ? details.taskNode?.id : undefined;
         const openedDocument =
           query && targetId && (tab === "memo" || tab === "task")
             ? (details.searchDocument ?? null)
@@ -362,9 +382,14 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
 
         // 5. Signal hooks to re-read from localStorage
         setRestoreSeq((s) => s + 1);
-      });
+      };
+      if (editorKey) {
+        runDocumentSelectionChange(editorKey, changesSelection, proceed);
+      } else {
+        proceed();
+      }
     },
-    [pushHash],
+    [pushHash, runDocumentSelectionChange],
   );
 
   // --- popstate listener ---
@@ -392,7 +417,14 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
         taskNode: taskNodeRef.current,
       });
 
-      void requestDocumentTransition(() => {
+      const editorKey = parsed.tab;
+      const currentId =
+        editorKey === "memo" ? memoIdRef.current : (taskNodeRef.current?.id ?? null);
+      const targetId = editorKey === "memo" ? parsed.memoId : (parsed.taskNode?.id ?? null);
+      const changesSelection =
+        targetId !== currentId ||
+        (editorKey === "task" && parsed.taskNode?.type !== taskNodeRef.current?.type);
+      const proceed = () => {
         restoringRef.current = true;
         setSearchRevealRequest(null);
         searchOpenedDocumentRef.current = restoredSearchDocument;
@@ -405,8 +437,11 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
         setViewerState(null);
 
         // Update refs
-        taskNodeRef.current = parsed.taskNode;
-        memoIdRef.current = parsed.memoId;
+        if (editorKey === "memo") {
+          memoIdRef.current = parsed.memoId;
+        } else {
+          taskNodeRef.current = parsed.taskNode;
+        }
 
         // Persist to localStorage — hooks will re-read via restoreSeq
         if (parsed.memoId) {
@@ -423,9 +458,14 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
         queueMicrotask(() => {
           restoringRef.current = false;
         });
-      }).then((transitioned) => {
-        if (!transitioned) history.replaceState(null, "", previousHash);
-      });
+      };
+      if (changesSelection) {
+        void requestDocumentTransition(editorKey, proceed).then((transitioned) => {
+          if (!transitioned) history.replaceState(null, "", previousHash);
+        });
+      } else {
+        proceed();
+      }
     };
 
     window.addEventListener("popstate", handler);
