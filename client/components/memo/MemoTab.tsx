@@ -8,9 +8,10 @@ import type { MemoItem } from "../../hooks/useMemos";
 import { useDocumentEditor } from "../../hooks/useDocumentEditor";
 import { useDocumentSearchNavigation } from "../../hooks/useDocumentSearchNavigation";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
+import { useSidebarWidth } from "../../hooks/useSidebarWidth";
 import { useNavigation } from "../../contexts/NavigationContext";
 import { Sidebar, InlineRename, SidebarExpandButton } from "../shared/Sidebar";
-import { lsGet, lsSet } from "../../lib/localStorage";
+import { STORAGE_KEYS, lsGet, lsSet } from "../../lib/localStorage";
 import { ContextMenu } from "../shared/ContextMenu";
 import type { ContextMenuSection } from "../shared/ContextMenu";
 import { ItemPicker } from "../shared/ItemPicker";
@@ -27,7 +28,7 @@ import * as MemoStore from "../../lib/memoStore";
 import * as DocumentStore from "../../lib/documentStore";
 import s from "./MemoTab.module.css";
 
-const SIDEBAR_KEY = "gas_pomodoro_memo_sidebar_collapsed";
+const SIDEBAR_KEY = STORAGE_KEYS.MEMO_SIDEBAR_COLLAPSED;
 
 export function MemoTab({
   standalone = false,
@@ -39,6 +40,7 @@ export function MemoTab({
   const memo = useMemos();
   const nav = useNavigation();
   const editorConfig = useEditorConfig();
+  const sidebarWidth = useSidebarWidth(STORAGE_KEYS.MEMO_SIDEBAR_WIDTH);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => lsGet(SIDEBAR_KEY) === "1");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
@@ -240,6 +242,9 @@ export function MemoTab({
           searchFilter={(item, q) => item.name.toLowerCase().includes(q)}
           collapsed={sidebarCollapsed}
           onToggle={toggleSidebar}
+          width={sidebarWidth.width}
+          onWidthChange={sidebarWidth.onWidthChange}
+          onWidthChangeEnd={sidebarWidth.onWidthChangeEnd}
           emptyLabel="メモがありません"
           extraFilter={extraFilter}
           filterSlot={filterSlot}

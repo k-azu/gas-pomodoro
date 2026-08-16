@@ -2,7 +2,7 @@
  * TaskTab — Task sidebar tree + content panel
  */
 import { useState, useCallback } from "react";
-import { useTasks, STATUS_CONFIG, STATUS_ITEMS, statusLabelToKey } from "../../hooks/useTasks";
+import { useTasks, STATUS_CONFIG } from "../../hooks/useTasks";
 import type { EditableNodeType, ProjectItem, CaseItem, TaskItem } from "../../hooks/useTasks";
 import { ContextMenu } from "../shared/ContextMenu";
 import type { ContextMenuSection } from "../shared/ContextMenu";
@@ -11,10 +11,11 @@ import { ContentHeader } from "../shared/ContentHeader";
 import { SaveOverlay } from "../shared/SaveOverlay";
 import { TaskTree } from "./TaskTree";
 import { TaskContent } from "./TaskContent";
-import { lsGet, lsSet } from "../../lib/localStorage";
+import { useSidebarWidth } from "../../hooks/useSidebarWidth";
+import { STORAGE_KEYS, lsGet, lsSet } from "../../lib/localStorage";
 import s from "./TaskTab.module.css";
 
-const SIDEBAR_KEY = "gas_pomodoro_task_sidebar_collapsed";
+const SIDEBAR_KEY = STORAGE_KEYS.TASK_SIDEBAR_COLLAPSED;
 
 export function TaskTab({
   standalone = false,
@@ -24,6 +25,7 @@ export function TaskTab({
   documentNode?: { type: "project" | "case" | "task"; id: string };
 } = {}) {
   const tasks = useTasks();
+  const sidebarWidth = useSidebarWidth(STORAGE_KEYS.TASK_SIDEBAR_WIDTH);
   const displayedTasks = documentNode ? { ...tasks, selectedNode: documentNode } : tasks;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => lsGet(SIDEBAR_KEY) === "1");
   const [renamingNode, setRenamingNode] = useState<{ type: EditableNodeType; id: string } | null>(
@@ -152,6 +154,9 @@ export function TaskTab({
         <SidebarShell
           collapsed={sidebarCollapsed}
           onToggle={toggleSidebar}
+          width={sidebarWidth.width}
+          onWidthChange={sidebarWidth.onWidthChange}
+          onWidthChangeEnd={sidebarWidth.onWidthChangeEnd}
           headerSlot={
             <SidebarAddButton
               disabled={tasks.isLoading}

@@ -20,6 +20,9 @@ export interface SidebarProps<T extends { id: string; name: string }> {
   searchFilter?: (item: T, query: string) => boolean;
   collapsed: boolean;
   onToggle: () => void;
+  width?: number;
+  onWidthChange?: (width: number) => void;
+  onWidthChangeEnd?: (width: number) => void;
   addLabel?: string;
   emptyLabel?: string;
   /** Additional filter (e.g. tag filter) that hides items */
@@ -40,6 +43,9 @@ export function Sidebar<T extends { id: string; name: string }>({
   searchFilter,
   collapsed,
   onToggle,
+  width,
+  onWidthChange,
+  onWidthChangeEnd,
   addLabel = "+",
   emptyLabel = "アイテムがありません",
   extraFilter,
@@ -101,6 +107,9 @@ export function Sidebar<T extends { id: string; name: string }>({
     <SidebarShell
       collapsed={collapsed}
       onToggle={onToggle}
+      width={width}
+      onWidthChange={onWidthChange}
+      onWidthChangeEnd={onWidthChangeEnd}
       headerSlot={headerSlot}
       filterSlot={filterSlot}
       isEmpty={visibleItems.length === 0}
