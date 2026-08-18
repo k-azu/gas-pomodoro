@@ -106,6 +106,7 @@ function getAllTaskData(): {
   // Read tasks
   const tasksSheet = ss.getSheetByName("Tasks")!;
   const tasksLastRow = tasksSheet.getLastRow();
+  const timeZone = ss.getSpreadsheetTimeZone();
   let tasks: TaskMetadata[] = [];
   if (tasksLastRow > 1) {
     const tasksData = tasksSheet.getRange(2, 1, tasksLastRow - 1, 17).getValues();
@@ -121,8 +122,8 @@ function getAllTaskData(): {
         isActive: Boolean(row[7]),
         createdAt: String(row[8]),
         completedAt: String(row[9]),
-        startedAt: String(row[10]),
-        dueDate: String(row[11]),
+        startedAt: readTaskDateValue(row[10], timeZone),
+        dueDate: readTaskDateValue(row[11], timeZone),
         updatedAt: String(row[12]),
         contentRevision: readRevision(row[13]),
         metadataRevision: readRevision(row[14]),

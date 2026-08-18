@@ -18,7 +18,7 @@
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write \"src/**/*.ts\" \"client/**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"client/**/*.{ts,tsx}\"",
-    "test:unit": "tsx --test client/**/*.test.ts",
+    "test:unit": "tsx --test client/**/*.test.ts tests/**/*.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed"
   },

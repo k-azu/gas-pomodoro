@@ -164,9 +164,17 @@ function readContentSnapshotValues(
   };
 }
 
-function readMetadataValue(storeName: DocumentStoreName, field: string, value: unknown): unknown {
+function readMetadataValue(
+  storeName: DocumentStoreName,
+  field: string,
+  value: unknown,
+  timeZone: string,
+): unknown {
   if (storeName === "memos" && field === "tags") return parseTags(value);
   if (field === "isActive") return value === true;
+  if (storeName === "tasks" && (field === "startedAt" || field === "dueDate")) {
+    return readTaskDateValue(value, timeZone);
+  }
   return String(value ?? "");
 }
 
@@ -177,8 +185,9 @@ function readMetadataSnapshotValues(
   config: DocumentSheetConfig,
 ): DocumentMetadataSnapshot {
   const metadata: Record<string, unknown> = {};
+  const timeZone = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
   Object.entries(config.metadataColumns).forEach(([field, column]) => {
-    metadata[field] = readMetadataValue(storeName, field, values[column - 1]);
+    metadata[field] = readMetadataValue(storeName, field, values[column - 1], timeZone);
   });
   if (storeName === "tasks") {
     metadata.completedAt = String(values[9] ?? "");
@@ -419,6 +428,7 @@ function getDocumentViewData(documentKey: string): {
   }
 
   const values = sheet.getRange(row, 1, 1, 17).getValues()[0];
+  const timeZone = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
   result.tasks.push({
     id: String(values[0]),
     projectId: String(values[1]),
@@ -430,8 +440,8 @@ function getDocumentViewData(documentKey: string): {
     isActive: Boolean(values[7]),
     createdAt: String(values[8]),
     completedAt: String(values[9]),
-    startedAt: String(values[10]),
-    dueDate: String(values[11]),
+    startedAt: readTaskDateValue(values[10], timeZone),
+    dueDate: readTaskDateValue(values[11], timeZone),
     updatedAt: String(values[12]),
     contentRevision: readRevision(values[13]),
     metadataRevision: readRevision(values[14]),
