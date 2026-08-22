@@ -24,6 +24,8 @@ export interface SidebarProps<T extends { id: string; name: string }> {
   onWidthChange?: (width: number) => void;
   onWidthChangeEnd?: (width: number) => void;
   addLabel?: string;
+  addButtonAriaLabel?: string;
+  addButtonTitle?: string;
   emptyLabel?: string;
   /** Additional filter (e.g. tag filter) that hides items */
   extraFilter?: (item: T) => boolean;
@@ -47,6 +49,8 @@ export function Sidebar<T extends { id: string; name: string }>({
   onWidthChange,
   onWidthChangeEnd,
   addLabel = "+",
+  addButtonAriaLabel,
+  addButtonTitle,
   emptyLabel = "アイテムがありません",
   extraFilter,
   filterSlot,
@@ -82,7 +86,12 @@ export function Sidebar<T extends { id: string; name: string }>({
         onChange={(e) => setSearchQuery(e.target.value)}
         disabled={disabled}
       />
-      <SidebarAddButton onClick={onAdd} disabled={disabled}>
+      <SidebarAddButton
+        onClick={onAdd}
+        disabled={disabled}
+        ariaLabel={addButtonAriaLabel}
+        title={addButtonTitle}
+      >
         {addLabel}
       </SidebarAddButton>
     </>

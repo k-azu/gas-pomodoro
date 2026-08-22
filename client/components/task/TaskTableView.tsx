@@ -27,16 +27,39 @@ interface TaskTableViewProps {
   tasks: UseTasksReturn;
   parentType: "all" | "project" | "case";
   parentId: string;
+  onCreateUnderProject?: (projectId: string) => void;
+  onCreateUnderCase?: (projectId: string, caseId: string) => void;
 }
 
-export function TaskTableView({ tasks, parentType, parentId }: TaskTableViewProps) {
+export function TaskTableView({
+  tasks,
+  parentType,
+  parentId,
+  onCreateUnderProject,
+  onCreateUnderCase,
+}: TaskTableViewProps) {
   if (parentType === "all") {
     return <AllProjectsTable tasks={tasks} />;
   }
   if (parentType === "project") {
-    return <ProjectTable key={parentId} tasks={tasks} projectId={parentId} />;
+    return (
+      <ProjectTable
+        key={parentId}
+        tasks={tasks}
+        projectId={parentId}
+        onCreateUnderProject={onCreateUnderProject}
+        onCreateUnderCase={onCreateUnderCase}
+      />
+    );
   }
-  return <CaseTable key={parentId} tasks={tasks} caseId={parentId} />;
+  return (
+    <CaseTable
+      key={parentId}
+      tasks={tasks}
+      caseId={parentId}
+      onCreateUnderCase={onCreateUnderCase}
+    />
+  );
 }
 
 type DueFilter = "all" | "overdue" | "today" | "next7" | "none";
@@ -119,11 +142,8 @@ function AllProjectsTable({ tasks }: { tasks: UseTasksReturn }) {
         title=""
         taskItems={taskItems}
         tasks={tasks}
-        projectId=""
-        caseId=""
         showProjectColumn
         showCaseColumn
-        allowAddTask={false}
         getProjectName={(projectId) => projectNameById.get(projectId) || "-"}
         getCaseName={(caseId) => (caseId ? caseNameById.get(caseId) || "" : "-")}
       />
@@ -131,7 +151,17 @@ function AllProjectsTable({ tasks }: { tasks: UseTasksReturn }) {
   );
 }
 
-function ProjectTable({ tasks, projectId }: { tasks: UseTasksReturn; projectId: string }) {
+function ProjectTable({
+  tasks,
+  projectId,
+  onCreateUnderProject,
+  onCreateUnderCase,
+}: {
+  tasks: UseTasksReturn;
+  projectId: string;
+  onCreateUnderProject?: (projectId: string) => void;
+  onCreateUnderCase?: (projectId: string, caseId: string) => void;
+}) {
   const cases = tasks.getCasesFor(projectId);
   const directTasks = tasks.getDirectTasks(projectId);
   const [archivedLoaded, setArchivedLoaded] = useState(false);
@@ -149,7 +179,14 @@ function ProjectTable({ tasks, projectId }: { tasks: UseTasksReturn; projectId: 
   );
 
   if (tasks.tableLayoutMode === "flat") {
-    return <ProjectFlatTable tasks={tasks} projectId={projectId} cases={cases} />;
+    return (
+      <ProjectFlatTable
+        tasks={tasks}
+        projectId={projectId}
+        cases={cases}
+        onCreateUnderProject={onCreateUnderProject}
+      />
+    );
   }
 
   return (
@@ -158,12 +195,17 @@ function ProjectTable({ tasks, projectId }: { tasks: UseTasksReturn; projectId: 
         title=""
         taskItems={directTasks}
         tasks={tasks}
-        projectId={projectId}
-        caseId=""
         loadArchivedTasks={loadArchivedDirect}
+        onCreate={onCreateUnderProject ? () => onCreateUnderProject(projectId) : undefined}
+        createLabel="+ 新規作成"
       />
       {cases.map((c) => (
-        <CaseTableGroup key={c.id} tasks={tasks} caseItem={c} />
+        <CaseTableGroup
+          key={c.id}
+          tasks={tasks}
+          caseItem={c}
+          onCreateUnderCase={onCreateUnderCase}
+        />
       ))}
       {archivedLoaded && archivedCases.length > 0 && (
         <div className={s["archive-cases-section"]}>
@@ -185,10 +227,12 @@ function ProjectFlatTable({
   tasks,
   projectId,
   cases,
+  onCreateUnderProject,
 }: {
   tasks: UseTasksReturn;
   projectId: string;
   cases: CaseItem[];
+  onCreateUnderProject?: (projectId: string) => void;
 }) {
   const archivedCases = tasks.getArchivedCasesFor(projectId);
   const flatCaseItems = [...cases, ...archivedCases];
@@ -211,9 +255,9 @@ function ProjectFlatTable({
         title=""
         taskItems={taskItems}
         tasks={tasks}
-        projectId={projectId}
-        caseId=""
         loadArchivedTasks={loadArchivedFlatTasks}
+        onCreate={onCreateUnderProject ? () => onCreateUnderProject(projectId) : undefined}
+        createLabel="+ 新規作成"
         showCaseColumn
         getCaseName={(caseId) => (caseId ? caseNameById.get(caseId) || "" : "-")}
       />
@@ -267,7 +311,15 @@ function formatLocalDate(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function CaseTable({ tasks, caseId }: { tasks: UseTasksReturn; caseId: string }) {
+function CaseTable({
+  tasks,
+  caseId,
+  onCreateUnderCase,
+}: {
+  tasks: UseTasksReturn;
+  caseId: string;
+  onCreateUnderCase?: (projectId: string, caseId: string) => void;
+}) {
   const caseTasks = tasks.getTasksForCase(caseId);
   const caseItem = tasks.allCases.find((c) => c.id === caseId);
   const projectId = caseItem?.projectId || "";
@@ -283,15 +335,23 @@ function CaseTable({ tasks, caseId }: { tasks: UseTasksReturn; caseId: string })
         title=""
         taskItems={caseTasks}
         tasks={tasks}
-        projectId={projectId}
-        caseId={caseId}
         loadArchivedTasks={loadArchivedForCase}
+        onCreate={onCreateUnderCase ? () => onCreateUnderCase(projectId, caseId) : undefined}
+        createLabel="+ タスク"
       />
     </div>
   );
 }
 
-function CaseTableGroup({ tasks, caseItem }: { tasks: UseTasksReturn; caseItem: any }) {
+function CaseTableGroup({
+  tasks,
+  caseItem,
+  onCreateUnderCase,
+}: {
+  tasks: UseTasksReturn;
+  caseItem: any;
+  onCreateUnderCase?: (projectId: string, caseId: string) => void;
+}) {
   const [renaming, setRenaming] = useState(false);
   const caseTasks = tasks.getTasksForCase(caseItem.id);
   const loadArchivedForCase = useCallback(
@@ -355,9 +415,11 @@ function CaseTableGroup({ tasks, caseItem }: { tasks: UseTasksReturn; caseItem: 
       titleSlot={header}
       taskItems={caseTasks}
       tasks={tasks}
-      projectId={caseItem.projectId}
-      caseId={caseItem.id}
       loadArchivedTasks={loadArchivedForCase}
+      onCreate={
+        onCreateUnderCase ? () => onCreateUnderCase(caseItem.projectId, caseItem.id) : undefined
+      }
+      createLabel="+ タスク"
     />
   );
 }
@@ -367,10 +429,9 @@ function TaskTableGroup({
   titleSlot,
   taskItems,
   tasks,
-  projectId,
-  caseId,
   loadArchivedTasks,
-  allowAddTask = true,
+  onCreate,
+  createLabel,
   showProjectColumn = false,
   showCaseColumn = false,
   getProjectName,
@@ -380,10 +441,9 @@ function TaskTableGroup({
   titleSlot?: React.ReactNode;
   taskItems: TaskItem[];
   tasks: UseTasksReturn;
-  projectId: string;
-  caseId: string;
   loadArchivedTasks?: () => Promise<TaskItem[]>;
-  allowAddTask?: boolean;
+  onCreate?: () => void;
+  createLabel?: string;
   showProjectColumn?: boolean;
   showCaseColumn?: boolean;
   getProjectName?: (projectId: string) => string;
@@ -451,16 +511,10 @@ function TaskTableGroup({
           アーカイブ済みを読み込む
         </div>
       )}
-      {allowAddTask && (
-        <div
-          className={s["task-table-add"]}
-          onClick={() => {
-            const name = prompt("タスク名:");
-            if (name?.trim()) tasks.addTask(projectId, caseId, name.trim());
-          }}
-        >
-          + タスク追加
-        </div>
+      {onCreate && (
+        <button type="button" className={s["task-table-add"]} onClick={onCreate}>
+          {createLabel}
+        </button>
       )}
     </div>
   );

@@ -27,6 +27,8 @@ interface TaskTreeProps {
     type: EditableNodeType,
     data: ProjectItem | CaseItem | TaskItem,
   ) => void;
+  onCreateUnderProject: (projectId: string) => void;
+  onCreateUnderCase: (projectId: string, caseId: string) => void;
 }
 
 export function TaskTree({
@@ -35,6 +37,8 @@ export function TaskTree({
   onRenameCommit,
   onRenameCancel,
   onContextMenu,
+  onCreateUnderProject,
+  onCreateUnderCase,
 }: TaskTreeProps) {
   const drag = useLongPressDrag(
     (dragId, newOrder) => {
@@ -121,6 +125,8 @@ export function TaskTree({
             onRenameCommit={onRenameCommit}
             onRenameCancel={onRenameCancel}
             onContextMenu={onContextMenu}
+            onCreateUnderProject={onCreateUnderProject}
+            onCreateUnderCase={onCreateUnderCase}
             drag={drag}
             isCaseDrag={isCaseDrag}
             dragCaseProjectId={dragCaseProjectId}
@@ -167,6 +173,8 @@ function ProjectNode({
   onRenameCommit,
   onRenameCancel,
   onContextMenu,
+  onCreateUnderProject,
+  onCreateUnderCase,
   drag,
   isCaseDrag,
   dragCaseProjectId,
@@ -177,6 +185,8 @@ function ProjectNode({
   onRenameCommit: (name: string) => void;
   onRenameCancel: () => void;
   onContextMenu: (e: React.MouseEvent, type: EditableNodeType, data: any) => void;
+  onCreateUnderProject: (projectId: string) => void;
+  onCreateUnderCase: (projectId: string, caseId: string) => void;
   drag: DragResult;
   isCaseDrag: boolean;
   dragCaseProjectId: string | null | undefined;
@@ -248,18 +258,18 @@ function ProjectNode({
         ) : (
           <span className={s["task-tree-name"]}>{project.name}</span>
         )}
-        <span
+        <button
+          type="button"
           className={s["task-tree-add-btn"]}
-          title="案件を追加"
+          title="新規作成"
+          aria-label={`${project.name}に新規作成`}
           onClick={(e) => {
             e.stopPropagation();
-            if (!expanded) tasks.toggleExpand(project.id);
-            const name = prompt("案件名:");
-            if (name?.trim()) tasks.addCase(project.id, name.trim());
+            onCreateUnderProject(project.id);
           }}
         >
           +
-        </span>
+        </button>
       </div>
 
       {expanded && (
@@ -283,6 +293,7 @@ function ProjectNode({
                 onRenameCommit={onRenameCommit}
                 onRenameCancel={onRenameCancel}
                 onContextMenu={onContextMenu}
+                onCreateUnderCase={onCreateUnderCase}
                 drag={drag}
               />
             );
@@ -298,16 +309,16 @@ function ProjectNode({
               onContextMenu={onContextMenu}
             />
           ))}
-          <div
+          <button
+            type="button"
             className={`${s["task-tree-add"]} ${s["task-tree-add-task"]}`}
             onClick={(e) => {
               e.stopPropagation();
-              const name = prompt("タスク名:");
-              if (name?.trim()) tasks.addTask(project.id, "", name.trim());
+              onCreateUnderProject(project.id);
             }}
           >
-            + タスク
-          </div>
+            + 新規作成
+          </button>
         </div>
       )}
     </div>
@@ -321,6 +332,7 @@ function CaseNode({
   onRenameCommit,
   onRenameCancel,
   onContextMenu,
+  onCreateUnderCase,
   drag,
 }: {
   caseItem: CaseItem;
@@ -329,6 +341,7 @@ function CaseNode({
   onRenameCommit: (name: string) => void;
   onRenameCancel: () => void;
   onContextMenu: (e: React.MouseEvent, type: EditableNodeType, data: any) => void;
+  onCreateUnderCase: (projectId: string, caseId: string) => void;
   drag: DragResult;
 }) {
   const expanded = !!tasks.expandedNodes[caseItem.id];
@@ -381,18 +394,18 @@ function CaseNode({
         ) : (
           <span className={s["task-tree-name"]}>{caseItem.name}</span>
         )}
-        <span
+        <button
+          type="button"
           className={s["task-tree-add-btn"]}
           title="タスクを追加"
+          aria-label={`${caseItem.name}にタスクを追加`}
           onClick={(e) => {
             e.stopPropagation();
-            if (!expanded) tasks.toggleExpand(caseItem.id);
-            const name = prompt("タスク名:");
-            if (name?.trim()) tasks.addTask(caseItem.projectId, caseItem.id, name.trim());
+            onCreateUnderCase(caseItem.projectId, caseItem.id);
           }}
         >
           +
-        </span>
+        </button>
       </div>
 
       {expanded && (

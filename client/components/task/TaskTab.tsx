@@ -9,6 +9,7 @@ import type { ContextMenuSection } from "../shared/ContextMenu";
 import { SidebarShell, SidebarAddButton } from "../shared/SidebarShell";
 import { ContentHeader } from "../shared/ContentHeader";
 import { SaveOverlay } from "../shared/SaveOverlay";
+import { CreateDocumentModal, type CreateDocumentType } from "../shared/CreateDocumentModal";
 import { TaskTree } from "./TaskTree";
 import { TaskContent } from "./TaskContent";
 import { useSidebarWidth } from "../../hooks/useSidebarWidth";
@@ -16,6 +17,11 @@ import { STORAGE_KEYS, lsGet, lsSet } from "../../lib/localStorage";
 import s from "./TaskTab.module.css";
 
 const SIDEBAR_KEY = STORAGE_KEYS.TASK_SIDEBAR_COLLAPSED;
+
+type CreateModalTarget =
+  | { kind: "project" }
+  | { kind: "project-child"; projectId: string; parentName: string }
+  | { kind: "case-task"; projectId: string; caseId: string; parentName: string };
 
 export function TaskTab({
   standalone = false,
@@ -36,6 +42,7 @@ export function TaskTab({
     type: EditableNodeType;
     data: ProjectItem | CaseItem | TaskItem;
   } | null>(null);
+  const [createModalTarget, setCreateModalTarget] = useState<CreateModalTarget | null>(null);
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
@@ -55,6 +62,33 @@ export function TaskTab({
     [],
   );
 
+  const openCreateUnderProject = useCallback(
+    (projectId: string) => {
+      const project = tasks.projects.find((item) => item.id === projectId);
+      if (!project) return;
+      setCreateModalTarget({
+        kind: "project-child",
+        projectId,
+        parentName: project.name,
+      });
+    },
+    [tasks.projects],
+  );
+
+  const openCreateUnderCase = useCallback(
+    (projectId: string, caseId: string) => {
+      const caseItem = tasks.allCases.find((item) => item.id === caseId);
+      if (!caseItem) return;
+      setCreateModalTarget({
+        kind: "case-task",
+        projectId,
+        caseId,
+        parentName: caseItem.name,
+      });
+    },
+    [tasks.allCases],
+  );
+
   // Build context menu sections
   const contextMenuSections: ContextMenuSection[] = contextMenu
     ? [
@@ -67,22 +101,8 @@ export function TaskTab({
             ...(contextMenu.type === "project"
               ? [
                   {
-                    label: "案件を追加",
-                    onClick: () => {
-                      const name = prompt("案件名:");
-                      if (name?.trim()) {
-                        tasks.addCase(contextMenu.data.id, name.trim());
-                      }
-                    },
-                  },
-                  {
-                    label: "タスクを追加",
-                    onClick: () => {
-                      const name = prompt("タスク名:");
-                      if (name?.trim()) {
-                        tasks.addTask(contextMenu.data.id, "", name.trim());
-                      }
-                    },
+                    label: "新規作成",
+                    onClick: () => openCreateUnderProject(contextMenu.data.id),
                   },
                 ]
               : []),
@@ -90,16 +110,11 @@ export function TaskTab({
               ? [
                   {
                     label: "タスクを追加",
-                    onClick: () => {
-                      const name = prompt("タスク名:");
-                      if (name?.trim()) {
-                        tasks.addTask(
-                          (contextMenu.data as CaseItem).projectId,
-                          contextMenu.data.id,
-                          name.trim(),
-                        );
-                      }
-                    },
+                    onClick: () =>
+                      openCreateUnderCase(
+                        (contextMenu.data as CaseItem).projectId,
+                        contextMenu.data.id,
+                      ),
                   },
                 ]
               : []),
@@ -160,10 +175,9 @@ export function TaskTab({
           headerSlot={
             <SidebarAddButton
               disabled={tasks.isLoading}
-              onClick={() => {
-                const name = prompt("プロジェクト名:");
-                if (name?.trim()) tasks.addProject(name.trim());
-              }}
+              onClick={() => setCreateModalTarget({ kind: "project" })}
+              ariaLabel="プロジェクトを新規作成"
+              title="プロジェクトを新規作成"
             >
               +
             </SidebarAddButton>
@@ -177,6 +191,8 @@ export function TaskTab({
             onRenameCommit={handleRenameCommit}
             onRenameCancel={() => setRenamingNode(null)}
             onContextMenu={handleContextMenu}
+            onCreateUnderProject={openCreateUnderProject}
+            onCreateUnderCase={openCreateUnderCase}
           />
         </SidebarShell>
       )}
@@ -189,6 +205,8 @@ export function TaskTab({
             sidebarCollapsed={sidebarCollapsed}
             onExpandSidebar={toggleSidebar}
             standalone={standalone}
+            onCreateUnderProject={openCreateUnderProject}
+            onCreateUnderCase={openCreateUnderCase}
           />
         ) : (
           <ContentHeader
@@ -205,6 +223,34 @@ export function TaskTab({
           position={contextMenu.pos}
           sections={contextMenuSections}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+      {createModalTarget && (
+        <CreateDocumentModal
+          title={
+            createModalTarget.kind === "project"
+              ? "プロジェクトを新規作成"
+              : createModalTarget.kind === "project-child"
+                ? `「${createModalTarget.parentName}」に新規作成`
+                : `「${createModalTarget.parentName}」にタスクを作成`
+          }
+          allowedTypes={
+            createModalTarget.kind === "project"
+              ? ["project"]
+              : createModalTarget.kind === "project-child"
+                ? ["case", "task"]
+                : ["task"]
+          }
+          onClose={() => setCreateModalTarget(null)}
+          onSubmit={(type: CreateDocumentType, name: string) => {
+            if (createModalTarget.kind === "project") return tasks.addProject(name);
+            if (createModalTarget.kind === "project-child") {
+              return type === "case"
+                ? tasks.addCase(createModalTarget.projectId, name)
+                : tasks.addTask(createModalTarget.projectId, "", name);
+            }
+            return tasks.addTask(createModalTarget.projectId, createModalTarget.caseId, name);
+          }}
         />
       )}
     </div>

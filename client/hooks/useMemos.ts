@@ -26,7 +26,7 @@ export interface UseMemosReturn {
   activeId: string | null;
   tags: MemoTag[];
   selectMemo: (id: string) => void;
-  createMemo: () => Promise<void>;
+  createMemo: (name: string) => Promise<void>;
   deleteMemo: (id: string) => Promise<void>;
   renameMemo: (id: string, name: string) => void;
   reorderMemos: (ids: string[]) => void;
@@ -108,26 +108,29 @@ export function useMemos(): UseMemosReturn {
     [nav],
   );
 
-  const createMemo = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      await runWithDocumentEditorFrozen("memo", async () => {
-        try {
-          const id = await MemoStore.addMemo("新しいメモ");
-          await refreshFromStore();
-          setActiveId(id);
-          lsSet(STORAGE_KEYS.MEMO_ACTIVE, id);
-          nav.notifyMemoChange(id);
-          return true;
-        } catch (error) {
-          console.error("Memo creation failed", error);
-          throw error;
-        }
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [refreshFromStore, nav]);
+  const createMemo = useCallback(
+    async (name: string) => {
+      setIsLoading(true);
+      try {
+        await runWithDocumentEditorFrozen("memo", async () => {
+          try {
+            const id = await MemoStore.addMemo(name);
+            await refreshFromStore();
+            setActiveId(id);
+            lsSet(STORAGE_KEYS.MEMO_ACTIVE, id);
+            nav.notifyMemoChange(id);
+            return true;
+          } catch (error) {
+            console.error("Memo creation failed", error);
+            throw error;
+          }
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [refreshFromStore, nav],
+  );
 
   const deleteMemo = useCallback(
     async (id: string) => {

@@ -24,6 +24,7 @@ import { DocumentSearchNavigation } from "../search/DocumentSearchNavigation";
 import { DocumentContentConflict } from "../shared/DocumentContentConflict";
 import { OpenDocumentWindowButton } from "../shared/OpenDocumentWindowButton";
 import { SaveOverlay } from "../shared/SaveOverlay";
+import { CreateDocumentModal } from "../shared/CreateDocumentModal";
 import * as MemoStore from "../../lib/memoStore";
 import * as DocumentStore from "../../lib/documentStore";
 import s from "./MemoTab.module.css";
@@ -48,6 +49,7 @@ export function MemoTab({
     item: MemoItem;
   } | null>(null);
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
   const activeId = standalone && documentId ? documentId : memo.activeId;
   const liveActiveMemo = memo.memos.find((item) => item.id === activeId);
   const standaloneEntity =
@@ -222,7 +224,9 @@ export function MemoTab({
           items={memo.memos}
           activeId={memo.activeId}
           onSelect={handleSelect}
-          onAdd={memo.createMemo}
+          onAdd={() => setCreateModalOpen(true)}
+          addButtonAriaLabel="メモを新規作成"
+          addButtonTitle="メモを新規作成"
           renderItem={(item) =>
             renamingId === item.id ? (
               <InlineRename
@@ -354,6 +358,14 @@ export function MemoTab({
           position={contextMenu.pos}
           sections={contextMenuSections}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+      {createModalOpen && (
+        <CreateDocumentModal
+          title="メモを新規作成"
+          allowedTypes={["memo"]}
+          onClose={() => setCreateModalOpen(false)}
+          onSubmit={(_type, name) => memo.createMemo(name)}
         />
       )}
     </div>

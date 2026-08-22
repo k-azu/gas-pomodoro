@@ -182,17 +182,23 @@ export function SidebarAddButton({
   children = "+",
   className,
   disabled = false,
+  ariaLabel,
+  title,
 }: {
   onClick: () => void;
   children?: ReactNode;
   className?: string;
   disabled?: boolean;
+  ariaLabel?: string;
+  title?: string;
 }) {
   return (
     <button
       className={`${s["sidebar-add-btn"]}${className ? ` ${className}` : ""}`}
       onClick={onClick}
       disabled={disabled}
+      aria-label={ariaLabel}
+      title={title}
     >
       {children}
     </button>

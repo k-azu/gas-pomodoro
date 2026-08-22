@@ -31,6 +31,8 @@ interface TaskContentProps {
   sidebarCollapsed?: boolean;
   onExpandSidebar?: () => void;
   standalone?: boolean;
+  onCreateUnderProject?: (projectId: string) => void;
+  onCreateUnderCase?: (projectId: string, caseId: string) => void;
 }
 
 function storeNameFor(type: string): string {
@@ -44,6 +46,8 @@ export function TaskContent({
   sidebarCollapsed,
   onExpandSidebar,
   standalone = false,
+  onCreateUnderProject,
+  onCreateUnderCase,
 }: TaskContentProps) {
   const { selectedNode } = tasks;
   if (!selectedNode) return null;
@@ -63,6 +67,8 @@ export function TaskContent({
       sidebarCollapsed={sidebarCollapsed}
       onExpandSidebar={onExpandSidebar}
       standalone={standalone}
+      onCreateUnderProject={onCreateUnderProject}
+      onCreateUnderCase={onCreateUnderCase}
     />
   );
 }
@@ -92,6 +98,8 @@ function TaskDocumentContent({
   sidebarCollapsed,
   onExpandSidebar,
   standalone = false,
+  onCreateUnderProject,
+  onCreateUnderCase,
 }: TaskContentProps) {
   const { selectedNode } = tasks;
   const nav = useNavigation();
@@ -206,7 +214,13 @@ function TaskDocumentContent({
 
   const tableSlot =
     !showingDoc && isContainerType ? (
-      <TaskTableView tasks={tasks} parentType={type as "project" | "case"} parentId={id} />
+      <TaskTableView
+        tasks={tasks}
+        parentType={type as "project" | "case"}
+        parentId={id}
+        onCreateUnderProject={onCreateUnderProject}
+        onCreateUnderCase={onCreateUnderCase}
+      />
     ) : undefined;
 
   return (

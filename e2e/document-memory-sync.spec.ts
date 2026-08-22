@@ -33,7 +33,10 @@ test("新規メモ作成中は元のEditorStateとメモUIを固定する", asyn
   await waitForSyncComplete(page);
   await typeInEditor(page, "作成前に保存する本文");
 
-  await page.getByRole("button", { name: "+", exact: true }).click();
+  await page.getByRole("button", { name: "メモを新規作成" }).click();
+  const createDialog = page.getByRole("dialog", { name: "メモを新規作成" });
+  await createDialog.getByLabel("メモ名").fill("新しいメモ");
+  await createDialog.getByRole("button", { name: "作成", exact: true }).click();
   await expect(page.getByText("メモを処理中...", { exact: true })).toBeVisible();
   await expect(page.getByText("保存中...", { exact: true })).toHaveCount(0);
   const editor = page.locator(".ProseMirror:visible");

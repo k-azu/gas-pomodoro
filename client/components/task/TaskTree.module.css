@@ -16,9 +16,9 @@
 .task-tree-item:hover .task-tree-toggle > .task-tree-icon { display: none; }
 .task-status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .task-tree-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task-tree-add-btn { opacity: 0; font-size: 1rem; cursor: pointer; color: var(--text-secondary); padding: 0 4px; flex-shrink: 0; }
-.task-tree-item:hover .task-tree-add-btn { opacity: 1; }
-.task-tree-add { font-size: 0.78rem; color: var(--text-secondary); padding: 3px 8px; cursor: pointer; margin: 0 4px; border-radius: 4px; }
+.task-tree-add-btn { opacity: 0; border: 0; background: transparent; font: inherit; font-size: 1rem; cursor: pointer; color: var(--text-secondary); padding: 0 4px; flex-shrink: 0; }
+.task-tree-item:hover .task-tree-add-btn, .task-tree-add-btn:focus-visible { opacity: 1; }
+.task-tree-add { display: block; width: calc(100% - 8px); border: 0; background: transparent; text-align: left; font-family: inherit; font-size: 0.78rem; color: var(--text-secondary); padding: 3px 8px; cursor: pointer; margin: 0 4px; border-radius: 4px; }
 .task-tree-add:hover { background: var(--bg); color: var(--text); }
 .task-tree-add-task { padding-left: 32px; }
 .task-tree-children { position: relative; }

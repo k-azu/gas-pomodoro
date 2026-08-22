@@ -380,10 +380,16 @@
 }
 
 .task-table-add {
+  display: block;
+  width: 100%;
   padding: 6px 16px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
   font-size: 14px;
   color: var(--text-secondary);
   cursor: pointer;
+  text-align: left;
 }
 
 .task-table-add:hover {
