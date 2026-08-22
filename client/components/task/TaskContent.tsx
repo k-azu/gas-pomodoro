@@ -108,8 +108,8 @@ function TaskDocumentContent({
   const projectId = String(selectedRecord?.projectId ?? "");
   const caseId = String(selectedRecord?.caseId ?? "");
   const hiddenByArchivedParent =
-    (projectId && DocumentStore.get("projects", projectId)?.isActive !== true) ||
-    (caseId && DocumentStore.get("cases", caseId)?.isActive !== true);
+    (projectId && DocumentStore.get("projects", projectId)?.isActive === false) ||
+    (caseId && DocumentStore.get("cases", caseId)?.isActive === false);
   const isArchivedDocument =
     selectedEntity?.isActive === false ||
     Boolean(hiddenByArchivedParent) ||

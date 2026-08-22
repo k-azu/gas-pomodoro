@@ -1,6 +1,39 @@
 import { expect, test } from "@playwright/test";
 import { gotoApp, typeInEditor, waitForSyncComplete } from "./helpers/app";
 
+async function gotoStandaloneTaskDocument(
+  page: import("@playwright/test").Page,
+  type: "project" | "case" | "task",
+  id: string,
+): Promise<void> {
+  const query = new URLSearchParams({ view: "document", tab: "task", type, id });
+  await page.goto(`/?${query.toString()}#tab=task&type=${type}&id=${id}`);
+  await expect(page.locator("[data-standalone-document]")).toBeVisible();
+}
+
+test("アクティブな案件・タスクの単体表示にアーカイブ表示を出さない", async ({ page }) => {
+  await gotoStandaloneTaskDocument(page, "case", "mock-case-1");
+  await expect(page.getByText("React化", { exact: true })).toBeVisible();
+  await expect(page.getByText("アーカイブ済み", { exact: true })).toHaveCount(0);
+
+  await gotoStandaloneTaskDocument(page, "task", "mock-task-1");
+  await expect(page.getByText("Phase 6: RecordForm実装", { exact: true })).toBeVisible();
+  await expect(page.getByText("アーカイブ済み", { exact: true })).toHaveCount(0);
+});
+
+test("親だけがアーカイブ済みのタスクは単体表示でもアーカイブ表示する", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "gas-pomodoro:mock-document-server:v1",
+      JSON.stringify({ "mock-task-9": { metadata: { isActive: true } } }),
+    );
+  });
+  await gotoStandaloneTaskDocument(page, "task", "mock-task-9");
+
+  await expect(page.getByText("レガシーCSS整理", { exact: true })).toBeVisible();
+  await expect(page.getByText("アーカイブ済み", { exact: true })).toBeVisible();
+});
+
 test("本文をACKしてから単体表示タブへ編集権を移譲する", async ({ context, page }) => {
   await gotoApp(page, { params: { mockDelay: "500" } });
   await waitForSyncComplete(page);

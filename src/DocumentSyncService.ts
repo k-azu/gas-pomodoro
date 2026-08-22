@@ -353,12 +353,27 @@ function patchDocumentMetadata(
   }
 }
 
-function getDocumentViewData(documentKey: string): {
+interface DocumentViewData {
   memos: MemoMetadata[];
   projects: ProjectMetadata[];
   cases: CaseMetadata[];
   tasks: TaskMetadata[];
-} {
+}
+
+function appendUniqueDocumentEntities<T extends { id: string }>(target: T[], source: T[]): void {
+  source.forEach((entity) => {
+    if (!target.some((candidate) => candidate.id === entity.id)) target.push(entity);
+  });
+}
+
+function mergeDocumentViewData(target: DocumentViewData, source: DocumentViewData): void {
+  appendUniqueDocumentEntities(target.memos, source.memos);
+  appendUniqueDocumentEntities(target.projects, source.projects);
+  appendUniqueDocumentEntities(target.cases, source.cases);
+  appendUniqueDocumentEntities(target.tasks, source.tasks);
+}
+
+function getDocumentViewData(documentKey: string): DocumentViewData {
   const { storeName, id, config } = parseDocumentKey(documentKey);
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(config.sheetName)!;
   const row = findDocumentRow(sheet, id);
@@ -410,9 +425,10 @@ function getDocumentViewData(documentKey: string): {
 
   if (storeName === "cases") {
     const values = sheet.getRange(row, 1, 1, 12).getValues()[0];
+    const projectId = String(values[1]);
     result.cases.push({
       id: String(values[0]),
-      projectId: String(values[1]),
+      projectId,
       name: String(values[2]),
       content: String(values[3]),
       sortOrder: Number(values[4]),
@@ -424,15 +440,18 @@ function getDocumentViewData(documentKey: string): {
       lastContentMutationId: String(values[10] ?? ""),
       lastMetadataMutationId: String(values[11] ?? ""),
     });
+    if (projectId) mergeDocumentViewData(result, getDocumentViewData(`projects:${projectId}`));
     return result;
   }
 
   const values = sheet.getRange(row, 1, 1, 17).getValues()[0];
   const timeZone = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  const projectId = String(values[1]);
+  const caseId = String(values[2]);
   result.tasks.push({
     id: String(values[0]),
-    projectId: String(values[1]),
-    caseId: String(values[2]),
+    projectId,
+    caseId,
     name: String(values[3]),
     content: String(values[4]),
     status: String(values[5]),
@@ -448,5 +467,7 @@ function getDocumentViewData(documentKey: string): {
     lastContentMutationId: String(values[15] ?? ""),
     lastMetadataMutationId: String(values[16] ?? ""),
   });
+  if (projectId) mergeDocumentViewData(result, getDocumentViewData(`projects:${projectId}`));
+  if (caseId) mergeDocumentViewData(result, getDocumentViewData(`cases:${caseId}`));
   return result;
 }

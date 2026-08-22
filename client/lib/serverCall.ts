@@ -724,8 +724,8 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
       const initial = getMockResponse("getAllInitData", []) as Record<string, unknown> & {
         memos: Array<{ id: string }>;
         projects: Array<{ id: string }>;
-        cases: Array<{ id: string }>;
-        tasks: Array<{ id: string }>;
+        cases: Array<{ id: string; projectId: string }>;
+        tasks: Array<{ id: string; projectId: string; caseId: string }>;
       };
       const documentKey = String(args[0]);
       const [storeName, id] = documentKey.split(":");
@@ -747,15 +747,25 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
                   },
                 ])
               : [];
+      const selectedTasks =
+        storeName === "tasks" ? initial.tasks.filter((entity) => entity.id === id) : [];
+      const selectedCases = initial.cases.filter(
+        (entity) =>
+          (storeName === "cases" && entity.id === id) ||
+          selectedTasks.some((task) => task.caseId === entity.id),
+      );
+      const projectIds = new Set<string>();
+      if (storeName === "projects") projectIds.add(id);
+      selectedTasks.forEach((task) => projectIds.add(task.projectId));
+      selectedCases.forEach((caseItem) => projectIds.add(caseItem.projectId));
       return {
         ...initial,
         recentRecordsBulk: [],
         recentInterruptionsBulk: [],
         memos: selectedMemos,
-        projects:
-          storeName === "projects" ? initial.projects.filter((entity) => entity.id === id) : [],
-        cases: storeName === "cases" ? initial.cases.filter((entity) => entity.id === id) : [],
-        tasks: storeName === "tasks" ? initial.tasks.filter((entity) => entity.id === id) : [],
+        projects: initial.projects.filter((entity) => projectIds.has(entity.id)),
+        cases: selectedCases,
+        tasks: selectedTasks,
       };
     }
 
