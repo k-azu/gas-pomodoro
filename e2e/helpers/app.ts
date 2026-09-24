@@ -76,6 +76,9 @@ export async function selectMemo(page: Page, name: string): Promise<void> {
 export async function typeInEditor(page: Page, text: string): Promise<void> {
   const editor = page.locator(".ProseMirror:visible");
   await editor.click();
+  // Clicking the editor's center can land inside existing text depending on layout;
+  // always append at the end of the document so assertions don't depend on geometry.
+  await page.keyboard.press("ControlOrMeta+End");
   await page.waitForTimeout(100);
   await page.keyboard.insertText(text);
 }

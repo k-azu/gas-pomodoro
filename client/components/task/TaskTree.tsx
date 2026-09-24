@@ -449,6 +449,8 @@ function TaskNode({
   return (
     <div
       className={`${s["task-tree-item"]} ${s["task-tree-task"]}${isActive ? ` ${s.active}` : ""}`}
+      data-id={task.id}
+      data-type="task"
       onClick={() => tasks.selectNode("task", task.id)}
       onContextMenu={(e) => onContextMenu(e, "task", task)}
     >
