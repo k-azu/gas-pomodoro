@@ -1,4 +1,6 @@
 .history-list { list-style: none; position: relative; }
+.history-list-disabled { cursor: wait; opacity: 0.5; transition: opacity 0.15s; }
+.history-list-disabled > * { pointer-events: none; }
 .history-empty { color: var(--text-secondary); font-size: 0.85rem; text-align: center; padding: 12px 0; }
 
 .history-loading { display: flex; justify-content: center; padding: 24px 0; }
