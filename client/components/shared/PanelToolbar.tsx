@@ -74,6 +74,14 @@ export function TypeToggle({
   );
 }
 
+/** True when both datetime-local values are valid and the end precedes the start. */
+export function isTimeRangeReversed(startTime: string, endTime: string): boolean {
+  if (!startTime || !endTime) return false;
+  const start = new Date(startTime).getTime();
+  const end = new Date(endTime).getTime();
+  return !isNaN(start) && !isNaN(end) && end < start;
+}
+
 export function TimeInputGroup({
   startTime,
   endTime,
@@ -85,14 +93,14 @@ export function TimeInputGroup({
   onStartChange: (v: string) => void;
   onEndChange: (v: string) => void;
 }) {
-  // Calculate duration from datetime-local values (YYYY-MM-DDTHH:MM)
+  // Intermediate values (e.g. editing the hour before the minute) may briefly put the end
+  // before the start, so accept every value and report the reversed range instead of
+  // rejecting input.
+  const reversed = isTimeRangeReversed(startTime, endTime);
   let durationText = "";
-  if (startTime && endTime) {
+  if (startTime && endTime && !reversed) {
     const ms = new Date(endTime).getTime() - new Date(startTime).getTime();
-    if (!isNaN(ms) && ms >= 0) {
-      const mins = Math.round(ms / 60000);
-      durationText = `${mins}分`;
-    }
+    if (!isNaN(ms)) durationText = `${Math.round(ms / 60000)}分`;
   }
 
   return (
@@ -101,26 +109,23 @@ export function TimeInputGroup({
         type="datetime-local"
         className={s["time-input"]}
         value={startTime}
-        max={endTime || undefined}
-        onChange={(e) => {
-          const v = e.target.value;
-          if (v && endTime && new Date(v) > new Date(endTime)) return;
-          onStartChange(v);
-        }}
+        onChange={(e) => onStartChange(e.target.value)}
       />
       <span className={s["time-separator"]}>→</span>
       <input
         type="datetime-local"
-        className={s["time-input"]}
+        className={`${s["time-input"]}${reversed ? ` ${s["time-input-invalid"]}` : ""}`}
         value={endTime}
-        min={startTime || undefined}
-        onChange={(e) => {
-          const v = e.target.value;
-          if (v && startTime && new Date(v) < new Date(startTime)) return;
-          onEndChange(v);
-        }}
+        onChange={(e) => onEndChange(e.target.value)}
+        aria-invalid={reversed || undefined}
       />
-      {durationText && <span className={s["time-duration"]}>{durationText}</span>}
+      {reversed ? (
+        <span className={s["time-error"]} role="alert">
+          終了が開始より前です
+        </span>
+      ) : (
+        durationText && <span className={s["time-duration"]}>{durationText}</span>
+      )}
     </div>
   );
 }

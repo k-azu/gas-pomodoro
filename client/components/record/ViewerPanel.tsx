@@ -6,7 +6,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useApp } from "../../contexts/AppContext";
 import { useNavigation } from "../../contexts/NavigationContext";
 import type { ViewerState } from "../../contexts/NavigationContext";
-import { TypeToggle, TimeInputGroup } from "../shared/PanelToolbar";
+import { TypeToggle, TimeInputGroup, isTimeRangeReversed } from "../shared/PanelToolbar";
 import { RecordField } from "../shared/RecordField";
 import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
@@ -180,6 +180,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       : timer.state.categories;
 
   const canSave = !!(vs.recordId || vs.onSaveMarkdown);
+  const timeRangeInvalid = isTimeRangeReversed(startTime, endTime);
 
   const isDirty =
     markdownDirty ||
@@ -194,6 +195,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       : false);
 
   const handleSave = useCallback(async (): Promise<boolean> => {
+    if (isTimeRangeReversed(startTime, endTime)) return false;
     const editorMarkdown = getMarkdown() || "";
     const markdown = blobUrlsToDrive(editorMarkdown);
     const newCategory = selectedCategory[0] || "";
@@ -498,7 +500,11 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
           <button className="btn btn-secondary" onClick={closeViewer}>
             戻る
           </button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={isSaving || !isDirty}>
+          <button
+            className="btn btn-primary"
+            onClick={handleSave}
+            disabled={isSaving || !isDirty || timeRangeInvalid}
+          >
             保存
           </button>
         </FormActions>
@@ -522,7 +528,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
                 type="button"
                 className="btn btn-primary"
                 onClick={saveAndProceed}
-                disabled={isSaving}
+                disabled={isSaving || timeRangeInvalid}
               >
                 保存して移動
               </button>
