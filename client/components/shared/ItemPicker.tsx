@@ -34,7 +34,7 @@ export function ItemPicker({
   placeholder = "検索 / 作成...",
   removable = true,
   compact = false,
-  emptyLabel = "空",
+  emptyLabel = "未設定",
 }: ItemPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
