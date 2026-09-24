@@ -11,6 +11,7 @@ import * as TaskStore from "../../lib/taskStore";
 import { on as esOn, off as esOff } from "../../lib/entityStore";
 import { STATUS_CONFIG } from "../../hooks/useTasks";
 import * as DocumentStore from "../../lib/documentStore";
+import { uniqueLabels } from "../../lib/uniqueLabels";
 import { STORAGE_KEYS, lsGetJSON, lsSetJSON } from "../../lib/localStorage";
 
 export interface HierarchicalTaskPickerProps {
@@ -336,16 +337,6 @@ function withSelected<T extends { id: string }>(
   if (!selectedId || items.some((item) => item.id === selectedId)) return items;
   const selected = lookup(selectedId);
   return selected ? [...items, selected] : items;
-}
-
-/** Suffix duplicate labels with (2), (3)... so every label maps to exactly one id. */
-function uniqueLabels(labels: string[]): string[] {
-  const seen = new Map<string, number>();
-  return labels.map((label) => {
-    const count = (seen.get(label) ?? 0) + 1;
-    seen.set(label, count);
-    return count === 1 ? label : `${label} (${count})`;
-  });
 }
 
 function labelMap(items: { id: string }[], labels: string[]): Record<string, string> {
