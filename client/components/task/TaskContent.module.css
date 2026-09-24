@@ -147,3 +147,29 @@
   display: flex;
   padding: 0 60px;
 }
+
+/* Due-date states (after .task-date-input so the border override wins) */
+.due-overdue {
+  color: #c62828;
+  font-weight: 600;
+}
+
+.due-today {
+  color: #e65100;
+  font-weight: 600;
+}
+
+.due-invalid {
+  color: #c62828;
+  border-color: #ef9a9a;
+}
+
+.due-note-error {
+  color: #c62828;
+  font-size: 0.78rem;
+}
+
+.due-note-today {
+  color: #e65100;
+  font-size: 0.78rem;
+}

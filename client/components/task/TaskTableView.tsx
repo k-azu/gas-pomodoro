@@ -12,6 +12,12 @@ import {
 import * as TaskStore from "../../lib/taskStore";
 import { EditIcon, FileIcon } from "../shared/Icons";
 import { ItemPicker } from "../shared/ItemPicker";
+import {
+  DUE_BEFORE_START_MESSAGE,
+  formatLocalDate,
+  getDueState,
+  isDueBeforeStart,
+} from "../../lib/taskDueState";
 import s from "./TaskTableView.module.css";
 
 const STATUS_ORDER: Record<string, number> = {
@@ -304,13 +310,6 @@ function matchDueFilter(task: TaskItem, filter: DueFilter): boolean {
   return true;
 }
 
-function formatLocalDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function CaseTable({
   tasks,
   caseId,
@@ -537,6 +536,22 @@ function TaskTableRow({
 }) {
   const [renaming, setRenaming] = useState(false);
   const sc = STATUS_CONFIG[task.status] || STATUS_CONFIG.todo;
+  const dueState = getDueState(task);
+  const dueBeforeStart = isDueBeforeStart(task);
+  const dueClass = dueBeforeStart
+    ? "due-invalid"
+    : dueState === "overdue"
+      ? "due-overdue"
+      : dueState === "today"
+        ? "due-today"
+        : null;
+  const dueTitle = dueBeforeStart
+    ? DUE_BEFORE_START_MESSAGE
+    : dueState === "overdue"
+      ? "期限切れ"
+      : dueState === "today"
+        ? "今日が期限"
+        : undefined;
 
   return (
     <tr className={s["task-table-row"]} onClick={() => tasks.selectNode("task", task.id)}>
@@ -654,7 +669,8 @@ function TaskTableRow({
       <td onClick={(e) => e.stopPropagation()}>
         <input
           type="date"
-          className={s["task-table-date-input"]}
+          className={`${s["task-table-date-input"]}${dueClass ? ` ${s[dueClass]}` : ""}`}
+          title={dueTitle}
           value={task.dueDate ? task.dueDate.slice(0, 10) : ""}
           onChange={(e) => tasks.updateTaskFields(task.id, { dueDate: e.target.value || "" })}
         />

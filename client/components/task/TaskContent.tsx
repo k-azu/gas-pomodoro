@@ -23,6 +23,7 @@ import { DocumentContentConflict } from "../shared/DocumentContentConflict";
 import { OpenDocumentWindowButton } from "../shared/OpenDocumentWindowButton";
 import { ArchivedBadge } from "../shared/ArchivedBadge";
 import { TaskTableView } from "./TaskTableView";
+import { DUE_BEFORE_START_MESSAGE, getDueState, isDueBeforeStart } from "../../lib/taskDueState";
 import s from "./TaskContent.module.css";
 import * as TaskStore from "../../lib/taskStore";
 import * as DocumentStore from "../../lib/documentStore";
@@ -486,6 +487,8 @@ function TaskMeta({
   if (!entity) return null;
 
   const sc = STATUS_CONFIG[entity.status] || STATUS_CONFIG.todo;
+  const dueState = getDueState(entity);
+  const dueBeforeStart = isDueBeforeStart(entity);
 
   return (
     <>
@@ -537,10 +540,26 @@ function TaskMeta({
       <RecordField label="期限">
         <input
           type="date"
-          className={s["task-date-input"]}
+          className={`${s["task-date-input"]}${
+            dueBeforeStart
+              ? ` ${s["due-invalid"]}`
+              : dueState
+                ? ` ${s[dueState === "overdue" ? "due-overdue" : "due-today"]}`
+                : ""
+          }`}
           value={entity.dueDate ? entity.dueDate.slice(0, 10) : ""}
           onChange={(e) => tasks.updateTaskFields(id, { dueDate: e.target.value || "" })}
+          aria-invalid={dueBeforeStart || undefined}
         />
+        {dueBeforeStart ? (
+          <span className={s["due-note-error"]} role="alert">
+            {DUE_BEFORE_START_MESSAGE}
+          </span>
+        ) : dueState === "overdue" ? (
+          <span className={s["due-note-error"]}>期限切れ</span>
+        ) : dueState === "today" ? (
+          <span className={s["due-note-today"]}>今日が期限</span>
+        ) : null}
       </RecordField>
     </>
   );
