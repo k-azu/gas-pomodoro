@@ -10,10 +10,13 @@ import { RecordForm } from "../record/RecordForm";
 import { InterruptionForm } from "../record/InterruptionForm";
 import { ViewerPanel } from "../record/ViewerPanel";
 import { SearchPalette } from "../search/SearchPalette";
-import { SearchIcon } from "../shared/Icons";
+import { RefreshIcon, SearchIcon } from "../shared/Icons";
 import { SyncIndicator, type SyncStatus } from "../shared/SyncIndicator";
 import { showErrorToast } from "../../lib/toast";
 import s from "./RightPanel.module.css";
+
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+const SEARCH_SHORTCUT_LABEL = IS_MAC ? "⌘K" : "Ctrl K";
 
 /** Which tabs are visible in each timer phase */
 const TAB_VISIBILITY: Record<Phase, Record<string, boolean>> = {
@@ -140,23 +143,24 @@ export function RightPanel() {
         />
         <button
           type="button"
-          className={s["search-button"]}
+          className={`${s["icon-button"]}${refreshingDocuments ? ` ${s.refreshing}` : ""}`}
           disabled={refreshingDocuments}
           onClick={runRefresh}
           title="文書をサーバーから再読み込み"
+          aria-label={refreshingDocuments ? "更新中..." : "更新"}
         >
-          {refreshingDocuments ? "更新中..." : "更新"}
+          <RefreshIcon size={15} />
         </button>
         <button
           type="button"
           className={s["search-button"]}
           onClick={() => setSearchOpen(true)}
-          title="検索を開く (Ctrl/Cmd+K)"
+          title={`検索を開く (${SEARCH_SHORTCUT_LABEL})`}
           aria-label="検索を開く"
         >
           <SearchIcon size={15} />
           <span>検索</span>
-          <kbd>⌘K</kbd>
+          <kbd>{SEARCH_SHORTCUT_LABEL}</kbd>
         </button>
       </div>
       <div className={s["tab-content"]}>
