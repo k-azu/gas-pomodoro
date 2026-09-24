@@ -81,9 +81,9 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
 
     let cancelled = false;
     if (!hasCachedResults) {
+      // Keep the previous results on screen while the next search runs to avoid flicker.
       setLoading(true);
       setSearchError(null);
-      setResults([]);
     }
 
     const timer = window.setTimeout(() => {
@@ -161,7 +161,8 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
       setSelectedIndex((index) => (index - 1 + results.length) % results.length);
       return;
     }
-    if (event.key === "Enter" && results[selectedIndex]) {
+    // Stale results are shown while loading; don't open one for an outdated query.
+    if (event.key === "Enter" && !loading && results[selectedIndex]) {
       event.preventDefault();
       openResult(results[selectedIndex]);
     }
@@ -216,7 +217,7 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
                 onClick={() => setFilter(item.id)}
               >
                 {item.label}
-                <span className={s.count}>{loading ? "…" : counts[item.id]}</span>
+                <span className={s.count}>{counts[item.id]}</span>
               </button>
             ))}
           </div>
@@ -228,14 +229,20 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
           <span>{resultCountLabel}</span>
         </div>
 
-        <div className={s.results} role="listbox" aria-label="検索結果" aria-busy={loading}>
+        <div
+          className={`${s.results}${loading && results.length > 0 ? ` ${s.stale}` : ""}`}
+          role="listbox"
+          aria-label="検索結果"
+          aria-busy={loading}
+        >
+          {loading && results.length > 0 && <div className={s["loading-bar"]} />}
           {!hasQuery ? (
             <div className={s.empty}>
               <SearchIcon size={28} color="#bdbdbd" />
               <strong>キーワードを入力してください</strong>
               <span>保存済みのメモとタスクを検索します。</span>
             </div>
-          ) : loading ? (
+          ) : loading && results.length === 0 ? (
             <div className={s.empty} role="status">
               <span className={s.spinner} />
               <strong>保存済みの文書を検索しています</strong>
