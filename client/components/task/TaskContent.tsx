@@ -133,6 +133,7 @@ function TaskDocumentContent({
     scrollRef,
     readOnly,
     syncStatus,
+    retrySync,
     contentRevision,
     flushPendingSave,
     contentConflict,
@@ -264,6 +265,7 @@ function TaskDocumentContent({
             id={id}
             tasks={tasks}
             syncStatus={syncStatus}
+            onRetrySync={retrySync}
             archived={isArchivedDocument}
           />
         )}
@@ -273,6 +275,7 @@ function TaskDocumentContent({
             id={id}
             tasks={tasks}
             syncStatus={syncStatus}
+            onRetrySync={retrySync}
             archived={isArchivedDocument}
           />
         )}
@@ -282,6 +285,7 @@ function TaskDocumentContent({
             id={id}
             tasks={tasks}
             syncStatus={syncStatus}
+            onRetrySync={retrySync}
             archived={isArchivedDocument}
           />
         )}
@@ -344,11 +348,13 @@ function ProjectMeta({
   id,
   tasks,
   syncStatus,
+  onRetrySync,
   archived = false,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
+  onRetrySync?: () => void;
   archived?: boolean;
 }) {
   const [entity, setEntity] = useEntity("projects", "project", id);
@@ -383,7 +389,7 @@ function ProjectMeta({
           />
         </span>
         {archived && <span className={s["archived-label"]}>アーカイブ済み</span>}
-        <SyncIndicator status={syncStatus} />
+        <SyncIndicator status={syncStatus} onRetry={onRetrySync} />
       </div>
       <MetaTitle>
         <ContentHeaderName
@@ -402,11 +408,13 @@ function CaseMeta({
   id,
   tasks,
   syncStatus,
+  onRetrySync,
   archived = false,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
+  onRetrySync?: () => void;
   archived?: boolean;
 }) {
   const [entity, setEntity] = useEntity("cases", "case", id);
@@ -417,7 +425,7 @@ function CaseMeta({
     <>
       <div className={s["meta-status-row"]}>
         {archived && <span className={s["archived-label"]}>アーカイブ済み</span>}
-        <SyncIndicator status={syncStatus} />
+        <SyncIndicator status={syncStatus} onRetry={onRetrySync} />
       </div>
       <MetaTitle>
         <ContentHeaderName
@@ -436,11 +444,13 @@ function TaskMeta({
   id,
   tasks,
   syncStatus,
+  onRetrySync,
   archived = false,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
+  onRetrySync?: () => void;
   archived?: boolean;
 }) {
   const [entity, setEntity] = useEntity("tasks", "task", id);
@@ -453,7 +463,7 @@ function TaskMeta({
     <>
       <div className={s["meta-status-row"]}>
         {archived && <span className={s["archived-label"]}>アーカイブ済み</span>}
-        <SyncIndicator status={syncStatus} />
+        <SyncIndicator status={syncStatus} onRetry={onRetrySync} />
       </div>
       <MetaTitle>
         <ContentHeaderName

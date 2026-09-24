@@ -130,7 +130,14 @@ export function RightPanel() {
           );
         })}
         <div className={s["tab-spacer"]} />
-        <SyncIndicator status={metadataSyncStatus} />
+        <SyncIndicator
+          status={metadataSyncStatus}
+          onRetry={() => {
+            setMetadataSyncStatus("syncing");
+            // Failures re-emit metadataError, which restores the error state.
+            void DocumentStore.waitForAllMetadata().catch(() => {});
+          }}
+        />
         <button
           type="button"
           className={s["search-button"]}

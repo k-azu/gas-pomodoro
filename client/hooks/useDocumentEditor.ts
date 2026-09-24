@@ -47,6 +47,7 @@ export function useDocumentEditor({
 }: UseDocumentEditorOptions) {
   const [charCount, setCharCount] = useState(0);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [savingForTransition, setSavingForTransition] = useState(false);
   const [contentReady, setContentReady] = useState(false);
   const [contentRevision, setContentRevision] = useState(0);
@@ -111,7 +112,7 @@ export function useDocumentEditor({
           setSyncStatus("synced");
           window.setTimeout(
             () => setSyncStatus((value) => (value === "synced" ? "idle" : value)),
-            400,
+            1500,
           );
         }
       } catch (error) {
@@ -344,7 +345,25 @@ export function useDocumentEditor({
     return () => {
       cancelled = true;
     };
-  }, [clearHandoffRecoveryTimer, id, loadContent, resetContent, scope, setMode, transformOnLoad]);
+  }, [
+    clearHandoffRecoveryTimer,
+    id,
+    loadAttempt,
+    loadContent,
+    resetContent,
+    scope,
+    setMode,
+    transformOnLoad,
+  ]);
+
+  /** Retry after a sync error: resend unsaved content, otherwise reload from the store. */
+  const retrySync = useCallback(() => {
+    if (dirtyRef.current) {
+      void flushPendingSave();
+    } else {
+      setLoadAttempt((attempt) => attempt + 1);
+    }
+  }, [flushPendingSave]);
 
   const keepLocalConflict = useCallback(async (): Promise<void> => {
     const conflict = conflictRef.current;
@@ -467,6 +486,7 @@ export function useDocumentEditor({
     handoffEditLease,
     canOpenInNewTab: lockSupported && ownsEditLock && !forceReadOnly && contentReady,
     flushPendingSave,
+    retrySync,
     savingForTransition,
   };
 }

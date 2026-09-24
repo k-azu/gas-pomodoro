@@ -87,6 +87,7 @@ export function MemoTab({
     scrollRef,
     readOnly,
     syncStatus,
+    retrySync,
     contentRevision,
     contentConflict,
     keepLocalConflict,
@@ -295,7 +296,7 @@ export function MemoTab({
               {isArchivedSearchDocument ? (
                 <span className={s["archived-label"]}>アーカイブ済み・読み取り専用</span>
               ) : (
-                <SyncIndicator status={syncStatus} />
+                <SyncIndicator status={syncStatus} onRetry={retrySync} />
               )}
             </div>
             <MetaTitle>
