@@ -260,7 +260,7 @@ export function HierarchicalTaskPicker({
           selected={selectedCaseLabel}
           onSelect={handleCaseSelect}
           placeholder="検索..."
-          emptyLabel="ケース"
+          emptyLabel="案件"
           compact
         />
         <span className={s["hierarchy-sep"]}>/</span>

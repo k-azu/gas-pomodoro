@@ -6,7 +6,7 @@ export type CreateDocumentType = "memo" | "project" | "case" | "task";
 const TYPE_LABELS: Record<CreateDocumentType, string> = {
   memo: "メモ",
   project: "プロジェクト",
-  case: "ケース",
+  case: "案件",
   task: "タスク",
 };
 
