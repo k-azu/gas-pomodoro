@@ -136,12 +136,6 @@
   font-weight: 700;
 }
 
-.all-tasks-header p {
-  margin: 2px 0 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
 .all-tasks-body {
   flex: 1;
   min-height: 0;

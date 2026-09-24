@@ -81,10 +81,7 @@ function AllTasksContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskConte
         <span className={s["all-tasks-header-icon"]}>
           <TaskListIcon size={20} color="#1976d2" />
         </span>
-        <div>
-          <h2>全タスク</h2>
-          <p>全プロジェクトの未完了タスクを優先度順に表示します</p>
-        </div>
+        <h2>全タスク</h2>
       </div>
       <div className={s["all-tasks-body"]}>
         <TaskTableView tasks={tasks} parentType="all" parentId="all" />
