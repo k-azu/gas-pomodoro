@@ -27,8 +27,11 @@ interface AppContextValue {
   /** Save a break record to the server + IDB cache */
   saveBreakRecord: (timerState: import("../types").TimerState) => Promise<void>;
   refreshDocuments: () => Promise<boolean>;
-  /** Add a category locally and on the server (reverted if the server rejects it) */
-  addCategory: (sheetType: CategorySheetType, name: string, color: string) => void;
+  /**
+   * Add a category locally and on the server. Resolves false (after reverting the local
+   * list) when the server rejects it, so callers can drop the name from their selection.
+   */
+  addCategory: (sheetType: CategorySheetType, name: string, color: string) => Promise<boolean>;
   /** Change a category color locally and on the server */
   updateCategoryColor: (sheetType: CategorySheetType, name: string, color: string) => void;
 }
@@ -126,7 +129,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const { setCategories, setInterruptionCategories } = timer;
 
   const addCategory = useCallback(
-    (sheetType: CategorySheetType, name: string, color: string) => {
+    (sheetType: CategorySheetType, name: string, color: string): Promise<boolean> => {
       const setList = sheetType === "Categories" ? setCategories : setInterruptionCategories;
       setList((prev) =>
         prev.some((c) => c.name === name)
@@ -134,18 +137,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           : [...prev, { name, color, sortOrder: prev.length + 1, isActive: true }],
       );
       const fn = sheetType === "Categories" ? "addCategory" : "addInterruptionCategory";
-      serverCall(fn, name, color)
+      return serverCall(fn, name, color)
         .then((result) => {
           const r = result as { success?: boolean; message?: string } | null;
           // A duplicate on the server still means the category exists there.
           if (!r?.success && r?.message !== "カテゴリが既に存在します") {
             throw new Error(r?.message || "カテゴリを追加できませんでした");
           }
+          return true;
         })
         .catch((err) => {
           console.error("Category creation failed:", err);
           setList((prev) => prev.filter((c) => c.name !== name));
           showErrorToast(`カテゴリ「${name}」を追加できませんでした: ${errorMessage(err)}`);
+          return false;
         });
     },
     [setCategories, setInterruptionCategories],

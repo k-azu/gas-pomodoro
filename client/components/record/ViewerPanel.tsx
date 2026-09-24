@@ -485,7 +485,11 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
               selected={selectedCategory}
               onSelect={setSelectedCategory}
               onCreateItem={(name, color) => {
-                if (vs.sheetType) addCategory(vs.sheetType, name, color);
+                if (!vs.sheetType) return;
+                void addCategory(vs.sheetType, name, color).then((ok) => {
+                  // Don't keep a category that doesn't exist on the server selected.
+                  if (!ok) setSelectedCategory((prev) => prev.filter((c) => c !== name));
+                });
               }}
               onColorChange={(name, color) => {
                 if (vs.sheetType) updateCategoryColor(vs.sheetType, name, color);

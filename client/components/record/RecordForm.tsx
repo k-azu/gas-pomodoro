@@ -310,7 +310,12 @@ export function RecordForm() {
             items={state.categories}
             selected={selectedCategory}
             onSelect={setSelectedCategory}
-            onCreateItem={(name, color) => addCategory("Categories", name, color)}
+            onCreateItem={(name, color) =>
+              void addCategory("Categories", name, color).then((ok) => {
+                // Don't keep a category that doesn't exist on the server selected.
+                if (!ok) setSelectedCategory((prev) => prev.filter((c) => c !== name));
+              })
+            }
             onColorChange={(name, color) => updateCategoryColor("Categories", name, color)}
             placeholder="カテゴリを検索 / 作成..."
           />

@@ -114,7 +114,12 @@ export function InterruptionForm() {
             items={state.interruptionCategories}
             selected={selectedCategory}
             onSelect={setSelectedCategory}
-            onCreateItem={(name, color) => addCategory("InterruptionCategories", name, color)}
+            onCreateItem={(name, color) =>
+              void addCategory("InterruptionCategories", name, color).then((ok) => {
+                // Don't keep a category that doesn't exist on the server selected.
+                if (!ok) setSelectedCategory((prev) => prev.filter((c) => c !== name));
+              })
+            }
             onColorChange={(name, color) =>
               updateCategoryColor("InterruptionCategories", name, color)
             }
