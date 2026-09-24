@@ -18,6 +18,7 @@ import {
   getDueState,
   isDueBeforeStart,
 } from "../../lib/taskDueState";
+import { STORAGE_KEYS, lsGetJSON, lsSetJSON } from "../../lib/localStorage";
 import s from "./TaskTableView.module.css";
 
 const STATUS_ORDER: Record<string, number> = {
@@ -72,9 +73,31 @@ type DueFilter = "all" | "overdue" | "today" | "next7" | "none";
 const DEFAULT_ALL_TASK_STATUS_FILTERS = ["doing", "review", "todo", "pending"];
 const ALL_TASK_STATUS_FILTER_ORDER = ["doing", "review", "todo", "pending", "done", "docs"];
 
+const DUE_FILTERS: readonly DueFilter[] = ["all", "overdue", "today", "next7", "none"];
+
+interface AllTasksFilters {
+  status: string[];
+  due: DueFilter;
+}
+
+/** Restore the filters saved from the previous visit, ignoring unknown values. */
+function loadAllTasksFilters(): AllTasksFilters {
+  const saved = lsGetJSON<Partial<AllTasksFilters>>(STORAGE_KEYS.ALL_TASKS_FILTERS);
+  const status = Array.isArray(saved?.status)
+    ? saved.status.filter((item) => ALL_TASK_STATUS_FILTER_ORDER.includes(item))
+    : DEFAULT_ALL_TASK_STATUS_FILTERS;
+  const due = saved?.due && DUE_FILTERS.includes(saved.due) ? saved.due : "all";
+  return { status, due };
+}
+
 function AllProjectsTable({ tasks }: { tasks: UseTasksReturn }) {
-  const [statusFilters, setStatusFilters] = useState<string[]>(DEFAULT_ALL_TASK_STATUS_FILTERS);
-  const [dueFilter, setDueFilter] = useState<DueFilter>("all");
+  const [initialFilters] = useState(loadAllTasksFilters);
+  const [statusFilters, setStatusFilters] = useState<string[]>(initialFilters.status);
+  const [dueFilter, setDueFilter] = useState<DueFilter>(initialFilters.due);
+
+  useEffect(() => {
+    lsSetJSON(STORAGE_KEYS.ALL_TASKS_FILTERS, { status: statusFilters, due: dueFilter });
+  }, [statusFilters, dueFilter]);
   const projectNameById = new Map(tasks.projects.map((p) => [p.id, p.name]));
   const caseNameById = new Map(tasks.allCases.map((c) => [c.id, c.name]));
   const activeProjectIds = new Set(tasks.projects.map((p) => p.id));
