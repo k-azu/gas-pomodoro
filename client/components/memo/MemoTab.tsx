@@ -243,13 +243,12 @@ export function MemoTab({
           }
           onReorder={memo.reorderMemos}
           onContextMenu={handleContextMenu}
-          searchFilter={(item, q) => item.name.toLowerCase().includes(q)}
           collapsed={sidebarCollapsed}
           onToggle={toggleSidebar}
           width={sidebarWidth.width}
           onWidthChange={sidebarWidth.onWidthChange}
           onWidthChangeEnd={sidebarWidth.onWidthChangeEnd}
-          emptyLabel="メモがありません"
+          emptyLabel={activeTagFilter ? "このタグのメモはありません" : "メモがありません"}
           extraFilter={extraFilter}
           filterSlot={filterSlot}
           disabled={memo.isLoading}
