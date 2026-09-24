@@ -25,6 +25,7 @@ import { DocumentContentConflict } from "../shared/DocumentContentConflict";
 import { OpenDocumentWindowButton } from "../shared/OpenDocumentWindowButton";
 import { SaveOverlay } from "../shared/SaveOverlay";
 import { CreateDocumentModal } from "../shared/CreateDocumentModal";
+import { TextInputDialog } from "../shared/Dialog";
 import * as MemoStore from "../../lib/memoStore";
 import * as DocumentStore from "../../lib/documentStore";
 import s from "./MemoTab.module.css";
@@ -50,6 +51,7 @@ export function MemoTab({
   } | null>(null);
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [newTagMemoId, setNewTagMemoId] = useState<string | null>(null);
   const activeId = standalone && documentId ? documentId : memo.activeId;
   const liveActiveMemo = memo.memos.find((item) => item.id === activeId);
   const standaloneEntity =
@@ -177,13 +179,7 @@ export function MemoTab({
             })),
             {
               label: "+ 新しいタグ",
-              onClick: () => {
-                const name = prompt("タグ名:");
-                if (name?.trim()) {
-                  memo.addTag(name.trim());
-                  memo.addTagToMemo(contextMenu.item.id, name.trim());
-                }
-              },
+              onClick: () => setNewTagMemoId(contextMenu.item.id),
             },
           ],
         },
@@ -357,6 +353,19 @@ export function MemoTab({
           position={contextMenu.pos}
           sections={contextMenuSections}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+      {newTagMemoId && (
+        <TextInputDialog
+          title="新しいタグ"
+          label="タグ名"
+          confirmLabel="追加"
+          onCancel={() => setNewTagMemoId(null)}
+          onSubmit={(name) => {
+            memo.addTag(name);
+            memo.addTagToMemo(newTagMemoId, name);
+            setNewTagMemoId(null);
+          }}
         />
       )}
       {createModalOpen && (

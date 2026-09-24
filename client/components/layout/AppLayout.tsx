@@ -5,6 +5,7 @@ import s from "./AppLayout.module.css";
 import { MemoTab } from "../memo/MemoTab";
 import { TaskTab } from "../task/TaskTab";
 import { readCurrentStandaloneDocumentTarget } from "../../lib/documentWindow";
+import { ToastViewport } from "../shared/Toast";
 
 export function AppLayout() {
   const { isLoading, error } = useApp();
@@ -35,6 +36,7 @@ export function AppLayout() {
         ) : (
           <TaskTab standalone documentNode={standaloneTarget.taskNode} />
         )}
+        <ToastViewport />
       </div>
     );
   }
@@ -43,6 +45,7 @@ export function AppLayout() {
     <div className={s["app-layout"]}>
       <LeftPanel />
       <RightPanel />
+      <ToastViewport />
     </div>
   );
 }

@@ -32,5 +32,13 @@
 ## 共通コンポーネント
 
 - 複数の feature コンポーネントで繰り返される UI パターンは `client/components/shared/` に抽出する
-- 既存の共通コンポーネント: `RecordField`, `FormActions`, `ItemPicker`, `ContextMenu`, `PanelToolbar`
+- 既存の共通コンポーネント: `RecordField`, `FormActions`, `ItemPicker`, `ContextMenu`, `PanelToolbar`, `Dialog`（`ConfirmDialog` / `TextInputDialog`）, `Toast`
 - グローバル CSS で「複数ファイルで使うから」と残す前に、共通コンポーネント化を検討する
+
+## 確認とフィードバック
+
+- `alert()` / `confirm()` / `prompt()` は使わない（例外: タイマーの時間到達通知は別タブでも気づけるよう `alert()` を使う）
+- 取り消せる操作（アーカイブなど）は確認なしで即実行し、「元に戻す」付きのトースト（`showToast`）を出す
+- 取り消せない操作は `ConfirmDialog` で確認する
+- 失敗は `showErrorToast`（再試行できるなら retry を渡す）で知らせる
+- 文字入力が必要なら `TextInputDialog` を使う
