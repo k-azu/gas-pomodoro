@@ -21,3 +21,10 @@
   line-height: 1.6;
 }
 
+
+.viewer-heading {
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+}

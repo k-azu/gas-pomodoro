@@ -28,6 +28,7 @@ import {
 import type { ViewerDraft } from "../../lib/viewerDraft";
 import { SaveOverlay } from "../shared/SaveOverlay";
 import { DialogShell } from "../shared/Dialog";
+import { formatLabel } from "../../hooks/useDateSelector";
 import { errorMessage, showErrorToast } from "../../lib/toast";
 import s from "./ViewerPanel.module.css";
 
@@ -460,6 +461,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
         placeholder=""
         onImageUpload={editorConfig.editorProps.onImageUpload}
       >
+        <div className={s["viewer-heading"]}>{describeViewerSource(vs)}</div>
         {vs.startTime && vs.endTime && (
           <RecordField label="時間">
             <TimeInputGroup
@@ -561,6 +563,21 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       )}
     </div>
   );
+}
+
+/** Heading such as "作業記録 · 9月24日(水) 10:00" so the viewer shows which record is open. */
+function describeViewerSource(vs: ViewerState): string {
+  const kind =
+    vs.recordType === "interruption"
+      ? "中断"
+      : vs.recordType === "record"
+        ? "作業記録"
+        : vs.interruptionType
+          ? "中断（記録前）"
+          : "履歴";
+  const local = toDatetimeLocal(vs.startTime);
+  if (!local) return kind;
+  return `${kind} · ${formatLabel(local.slice(0, 10))} ${local.slice(11)}`;
 }
 
 /** Convert ISO string to datetime-local input value (YYYY-MM-DDTHH:MM) */
