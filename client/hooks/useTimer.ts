@@ -58,6 +58,9 @@ function loadSavedState(): TimerState {
   return result;
 }
 
+type CategoryList = TimerState["categories"];
+type CategoryListUpdate = CategoryList | ((prev: CategoryList) => CategoryList);
+
 export interface UseTimerReturn {
   state: TimerState;
   startWork: () => void;
@@ -80,8 +83,8 @@ export interface UseTimerReturn {
     >,
   ) => void;
   setConfigPatterns: (patterns: TimerConfig[]) => void;
-  setCategories: (cats: TimerState["categories"]) => void;
-  setInterruptionCategories: (cats: TimerState["interruptionCategories"]) => void;
+  setCategories: (cats: CategoryListUpdate) => void;
+  setInterruptionCategories: (cats: CategoryListUpdate) => void;
   clearState: () => void;
   saveState: () => void;
   /** Get formatted display time string */
@@ -457,12 +460,18 @@ export function useTimer(
     [persistState],
   );
 
-  const setCategories = useCallback((cats: TimerState["categories"]) => {
-    setState((prev) => ({ ...prev, categories: cats }));
+  const setCategories = useCallback((cats: CategoryListUpdate) => {
+    setState((prev) => ({
+      ...prev,
+      categories: typeof cats === "function" ? cats(prev.categories) : cats,
+    }));
   }, []);
 
-  const setInterruptionCategories = useCallback((cats: TimerState["interruptionCategories"]) => {
-    setState((prev) => ({ ...prev, interruptionCategories: cats }));
+  const setInterruptionCategories = useCallback((cats: CategoryListUpdate) => {
+    setState((prev) => ({
+      ...prev,
+      interruptionCategories: typeof cats === "function" ? cats(prev.interruptionCategories) : cats,
+    }));
   }, []);
 
   // --- Derived display values ---

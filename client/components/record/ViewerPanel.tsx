@@ -39,7 +39,7 @@ export function ViewerPanel() {
 }
 
 function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
-  const { timer } = useApp();
+  const { timer, addCategory, updateCategoryColor } = useApp();
   const { closeViewer, navigateToDocument, setViewerSaving, registerViewerExitGuard } =
     useNavigation();
   const editorConfig = useEditorConfig();
@@ -475,10 +475,11 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
               items={categories}
               selected={selectedCategory}
               onSelect={setSelectedCategory}
+              onCreateItem={(name, color) => {
+                if (vs.sheetType) addCategory(vs.sheetType, name, color);
+              }}
               onColorChange={(name, color) => {
-                if (vs.sheetType) {
-                  serverCall("updateCategoryColor", name, color, vs.sheetType);
-                }
+                if (vs.sheetType) updateCategoryColor(vs.sheetType, name, color);
               }}
               placeholder="カテゴリを検索 / 作成..."
             />

@@ -14,7 +14,6 @@ import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { useFormDraft } from "../../hooks/useFormDraft";
 import { STORAGE_KEYS } from "../../lib/localStorage";
 import { blobUrlsToDrive } from "../../lib/imageCache";
-import { serverCall } from "../../lib/serverCall";
 import s from "./InterruptionForm.module.css";
 
 interface InterruptionDraft {
@@ -24,7 +23,7 @@ interface InterruptionDraft {
 }
 
 export function InterruptionForm() {
-  const { timer } = useApp();
+  const { timer, addCategory, updateCategoryColor } = useApp();
   const editorConfig = useEditorConfig();
   const { state } = timer;
 
@@ -112,9 +111,10 @@ export function InterruptionForm() {
             items={state.interruptionCategories}
             selected={selectedCategory}
             onSelect={setSelectedCategory}
-            onColorChange={(name, color) => {
-              serverCall("updateCategoryColor", name, color, "InterruptionCategories");
-            }}
+            onCreateItem={(name, color) => addCategory("InterruptionCategories", name, color)}
+            onColorChange={(name, color) =>
+              updateCategoryColor("InterruptionCategories", name, color)
+            }
             placeholder="カテゴリを検索 / 作成..."
           />
         </RecordField>

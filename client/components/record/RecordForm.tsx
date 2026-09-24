@@ -31,7 +31,7 @@ interface RecordDraft {
 }
 
 export function RecordForm() {
-  const { timer } = useApp();
+  const { timer, addCategory, updateCategoryColor } = useApp();
   const nav = useNavigation();
   const editorConfig = useEditorConfig();
   const { state } = timer;
@@ -221,11 +221,6 @@ export function RecordForm() {
         );
         const intRecords = buildInterruptionRecords(state, record.id);
 
-        // Ensure category exists
-        if (category) {
-          await ensureCategory(category, state.categories);
-        }
-
         // Save to server in parallel
         await Promise.all([
           serverCall("saveRecord", record),
@@ -295,9 +290,8 @@ export function RecordForm() {
             items={state.categories}
             selected={selectedCategory}
             onSelect={setSelectedCategory}
-            onColorChange={(name, color) => {
-              serverCall("updateCategoryColor", name, color, "Categories");
-            }}
+            onCreateItem={(name, color) => addCategory("Categories", name, color)}
+            onColorChange={(name, color) => updateCategoryColor("Categories", name, color)}
             placeholder="カテゴリを検索 / 作成..."
           />
         </RecordField>
@@ -437,13 +431,4 @@ function buildInterruptionRecords(
     category: i.category || "",
     content: i.content || "",
   }));
-}
-
-async function ensureCategory(category: string, existing: { name: string }[]) {
-  if (!category) return;
-  if (existing.some((c) => c.name === category)) return;
-  const result = (await serverCall("addCategory", category, "#757575")) as any;
-  if (result?.success) {
-    await serverCall("getCategories");
-  }
 }
