@@ -9,7 +9,6 @@ import { serverCall } from "../lib/serverCall";
 
 const EMPTY_STATS: TodayStats = {
   completedPomodoros: 0,
-  abandonedPomodoros: 0,
   totalWorkSeconds: 0,
   totalBreakSeconds: 0,
   totalWorkInterruptionSeconds: 0,

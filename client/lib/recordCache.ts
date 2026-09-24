@@ -152,7 +152,6 @@ export async function upsertRecordWithInterruptions(
 export function computeStatsFromRecords(records: PomodoroRecord[]): TodayStats {
   const stats: TodayStats = {
     completedPomodoros: 0,
-    abandonedPomodoros: 0,
     totalWorkSeconds: 0,
     totalBreakSeconds: 0,
     totalWorkInterruptionSeconds: 0,
@@ -161,8 +160,8 @@ export function computeStatsFromRecords(records: PomodoroRecord[]): TodayStats {
 
   for (const r of records) {
     if (r.type === "work") {
-      if (r.completionStatus === "completed") stats.completedPomodoros++;
-      else if (r.completionStatus === "abandoned") stats.abandonedPomodoros++;
+      // Saving a record is the intended way to finish a pomodoro, so every work record counts.
+      stats.completedPomodoros++;
       stats.totalWorkSeconds +=
         r.actualDurationSeconds - r.workInterruptionSeconds - r.nonWorkInterruptionSeconds;
       stats.totalWorkInterruptionSeconds += r.workInterruptionSeconds;

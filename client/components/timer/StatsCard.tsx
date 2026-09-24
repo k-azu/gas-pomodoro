@@ -20,12 +20,7 @@ export function StatsCard({ stats, isLoading }: { stats: TodayStats; isLoading?:
       <h3>集計</h3>
       <div className={s["stats-grid"]}>
         <div className={s["stats-item"]}>
-          <div className={s["stats-value"]}>
-            {stats.completedPomodoros}
-            {stats.abandonedPomodoros > 0 && (
-              <span className={s["stats-abandoned"]}> / {stats.abandonedPomodoros}</span>
-            )}
-          </div>
+          <div className={s["stats-value"]}>{stats.completedPomodoros}</div>
           <div className={s["stats-label"]}>完了</div>
         </div>
         <div className={s["stats-item"]}>

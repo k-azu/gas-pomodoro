@@ -207,8 +207,6 @@ export function RecordForm() {
         const category = selectedCategory[0] || "";
         const startTime = new Date(state.startTimestamp!);
         const actualSeconds = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
-        const completionStatus =
-          state.elapsedSeconds >= state.totalSeconds ? "completed" : "abandoned";
 
         const record = buildRecord(
           state,
@@ -217,7 +215,6 @@ export function RecordForm() {
           startTime,
           endTime,
           actualSeconds,
-          completionStatus,
           selectedProjectId,
           selectedCaseId,
           selectedTaskId,
@@ -390,7 +387,6 @@ function buildRecord(
   startTime: Date,
   endTime: Date,
   actualSeconds: number,
-  completionStatus: string,
   projectId: string | null,
   caseId: string | null,
   taskId: string | null,
@@ -418,7 +414,8 @@ function buildRecord(
     nonWorkInterruptions: nonWorkCount,
     workInterruptionSeconds: workIntSeconds,
     nonWorkInterruptionSeconds: nonWorkIntSeconds,
-    completionStatus,
+    // The column is kept for spreadsheet compatibility; early finishes are normal records.
+    completionStatus: "completed",
     pomodoroSetIndex: state.pomodoroSetIndex,
     taskId: taskId || "",
     projectId: projectId || "",

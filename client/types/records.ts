@@ -32,7 +32,6 @@ export interface InterruptionRecord {
 
 export interface TodayStats {
   completedPomodoros: number;
-  abandonedPomodoros: number;
   totalWorkSeconds: number;
   totalBreakSeconds: number;
   totalWorkInterruptionSeconds: number;

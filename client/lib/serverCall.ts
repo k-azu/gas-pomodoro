@@ -161,8 +161,7 @@ const MOCK_INTERRUPTIONS = [
 ];
 
 const MOCK_STATS = {
-  completedPomodoros: 2,
-  abandonedPomodoros: 1,
+  completedPomodoros: 3,
   totalWorkSeconds: 3900,
   totalBreakSeconds: 600,
   totalWorkInterruptionSeconds: 60,
@@ -780,7 +779,6 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
       return {
         todayStats: {
           completedPomodoros: 2,
-          abandonedPomodoros: 0,
           totalWorkSeconds: 3000,
           totalBreakSeconds: 600,
           totalWorkInterruptionSeconds: 0,
