@@ -1,0 +1,32 @@
+.container {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.label {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #efebe9;
+  color: #6d4c41;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.restore {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.restore:hover {
+  border-color: #bdbdbd;
+  color: var(--text);
+}

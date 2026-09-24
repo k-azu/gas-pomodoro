@@ -133,7 +133,7 @@ export interface UseTasksReturn {
   getArchivedDirectTasks: (projectId: string) => TaskItem[];
   unarchiveProject: (projectId: string) => Promise<void>;
   unarchiveCase: (caseId: string) => Promise<void>;
-  unarchiveTask: (taskId: string, status: TaskStatus) => Promise<void>;
+  unarchiveTask: (taskId: string, status?: TaskStatus) => Promise<void>;
 
   isLoading: boolean;
 }
@@ -551,7 +551,7 @@ export function useTasks(): UseTasksReturn {
   );
 
   const unarchiveTask = useCallback(
-    (taskId: string, status: TaskStatus) =>
+    (taskId: string, status?: TaskStatus) =>
       runReactivation(() => TaskStore.unarchiveTask(taskId, status)),
     [runReactivation],
   );

@@ -21,6 +21,7 @@ import { SyncIndicator, type SyncStatus } from "../shared/SyncIndicator";
 import { DocumentSearchNavigation } from "../search/DocumentSearchNavigation";
 import { DocumentContentConflict } from "../shared/DocumentContentConflict";
 import { OpenDocumentWindowButton } from "../shared/OpenDocumentWindowButton";
+import { ArchivedBadge } from "../shared/ArchivedBadge";
 import { TaskTableView } from "./TaskTableView";
 import s from "./TaskContent.module.css";
 import * as TaskStore from "../../lib/taskStore";
@@ -115,12 +116,26 @@ function TaskDocumentContent({
   const hiddenByArchivedParent =
     (projectId && DocumentStore.get("projects", projectId)?.isActive === false) ||
     (caseId && DocumentStore.get("cases", caseId)?.isActive === false);
+  const selfArchived = selectedEntity?.isActive === false;
   const isArchivedDocument =
-    selectedEntity?.isActive === false ||
+    selfArchived ||
     Boolean(hiddenByArchivedParent) ||
     (nav.searchOpenedDocument?.type === type &&
       nav.searchOpenedDocument.id === id &&
       nav.searchOpenedDocument.isArchived);
+
+  const restoreSelected = () => {
+    if (type === "project") void tasks.unarchiveProject(id);
+    else if (type === "case") void tasks.unarchiveCase(id);
+    else void tasks.unarchiveTask(id);
+  };
+  // Only the document's own archive can be undone here; an archived parent is restored from it.
+  const archiveBadge = isArchivedDocument ? (
+    <ArchivedBadge
+      onRestore={selfArchived ? restoreSelected : undefined}
+      title={selfArchived ? undefined : "親のプロジェクトまたは案件がアーカイブされています"}
+    />
+  ) : null;
 
   // --- Single useDocumentEditor instance ---
   const {
@@ -266,7 +281,7 @@ function TaskDocumentContent({
             tasks={tasks}
             syncStatus={syncStatus}
             onRetrySync={retrySync}
-            archived={isArchivedDocument}
+            archiveBadge={archiveBadge}
           />
         )}
         {type === "case" && (
@@ -276,7 +291,7 @@ function TaskDocumentContent({
             tasks={tasks}
             syncStatus={syncStatus}
             onRetrySync={retrySync}
-            archived={isArchivedDocument}
+            archiveBadge={archiveBadge}
           />
         )}
         {type === "task" && (
@@ -286,7 +301,7 @@ function TaskDocumentContent({
             tasks={tasks}
             syncStatus={syncStatus}
             onRetrySync={retrySync}
-            archived={isArchivedDocument}
+            archiveBadge={archiveBadge}
           />
         )}
       </EditorLayout>
@@ -349,13 +364,13 @@ function ProjectMeta({
   tasks,
   syncStatus,
   onRetrySync,
-  archived = false,
+  archiveBadge,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
   onRetrySync?: () => void;
-  archived?: boolean;
+  archiveBadge?: React.ReactNode;
 }) {
   const [entity, setEntity] = useEntity("projects", "project", id);
   const colorRef = useRef<HTMLInputElement>(null);
@@ -388,7 +403,7 @@ function ProjectMeta({
             }}
           />
         </span>
-        {archived && <span className={s["archived-label"]}>アーカイブ済み</span>}
+        {archiveBadge}
         <SyncIndicator status={syncStatus} onRetry={onRetrySync} />
       </div>
       <MetaTitle>
@@ -409,13 +424,13 @@ function CaseMeta({
   tasks,
   syncStatus,
   onRetrySync,
-  archived = false,
+  archiveBadge,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
   onRetrySync?: () => void;
-  archived?: boolean;
+  archiveBadge?: React.ReactNode;
 }) {
   const [entity, setEntity] = useEntity("cases", "case", id);
 
@@ -424,7 +439,7 @@ function CaseMeta({
   return (
     <>
       <div className={s["meta-status-row"]}>
-        {archived && <span className={s["archived-label"]}>アーカイブ済み</span>}
+        {archiveBadge}
         <SyncIndicator status={syncStatus} onRetry={onRetrySync} />
       </div>
       <MetaTitle>
@@ -445,13 +460,13 @@ function TaskMeta({
   tasks,
   syncStatus,
   onRetrySync,
-  archived = false,
+  archiveBadge,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
   onRetrySync?: () => void;
-  archived?: boolean;
+  archiveBadge?: React.ReactNode;
 }) {
   const [entity, setEntity] = useEntity("tasks", "task", id);
 
@@ -462,7 +477,7 @@ function TaskMeta({
   return (
     <>
       <div className={s["meta-status-row"]}>
-        {archived && <span className={s["archived-label"]}>アーカイブ済み</span>}
+        {archiveBadge}
         <SyncIndicator status={syncStatus} onRetry={onRetrySync} />
       </div>
       <MetaTitle>

@@ -225,9 +225,6 @@ function putDocumentContent(request: PutDocumentContentRequest): DocumentContent
     if (current.lastMutationId === request.mutationId) {
       return { status: "applied", mutationId: request.mutationId, snapshot: current };
     }
-    if (storeName === "memos" && values[config.isActiveColumn - 1] !== true) {
-      return { status: "missing", mutationId: request.mutationId };
-    }
     if (current.revision !== request.expectedRevision) {
       return { status: "conflict", mutationId: request.mutationId, snapshot: current };
     }
@@ -307,17 +304,6 @@ function patchDocumentMetadata(
     const current = readMetadataSnapshotValues(values, request.documentKey, storeName, config);
     if (current.lastMutationId === request.mutationId) {
       return { status: "applied", mutationId: request.mutationId, snapshot: current };
-    }
-    if (
-      storeName === "memos" &&
-      current.metadata.isActive === false &&
-      !(fields.length === 1 && request.patch.isActive === true)
-    ) {
-      return {
-        status: "rejected",
-        mutationId: request.mutationId,
-        reason: "archived document is read-only",
-      };
     }
     if (current.revision !== request.expectedRevision) {
       return { status: "conflict", mutationId: request.mutationId, snapshot: current };

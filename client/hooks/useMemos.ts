@@ -30,6 +30,8 @@ export interface UseMemosReturn {
   createMemo: (name: string) => Promise<void>;
   /** Archive (hide) a memo; shows an undo toast. */
   archiveMemo: (id: string) => Promise<void>;
+  /** Unarchive a memo so it reappears in the sidebar. */
+  restoreMemo: (id: string) => Promise<void>;
   renameMemo: (id: string, name: string) => void;
   reorderMemos: (ids: string[]) => void;
   addTagToMemo: (id: string, tag: string) => void;
@@ -74,7 +76,11 @@ export function useMemos(): UseMemosReturn {
     refreshFromStore().then((list) => {
       const saved = lsGet(STORAGE_KEYS.MEMO_ACTIVE);
       let id: string | null = null;
-      if (saved && list.some((m: MemoItem) => m.id === saved)) {
+      // An archived memo (opened from search) stays selected across reloads.
+      if (
+        saved &&
+        (list.some((m: MemoItem) => m.id === saved) || DocumentStore.get("memos", saved))
+      ) {
         id = saved;
       } else if (list.length > 0) {
         id = list[0].id;
@@ -256,6 +262,7 @@ export function useMemos(): UseMemosReturn {
     selectMemo,
     createMemo,
     archiveMemo,
+    restoreMemo,
     renameMemo,
     reorderMemos,
     addTagToMemo,

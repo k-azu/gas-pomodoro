@@ -694,6 +694,15 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
             createdAt: "2025-06-01T00:00:00.000Z",
             updatedAt: "2025-06-01T00:00:00.000Z",
           },
+          {
+            id: "mock-memo-archived",
+            name: "旧バグトラッカー",
+            tags: [],
+            sortOrder: 99,
+            isActive: false,
+            createdAt: "2024-11-01T00:00:00.000Z",
+            updatedAt: "2024-11-30T08:20:00.000Z",
+          },
         ]),
         memoTags: [
           { name: "dev", color: "#4CAF50", sortOrder: 1, isActive: true },
@@ -729,23 +738,7 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
       const documentKey = String(args[0]);
       const [storeName, id] = documentKey.split(":");
       const selectedMemos =
-        storeName !== "memos"
-          ? []
-          : initial.memos.filter((entity) => entity.id === id).length > 0
-            ? initial.memos.filter((entity) => entity.id === id)
-            : id === "mock-memo-archived"
-              ? withDocumentSyncFields([
-                  {
-                    id,
-                    name: "アーカイブ済みメモ",
-                    tags: ["memo"],
-                    sortOrder: 99,
-                    isActive: false,
-                    createdAt: "2024-11-01T00:00:00.000Z",
-                    updatedAt: "2024-11-30T08:20:00.000Z",
-                  },
-                ])
-              : [];
+        storeName !== "memos" ? [] : initial.memos.filter((entity) => entity.id === id);
       const selectedTasks =
         storeName === "tasks" ? initial.tasks.filter((entity) => entity.id === id) : [];
       const selectedCases = initial.cases.filter(

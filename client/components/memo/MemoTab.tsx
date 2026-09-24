@@ -9,7 +9,6 @@ import { useDocumentEditor } from "../../hooks/useDocumentEditor";
 import { useDocumentSearchNavigation } from "../../hooks/useDocumentSearchNavigation";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { useSidebarWidth } from "../../hooks/useSidebarWidth";
-import { useNavigation } from "../../contexts/NavigationContext";
 import { Sidebar, InlineRename, SidebarExpandButton } from "../shared/Sidebar";
 import { STORAGE_KEYS, lsGet, lsSet } from "../../lib/localStorage";
 import { ContextMenu } from "../shared/ContextMenu";
@@ -25,6 +24,7 @@ import { DocumentContentConflict } from "../shared/DocumentContentConflict";
 import { OpenDocumentWindowButton } from "../shared/OpenDocumentWindowButton";
 import { SaveOverlay } from "../shared/SaveOverlay";
 import { CreateDocumentModal } from "../shared/CreateDocumentModal";
+import { ArchivedBadge } from "../shared/ArchivedBadge";
 import { TextInputDialog } from "../shared/Dialog";
 import * as MemoStore from "../../lib/memoStore";
 import * as DocumentStore from "../../lib/documentStore";
@@ -40,7 +40,6 @@ export function MemoTab({
   documentId?: string;
 } = {}) {
   const memo = useMemos();
-  const nav = useNavigation();
   const editorConfig = useEditorConfig();
   const sidebarWidth = useSidebarWidth(STORAGE_KEYS.MEMO_SIDEBAR_WIDTH);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => lsGet(SIDEBAR_KEY) === "1");
@@ -53,29 +52,12 @@ export function MemoTab({
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newTagMemoId, setNewTagMemoId] = useState<string | null>(null);
   const activeId = standalone && documentId ? documentId : memo.activeId;
-  const liveActiveMemo = memo.memos.find((item) => item.id === activeId);
-  const standaloneEntity =
-    standalone && activeId ? (DocumentStore.get("memos", activeId) as MemoItem | null) : null;
-  const archivedSearchDocument =
-    nav.searchOpenedDocument?.type === "memo" &&
-    nav.searchOpenedDocument.id === activeId &&
-    nav.searchOpenedDocument.isArchived
-      ? nav.searchOpenedDocument
-      : null;
+  // Archived memos are not in the sidebar list but remain in the document store (ADR 0005).
   const activeMemo: MemoItem | undefined =
-    liveActiveMemo ??
-    standaloneEntity ??
-    (archivedSearchDocument
-      ? {
-          id: archivedSearchDocument.id,
-          name: archivedSearchDocument.title,
-          tags: archivedSearchDocument.tags ?? [],
-          sortOrder: 0,
-          isActive: false,
-        }
-      : undefined);
-  const isArchivedSearchDocument =
-    Boolean(archivedSearchDocument) || Boolean(standaloneEntity?.isActive === false);
+    memo.memos.find((item) => item.id === activeId) ??
+    ((activeId ? DocumentStore.get("memos", activeId) : null) as MemoItem | null) ??
+    undefined;
+  const isArchived = activeMemo?.isActive === false;
 
   const {
     editor,
@@ -107,7 +89,6 @@ export function MemoTab({
     ),
     flushSync: useCallback((id: string) => MemoStore.flushContentSync(id), []),
     resolveContent: useCallback((id: string) => MemoStore.resolveWithServer(id), []),
-    forceReadOnly: isArchivedSearchDocument,
     ...editorConfig.editorProps,
     ...editorConfig.hookOptions,
   });
@@ -259,7 +240,7 @@ export function MemoTab({
             charCount={charCount}
             maxCharCount={50000}
             placeholder="メモを入力..."
-            readOnly={readOnly || isArchivedSearchDocument}
+            readOnly={readOnly}
             onImageUpload={editorConfig.editorProps.onImageUpload}
             scrollRef={scrollRef}
             saving={savingForTransition && !memo.isLoading}
@@ -293,42 +274,29 @@ export function MemoTab({
               onAcceptRemote={acceptRemoteConflict}
             />
             <div className={s["meta-status-row"]}>
-              {isArchivedSearchDocument ? (
-                <span className={s["archived-label"]}>アーカイブ済み・読み取り専用</span>
-              ) : (
-                <SyncIndicator status={syncStatus} onRetry={retrySync} />
+              {isArchived && (
+                <ArchivedBadge onRestore={() => void memo.restoreMemo(activeMemo.id)} />
               )}
+              <SyncIndicator status={syncStatus} onRetry={retrySync} />
             </div>
             <MetaTitle>
               <ContentHeaderName
                 name={activeMemo.name}
-                onRename={
-                  isArchivedSearchDocument
-                    ? undefined
-                    : (name) => memo.renameMemo(activeMemo.id, name)
-                }
+                onRename={(name) => memo.renameMemo(activeMemo.id, name)}
                 renaming={renamingId === activeMemo.id}
                 onRenameEnd={() => setRenamingId(null)}
               />
             </MetaTitle>
             <RecordField label="タグ">
-              {isArchivedSearchDocument ? (
-                <span className={s["readonly-tags"]}>
-                  {activeMemo.tags.length > 0
-                    ? activeMemo.tags.map((tag) => <span key={tag}>#{tag}</span>)
-                    : "タグなし"}
-                </span>
-              ) : (
-                <ItemPicker
-                  mode="multi"
-                  items={memo.tags}
-                  selected={activeMemo.tags}
-                  onSelect={(selected) => memo.updateTags(activeMemo.id, selected)}
-                  onCreateItem={(name, color) => memo.addTag(name, color)}
-                  onColorChange={memo.updateTagColor}
-                  placeholder="タグを検索 / 作成..."
-                />
-              )}
+              <ItemPicker
+                mode="multi"
+                items={memo.tags}
+                selected={activeMemo.tags}
+                onSelect={(selected) => memo.updateTags(activeMemo.id, selected)}
+                onCreateItem={(name, color) => memo.addTag(name, color)}
+                onColorChange={memo.updateTagColor}
+                placeholder="タグを検索 / 作成..."
+              />
             </RecordField>
           </EditorLayout>
         ) : (
