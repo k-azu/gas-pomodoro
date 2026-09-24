@@ -982,7 +982,7 @@ function getMockResponse(functionName: string, args: unknown[]): unknown {
           : storeName === "projects"
             ? ["name", "color", "isActive"]
             : storeName === "cases"
-              ? ["projectId", "name", "isActive"]
+              ? ["projectId", "name", "isActive", "color"]
               : [
                   "projectId",
                   "caseId",

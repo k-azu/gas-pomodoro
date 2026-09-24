@@ -85,7 +85,7 @@ const DOCUMENT_SHEETS: Record<DocumentStoreName, DocumentSheetConfig> = {
     metadataRevisionColumn: 10,
     lastContentMutationColumn: 11,
     lastMetadataMutationColumn: 12,
-    metadataColumns: { projectId: 2, name: 3, isActive: 6 },
+    metadataColumns: { projectId: 2, name: 3, isActive: 6, color: 13 },
   },
   tasks: {
     sheetName: "Tasks",
@@ -410,7 +410,7 @@ function getDocumentViewData(documentKey: string): DocumentViewData {
   }
 
   if (storeName === "cases") {
-    const values = sheet.getRange(row, 1, 1, 12).getValues()[0];
+    const values = sheet.getRange(row, 1, 1, 13).getValues()[0];
     const projectId = String(values[1]);
     result.cases.push({
       id: String(values[0]),
@@ -425,6 +425,7 @@ function getDocumentViewData(documentKey: string): DocumentViewData {
       metadataRevision: readRevision(values[9]),
       lastContentMutationId: String(values[10] ?? ""),
       lastMetadataMutationId: String(values[11] ?? ""),
+      color: String(values[12] ?? ""),
     });
     if (projectId) mergeDocumentViewData(result, getDocumentViewData(`projects:${projectId}`));
     return result;

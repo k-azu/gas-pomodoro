@@ -4,7 +4,7 @@
  * One editor instance is mounted for the selected node. Switching documents resets
  * its state from the server-confirmed in-memory snapshot.
  */
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { UseTasksReturn } from "../../hooks/useTasks";
 import { STATUS_CONFIG, STATUS_ITEMS_WITH_ARCHIVED, statusLabelToKey } from "../../hooks/useTasks";
 import { useDocumentEditor } from "../../hooks/useDocumentEditor";
@@ -13,7 +13,7 @@ import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { useNavigation } from "../../contexts/NavigationContext";
 import { ItemPicker } from "../shared/ItemPicker";
 import { ContentHeaderName } from "../shared/ContentHeader";
-import { FolderIcon, TaskListIcon } from "../shared/Icons";
+import { FileIcon, FolderIcon, TaskListIcon } from "../shared/Icons";
 import { SidebarExpandButton } from "../shared/Sidebar";
 import { RecordField } from "../shared/RecordField";
 import { EditorLayout, ToolbarSlot, MetaTitle } from "../shared/EditorLayout";
@@ -334,6 +334,30 @@ function useEntity(storeName: string, entityType: string, id: string) {
   return [entity, setEntity] as const;
 }
 
+/** Document icon that opens a color picker; the hover ring and tooltip show it is editable. */
+function MetaColorIcon({
+  color,
+  onChange,
+  children,
+}: {
+  color: string;
+  onChange: (color: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className={s["meta-color-icon"]} title="色を変更">
+      {children}
+      <input
+        type="color"
+        className={s["meta-color-input"]}
+        value={color}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label="色を変更"
+      />
+    </label>
+  );
+}
+
 function ViewModeToggle({
   showingDoc,
   tableLayoutMode,
@@ -373,36 +397,19 @@ function ProjectMeta({
   archiveBadge?: React.ReactNode;
 }) {
   const [entity, setEntity] = useEntity("projects", "project", id);
-  const colorRef = useRef<HTMLInputElement>(null);
 
   if (!entity) return null;
 
+  const color = entity.color || "#4285f4";
   return (
     <>
       <div className={s["meta-status-row"]}>
-        <span
-          className={s["meta-color-folder"]}
-          onClick={(e) => {
-            e.stopPropagation();
-            colorRef.current?.click();
-          }}
+        <MetaColorIcon
+          color={color}
+          onChange={(next) => tasks.updateProjectFields(id, { color: next })}
         >
-          <FolderIcon size={24} color={entity.color || "#4285f4"} />
-          <input
-            ref={colorRef}
-            type="color"
-            value={entity.color || "#4285f4"}
-            onChange={(e) => tasks.updateProjectFields(id, { color: e.target.value })}
-            style={{
-              position: "absolute",
-              inset: 0,
-              opacity: 0,
-              cursor: "pointer",
-              width: "100%",
-              height: "100%",
-            }}
-          />
-        </span>
+          <FolderIcon size={24} color={color} />
+        </MetaColorIcon>
         {archiveBadge}
         <SyncIndicator status={syncStatus} onRetry={onRetrySync} />
       </div>
@@ -439,6 +446,12 @@ function CaseMeta({
   return (
     <>
       <div className={s["meta-status-row"]}>
+        <MetaColorIcon
+          color={entity.color || "#757575"}
+          onChange={(next) => tasks.updateCaseFields(id, { color: next })}
+        >
+          <FileIcon size={22} color={entity.color || "#757575"} />
+        </MetaColorIcon>
         {archiveBadge}
         <SyncIndicator status={syncStatus} onRetry={onRetrySync} />
       </div>

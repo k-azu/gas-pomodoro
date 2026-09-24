@@ -150,6 +150,8 @@ export function ItemPicker({
                   <span
                     className={s["item-picker-badge-dot"]}
                     style={{ background: color, position: onColorChange ? "relative" : undefined }}
+                    title={onColorChange ? "色を変更" : undefined}
+                    data-editable={onColorChange ? "" : undefined}
                     onClick={onColorChange ? (e) => e.stopPropagation() : undefined}
                   >
                     {onColorChange && (
@@ -167,6 +169,7 @@ export function ItemPicker({
                         }}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => onColorChange(name, e.target.value)}
+                        aria-label={`「${name}」の色を変更`}
                       />
                     )}
                   </span>

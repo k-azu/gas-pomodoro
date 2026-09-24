@@ -365,7 +365,7 @@ function CaseTableGroup({
     <div className={s["task-table-group-header"]}>
       {renaming ? (
         <>
-          <FileIcon size={14} color="#757575" />
+          <FileIcon size={14} color={caseItem.color || "#757575"} />
           <input
             type="text"
             className={s["task-table-name-input"]}
@@ -391,7 +391,7 @@ function CaseTableGroup({
       ) : (
         <>
           <span className={s["task-table-group-name"]} onClick={navigateToCase}>
-            <FileIcon size={14} color="#757575" />
+            <FileIcon size={14} color={caseItem.color || "#757575"} />
             {caseItem.name}
           </span>
           <span className={s["task-table-group-count"]}>{caseTasks.length}件</span>

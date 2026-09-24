@@ -26,17 +26,30 @@
   font-size: 13px;
 }
 
-.meta-color-folder {
+.meta-color-icon {
   position: relative;
   display: inline-flex;
-  cursor: pointer;
   flex-shrink: 0;
-  transition: transform 0.1s;
-  margin-bottom: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
 }
 
-.meta-color-folder:hover {
-  transform: scale(1.1);
+.meta-color-icon:hover {
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.meta-color-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .task-date-input {

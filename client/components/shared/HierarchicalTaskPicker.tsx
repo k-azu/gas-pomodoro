@@ -30,6 +30,7 @@ interface CaseItem {
   id: string;
   projectId: string;
   name: string;
+  color?: string;
 }
 interface TaskItem {
   id: string;
@@ -69,7 +70,12 @@ export function HierarchicalTaskPicker({
         (projs as any[]).map((p) => ({ id: p.id, name: p.name, color: p.color || "#4285f4" })),
       );
       setAllCases(
-        (cases as any[]).map((c) => ({ id: c.id, projectId: c.projectId, name: c.name })),
+        (cases as any[]).map((c) => ({
+          id: c.id,
+          projectId: c.projectId,
+          name: c.name,
+          color: c.color || undefined,
+        })),
       );
       setAllTasks(
         (tasks as any[]).map((t) => ({
@@ -126,9 +132,20 @@ export function HierarchicalTaskPicker({
   const projectIdMap = labelMap(visibleProjects, projectLabels);
 
   // Case picker: filter by selected project
-  const knownCases = withSelected(allCases, caseId, (id) => {
-    const c = DocumentStore.get("cases", id) as { name?: string; projectId?: string } | null;
-    return c ? { id, projectId: String(c.projectId ?? ""), name: String(c.name ?? "") } : null;
+  const knownCases = withSelected<CaseItem>(allCases, caseId, (id) => {
+    const c = DocumentStore.get("cases", id) as {
+      name?: string;
+      projectId?: string;
+      color?: string;
+    } | null;
+    return c
+      ? {
+          id,
+          projectId: String(c.projectId ?? ""),
+          name: String(c.name ?? ""),
+          color: c.color || undefined,
+        }
+      : null;
   });
   const caseNameById = new Map(knownCases.map((c) => [c.id, c.name]));
   const filteredCases = projectId
@@ -140,7 +157,10 @@ export function HierarchicalTaskPicker({
       return projectId ? c.name : c.name + (projName ? ` (${projName})` : "");
     }),
   );
-  const casePickerItems = caseLabels.map((label) => ({ name: label, color: "#757575" }));
+  const casePickerItems = filteredCases.map((c, i) => ({
+    name: caseLabels[i],
+    color: c.color || "#757575",
+  }));
   const caseIdMap = labelMap(filteredCases, caseLabels);
 
   // Task picker: filter by selected project/case, sort by status → createdAt

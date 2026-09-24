@@ -1,6 +1,6 @@
 // Bump when sheet structure changes (new columns, new sheets, etc.)
 // so that existing deployments re-run initializeSpreadsheet().
-const SCHEMA_VERSION = "2";
+const SCHEMA_VERSION = "3";
 
 function ensureDocumentSyncColumns(
   sheet: GoogleAppsScript.Spreadsheet.Sheet,
@@ -158,6 +158,11 @@ function initializeSpreadsheet(): void {
     casesSheet.setFrozenRows(1);
   }
   ensureDocumentSyncColumns(casesSheet, 9);
+  // Case color (added in schema 3) lives after the sync columns.
+  const caseColorHeader = casesSheet.getRange(1, 13);
+  if (caseColorHeader.getValue() !== "color") {
+    caseColorHeader.setValue("color").setFontWeight("bold");
+  }
 
   // Tasks sheet
   let tasksSheet = ss.getSheetByName("Tasks");
