@@ -12,6 +12,7 @@ import { ViewerPanel } from "../record/ViewerPanel";
 import { SearchPalette } from "../search/SearchPalette";
 import { SearchIcon } from "../shared/Icons";
 import { SyncIndicator, type SyncStatus } from "../shared/SyncIndicator";
+import { showErrorToast } from "../../lib/toast";
 import s from "./RightPanel.module.css";
 
 /** Which tabs are visible in each timer phase */
@@ -43,6 +44,14 @@ export function RightPanel() {
   const prevPhaseRef = useRef<Phase | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [refreshingDocuments, setRefreshingDocuments] = useState(false);
+  const runRefresh = () => {
+    setRefreshingDocuments(true);
+    void refreshDocuments()
+      .then((refreshed) => {
+        if (!refreshed) showErrorToast("文書を再読み込みできませんでした", runRefresh);
+      })
+      .finally(() => setRefreshingDocuments(false));
+  };
   const [metadataSyncStatus, setMetadataSyncStatus] = useState<SyncStatus>("idle");
 
   useEffect(() => {
@@ -126,10 +135,7 @@ export function RightPanel() {
           type="button"
           className={s["search-button"]}
           disabled={refreshingDocuments}
-          onClick={() => {
-            setRefreshingDocuments(true);
-            void refreshDocuments().finally(() => setRefreshingDocuments(false));
-          }}
+          onClick={runRefresh}
           title="文書をサーバーから再読み込み"
         >
           {refreshingDocuments ? "更新中..." : "更新"}

@@ -19,6 +19,7 @@ import { blobUrlsToDrive, resolveDriveUrls } from "../../lib/imageCache";
 import { serverCall } from "../../lib/serverCall";
 import * as RecordCache from "../../lib/recordCache";
 import { SaveOverlay } from "../shared/SaveOverlay";
+import { errorMessage, showErrorToast } from "../../lib/toast";
 import s from "./RecordForm.module.css";
 
 interface RecordDraft {
@@ -190,8 +191,8 @@ export function RecordForm() {
       if (result.projectId) setSelectedProjectId(result.projectId);
       if (result.caseId) setSelectedCaseId(result.caseId);
       if (result.taskId) setSelectedTaskId(result.taskId);
-    } catch {
-      // ignore
+    } catch (err) {
+      showErrorToast(`前回の記録を取得できませんでした: ${errorMessage(err)}`);
     }
   }, [applyContent]);
 
@@ -249,7 +250,9 @@ export function RecordForm() {
           timer.endWorkSession();
         }
       } catch (err) {
-        alert("記録の保存に失敗しました: " + err);
+        showErrorToast(`記録を保存できませんでした: ${errorMessage(err)}`, () => {
+          void submitAndDoRef.current(action);
+        });
       } finally {
         setIsSubmitting(false);
       }
@@ -266,6 +269,9 @@ export function RecordForm() {
       resetContent,
     ],
   );
+
+  const submitAndDoRef = useRef(submitAndDo);
+  submitAndDoRef.current = submitAndDo;
 
   return (
     <div className={s["record-form"]}>

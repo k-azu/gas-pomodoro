@@ -16,6 +16,7 @@ import {
   runWithDocumentKeyFrozen,
 } from "../lib/documentNavigationGuard";
 import { readCurrentStandaloneDocumentTarget } from "../lib/documentWindow";
+import { errorMessage, showErrorToast } from "../lib/toast";
 
 interface AppContextValue {
   timer: UseTimerReturn;
@@ -100,12 +101,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       completionStatus: "completed",
       pomodoroSetIndex: timerState.pomodoroSetIndex,
     };
-    try {
-      await serverCall("saveRecord", record);
-      await RecordCache.upsertRecord(record);
-    } catch (err) {
-      console.error("休憩記録の保存に失敗:", err);
-    }
+    const save = async () => {
+      try {
+        await serverCall("saveRecord", record);
+        await RecordCache.upsertRecord(record);
+      } catch (err) {
+        console.error("休憩記録の保存に失敗:", err);
+        showErrorToast(`休憩の記録を保存できませんでした: ${errorMessage(err)}`, () => {
+          void save();
+        });
+      }
+    };
+    await save();
   }, []);
 
   // refreshAll is now a no-op (cache events drive UI updates)
@@ -138,6 +145,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .catch((err) => {
           console.error("Category creation failed:", err);
           setList((prev) => prev.filter((c) => c.name !== name));
+          showErrorToast(`カテゴリ「${name}」を追加できませんでした: ${errorMessage(err)}`);
         });
     },
     [setCategories, setInterruptionCategories],
@@ -147,9 +155,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (sheetType: CategorySheetType, name: string, color: string) => {
       const setList = sheetType === "Categories" ? setCategories : setInterruptionCategories;
       setList((prev) => prev.map((c) => (c.name === name ? { ...c, color } : c)));
-      serverCall("updateCategoryColor", name, color, sheetType).catch((err) =>
-        console.error("Category color update failed:", err),
-      );
+      serverCall("updateCategoryColor", name, color, sheetType).catch((err) => {
+        console.error("Category color update failed:", err);
+        showErrorToast(`カテゴリの色を保存できませんでした: ${errorMessage(err)}`);
+      });
     },
     [setCategories, setInterruptionCategories],
   );

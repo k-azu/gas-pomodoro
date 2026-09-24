@@ -27,6 +27,7 @@ import {
 } from "../../lib/viewerDraft";
 import type { ViewerDraft } from "../../lib/viewerDraft";
 import { SaveOverlay } from "../shared/SaveOverlay";
+import { errorMessage, showErrorToast } from "../../lib/toast";
 import s from "./ViewerPanel.module.css";
 
 export function ViewerPanel() {
@@ -308,7 +309,9 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       setRestoredDraftVisible(false);
       return true;
     } catch (err) {
-      alert("保存に失敗しました: " + err);
+      showErrorToast(`履歴を保存できませんでした: ${errorMessage(err)}`, () => {
+        void handleSaveRef.current();
+      });
       return false;
     } finally {
       setIsSaving(false);
@@ -328,6 +331,9 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
     getMarkdown,
     identity,
   ]);
+
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
 
   const draft: ViewerDraft | null =
     identity && resolvedMarkdown !== null

@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { PomodoroRecord, InterruptionRecord, TodayStats } from "../types";
 import * as RecordCache from "../lib/recordCache";
 import { serverCall } from "../lib/serverCall";
+import { errorMessage, showErrorToast } from "../lib/toast";
 
 const EMPTY_STATS: TodayStats = {
   completedPomodoros: 0,
@@ -80,6 +81,7 @@ export function useRecordCache(dateStr: string): UseRecordCacheReturn {
           await loadFromIDB(dateStr);
         } catch (e) {
           console.error("useRecordCache: server fetch failed:", e);
+          if (!cancelled) showErrorToast(`履歴を読み込めませんでした: ${errorMessage(e)}`);
         }
         if (!cancelled) setIsLoading(false);
       }
