@@ -75,6 +75,33 @@ const MOCK_DOCUMENTS: DocumentSearchResult[] = [
     updatedAt: "2024-11-30T08:20:00.000Z",
   },
   {
+    type: "project",
+    id: "mock-proj-1",
+    title: "GAS Pomodoro",
+    path: "プロジェクト",
+    snippet: "Pomodoro",
+    isArchived: false,
+    updatedAt: "2025-01-15T00:00:00.000Z",
+  },
+  {
+    type: "case",
+    id: "mock-case-1",
+    title: "React化",
+    path: "GAS Pomodoro",
+    snippet: "",
+    isArchived: false,
+    updatedAt: "2025-01-20T00:00:00.000Z",
+  },
+  {
+    type: "case",
+    id: "mock-case-3",
+    title: "旧UIリファクタ",
+    path: "GAS Pomodoro",
+    snippet: "",
+    isArchived: true,
+    updatedAt: "2025-01-10T00:00:00.000Z",
+  },
+  {
     type: "task",
     id: "mock-task-1",
     title: "Phase 6: RecordForm実装",
@@ -168,7 +195,10 @@ export function searchMockDocuments(
 ): DocumentSearchResult[] {
   const tokens = normalize(query).trim().split(/\s+/).filter(Boolean);
 
-  return MOCK_DOCUMENTS.filter((result) => filter === "all" || result.type === filter)
+  return MOCK_DOCUMENTS.filter(
+    (result) =>
+      filter === "all" || (filter === "memo" ? result.type === "memo" : result.type !== "memo"),
+  )
     .filter((result) => {
       if (tokens.length === 0) return true;
       const searchable = normalize(
@@ -190,6 +220,6 @@ export function countMockDocumentsByType(query: string) {
   return {
     all: results.length,
     memo: results.filter((result) => result.type === "memo").length,
-    task: results.filter((result) => result.type === "task").length,
+    task: results.filter((result) => result.type !== "memo").length,
   };
 }

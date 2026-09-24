@@ -1,5 +1,6 @@
-export type DocumentSearchType = "memo" | "task";
-export type DocumentSearchFilter = "all" | DocumentSearchType;
+export type DocumentSearchType = "memo" | "project" | "case" | "task";
+/** "task" covers the whole task hierarchy (project / case / task). */
+export type DocumentSearchFilter = "all" | "memo" | "task";
 
 export interface DocumentSearchCounts {
   all: number;

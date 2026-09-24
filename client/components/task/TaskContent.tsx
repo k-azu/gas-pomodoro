@@ -118,8 +118,7 @@ function TaskDocumentContent({
   const isArchivedDocument =
     selectedEntity?.isActive === false ||
     Boolean(hiddenByArchivedParent) ||
-    (type === "task" &&
-      nav.searchOpenedDocument?.type === "task" &&
+    (nav.searchOpenedDocument?.type === type &&
       nav.searchOpenedDocument.id === id &&
       nav.searchOpenedDocument.isArchived);
 
@@ -161,6 +160,16 @@ function TaskDocumentContent({
     ...editorConfig.hookOptions,
     hasAfterMeta: !showingDoc && isContainerType,
   });
+
+  // A project/case opened from search must show its document so matches can be revealed.
+  const revealRequestedHere =
+    nav.searchRevealRequest?.tab === "task" && nav.searchRevealRequest.id === id;
+  const { taskViewMode, setTaskViewMode } = tasks;
+  useEffect(() => {
+    if (revealRequestedHere && isContainerType && !standalone && taskViewMode === "table") {
+      setTaskViewMode("doc");
+    }
+  }, [revealRequestedHere, isContainerType, standalone, taskViewMode, setTaskViewMode]);
 
   const searchNavigation = useDocumentSearchNavigation({
     tab: "task",

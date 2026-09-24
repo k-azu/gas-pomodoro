@@ -1,5 +1,5 @@
 type SavedDocumentSearchFilter = "all" | "memo" | "task";
-type SavedDocumentSearchType = "memo" | "task";
+type SavedDocumentSearchType = "memo" | "project" | "case" | "task";
 
 interface SavedDocumentSearchResult {
   type: SavedDocumentSearchType;
@@ -71,6 +71,8 @@ function searchDocuments(
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   const candidates = [
     ...documentSearchReadMemos(spreadsheet),
+    ...documentSearchReadProjects(spreadsheet),
+    ...documentSearchReadCases(spreadsheet),
     ...documentSearchReadTasks(spreadsheet),
   ];
 
@@ -88,9 +90,14 @@ function searchDocuments(
     );
 
   const memoCount = matches.filter((candidate) => candidate.type === "memo").length;
-  const taskCount = matches.filter((candidate) => candidate.type === "task").length;
+  // The "task" filter covers the whole task hierarchy (project / case / task).
+  const taskCount = matches.length - memoCount;
   const results = matches
-    .filter((candidate) => filter === "all" || candidate.type === filter)
+    .filter(
+      (candidate) =>
+        filter === "all" ||
+        (filter === "memo" ? candidate.type === "memo" : candidate.type !== "memo"),
+    )
     .slice(0, limit)
     .map((candidate) => ({
       ...candidate,
@@ -128,6 +135,57 @@ function documentSearchReadMemos(
       updatedAt: documentSearchDateString(row[5]),
       score: 0,
     }))
+    .filter((candidate) => Boolean(candidate.id));
+}
+
+function documentSearchReadProjects(
+  spreadsheet: GoogleAppsScript.Spreadsheet.Spreadsheet,
+): SavedDocumentSearchCandidate[] {
+  const sheet = spreadsheet.getSheetByName("Projects");
+  if (!sheet || sheet.getLastRow() <= 1) return [];
+
+  // Columns: id, name, content, color, sortOrder, isActive, createdAt, updatedAt
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues();
+  return values
+    .map((row) => ({
+      type: "project" as const,
+      id: String(row[0] || ""),
+      title: String(row[1] || ""),
+      path: "プロジェクト",
+      content: String(row[2] || ""),
+      snippet: "",
+      isArchived: row[5] !== true,
+      updatedAt: documentSearchDateString(row[7]),
+      score: 0,
+    }))
+    .filter((candidate) => Boolean(candidate.id));
+}
+
+function documentSearchReadCases(
+  spreadsheet: GoogleAppsScript.Spreadsheet.Spreadsheet,
+): SavedDocumentSearchCandidate[] {
+  const sheet = spreadsheet.getSheetByName("Cases");
+  if (!sheet || sheet.getLastRow() <= 1) return [];
+
+  const projects = documentSearchReadParentMap(spreadsheet, "Projects", 0, 1);
+  // Columns: id, projectId, name, content, sortOrder, isActive, createdAt, updatedAt
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues();
+  return values
+    .map((row) => {
+      const projectId = String(row[1] || "");
+      const project = projects[projectId];
+      return {
+        type: "case" as const,
+        id: String(row[0] || ""),
+        title: String(row[2] || ""),
+        path: project?.name || "案件",
+        content: String(row[3] || ""),
+        snippet: "",
+        isArchived: row[5] !== true || (Boolean(projectId) && (!project || !project.isActive)),
+        updatedAt: documentSearchDateString(row[7]),
+        score: 0,
+      };
+    })
     .filter((candidate) => Boolean(candidate.id));
 }
 

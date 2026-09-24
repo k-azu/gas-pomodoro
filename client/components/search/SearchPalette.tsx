@@ -6,7 +6,7 @@ import type {
   DocumentSearchFilter,
   DocumentSearchResult,
 } from "../../types/search";
-import { MemoIcon, SearchIcon, TaskListIcon } from "../shared/Icons";
+import { FileIcon, FolderIcon, MemoIcon, SearchIcon, TaskListIcon } from "../shared/Icons";
 import s from "./SearchPalette.module.css";
 
 interface SearchPaletteProps {
@@ -27,6 +27,13 @@ const STATUS_LABELS: Record<string, string> = {
   todo: "ToDo",
   pending: "Pending",
   done: "Done",
+};
+
+const TYPE_LABELS: Record<DocumentSearchResult["type"], string> = {
+  memo: "メモ",
+  project: "プロジェクト",
+  case: "案件",
+  task: "タスク",
 };
 
 const EMPTY_COUNTS: DocumentSearchCounts = { all: 0, memo: 0, task: 0 };
@@ -127,7 +134,7 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
       });
     } else {
       nav.navigateToDocument("task", {
-        taskNode: { type: "task", id: result.id },
+        taskNode: { type: result.type, id: result.id },
         searchQuery: query,
         searchDocument: result,
       });
@@ -190,7 +197,7 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
             className={s.input}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="メモとタスクを検索..."
+            placeholder="メモ・プロジェクト・案件・タスクを検索..."
             aria-label="検索キーワード"
           />
           {query && (
@@ -240,7 +247,7 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
             <div className={s.empty}>
               <SearchIcon size={28} color="#bdbdbd" />
               <strong>キーワードを入力してください</strong>
-              <span>保存済みのメモとタスクを検索します。</span>
+              <span>保存済みのメモ・プロジェクト・案件・タスクを検索します。</span>
             </div>
           ) : loading && results.length === 0 ? (
             <div className={s.empty} role="status">
@@ -307,6 +314,7 @@ function SearchResultRow({
   onMouseEnter: () => void;
   onClick: () => void;
 }) {
+  const typeClass = result.type === "memo" ? s.memo : s.task;
   return (
     <button
       type="button"
@@ -316,9 +324,13 @@ function SearchResultRow({
       onMouseEnter={onMouseEnter}
       onClick={onClick}
     >
-      <span className={`${s["result-icon"]} ${s[result.type]}`}>
+      <span className={`${s["result-icon"]} ${typeClass}`}>
         {result.type === "memo" ? (
           <MemoIcon size={18} color="#5e35b1" />
+        ) : result.type === "project" ? (
+          <FolderIcon size={18} color="#1976d2" />
+        ) : result.type === "case" ? (
+          <FileIcon size={18} color="#1976d2" />
         ) : (
           <TaskListIcon size={18} color="#1976d2" />
         )}
@@ -330,9 +342,7 @@ function SearchResultRow({
         </span>
         <span className={s.snippet}>{highlightText(result.snippet, query)}</span>
         <span className={s.metadata}>
-          <span className={`${s["type-badge"]} ${s[result.type]}`}>
-            {result.type === "memo" ? "メモ" : "タスク"}
-          </span>
+          <span className={`${s["type-badge"]} ${typeClass}`}>{TYPE_LABELS[result.type]}</span>
           {result.isArchived && <span className={s["archived-badge"]}>アーカイブ済み</span>}
           {result.status && (
             <span className={s["status-badge"]}>

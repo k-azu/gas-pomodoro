@@ -77,6 +77,17 @@ function parseHash(): ParsedHash {
   };
 }
 
+/** Whether a search result is the document currently targeted by the tab/selection. */
+function searchDocumentMatches(
+  document: DocumentSearchResult,
+  tab: string,
+  memoId: string | null,
+  taskNode: { type: string; id: string } | null,
+): boolean {
+  if (document.type === "memo") return tab === "memo" && memoId === document.id;
+  return tab === "task" && taskNode?.type === document.type && taskNode.id === document.id;
+}
+
 function buildHash(s: {
   tab: string;
   memoId?: string | null;
@@ -185,13 +196,7 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
       const retainedDocument = searchOpenedDocumentRef.current;
       const retainedDocumentMatchesTarget =
         retainedDocument &&
-        ((tab === "memo" &&
-          retainedDocument.type === "memo" &&
-          memoIdRef.current === retainedDocument.id) ||
-          (tab === "task" &&
-            retainedDocument.type === "task" &&
-            taskNodeRef.current?.type === "task" &&
-            taskNodeRef.current.id === retainedDocument.id));
+        searchDocumentMatches(retainedDocument, tab, memoIdRef.current, taskNodeRef.current);
       const state =
         opts && Object.prototype.hasOwnProperty.call(opts, "state")
           ? (opts.state ?? null)
@@ -280,7 +285,11 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
     (node: { type: string; id: string } | null, opts?: { replace?: boolean }) => {
       setSearchRevealRequest(null);
       const current = searchOpenedDocumentRef.current;
-      if (current?.type === "task" && (node?.type !== "task" || node.id !== current.id)) {
+      if (
+        current &&
+        current.type !== "memo" &&
+        (node?.type !== current.type || node.id !== current.id)
+      ) {
         searchOpenedDocumentRef.current = null;
         setSearchOpenedDocument(null);
       }
@@ -400,13 +409,7 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
       const historyDocument = (event.state as NavigationHistoryState | null)?.searchDocument;
       const restoredSearchDocument =
         historyDocument &&
-        ((historyDocument.type === "memo" &&
-          parsed.tab === "memo" &&
-          parsed.memoId === historyDocument.id) ||
-          (historyDocument.type === "task" &&
-            parsed.tab === "task" &&
-            parsed.taskNode?.type === "task" &&
-            parsed.taskNode.id === historyDocument.id))
+        searchDocumentMatches(historyDocument, parsed.tab, parsed.memoId, parsed.taskNode)
           ? historyDocument
           : null;
       const previousHash = buildHash({
@@ -483,13 +486,7 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
       const historyDocument = (history.state as NavigationHistoryState | null)?.searchDocument;
       if (
         historyDocument &&
-        ((historyDocument.type === "memo" &&
-          parsed.tab === "memo" &&
-          parsed.memoId === historyDocument.id) ||
-          (historyDocument.type === "task" &&
-            parsed.tab === "task" &&
-            parsed.taskNode?.type === "task" &&
-            parsed.taskNode.id === historyDocument.id))
+        searchDocumentMatches(historyDocument, parsed.tab, parsed.memoId, parsed.taskNode)
       ) {
         searchOpenedDocumentRef.current = historyDocument;
         setSearchOpenedDocument(historyDocument);
