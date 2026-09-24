@@ -10,6 +10,7 @@ import s from "./HierarchicalTaskPicker.module.css";
 import * as TaskStore from "../../lib/taskStore";
 import { on as esOn, off as esOff } from "../../lib/entityStore";
 import { STATUS_CONFIG } from "../../hooks/useTasks";
+import * as DocumentStore from "../../lib/documentStore";
 import { STORAGE_KEYS, lsGetJSON, lsSetJSON } from "../../lib/localStorage";
 
 export interface HierarchicalTaskPickerProps {
@@ -106,81 +107,95 @@ export function HierarchicalTaskPicker({
   onChangeRef.current = onChange;
 
   // --- Derived picker items ---
+  // Pickers identify items by label, so labels are made unique. The current selection is
+  // always kept visible even when it is done or archived (e.g. when viewing an old record).
 
-  // Project picker items
-  const projectPickerItems = projects.map((p) => ({ name: p.name, color: p.color }));
-  const projectIdMap: Record<string, string> = {};
+  const visibleProjects = withSelected(projects, projectId, (id) => {
+    const p = DocumentStore.get("projects", id) as { name?: string; color?: string } | null;
+    return p ? { id, name: String(p.name ?? ""), color: p.color || "#9e9e9e" } : null;
+  });
   const projectNameMap: Record<string, string> = {};
-  projects.forEach((p) => {
-    projectIdMap[p.name] = p.id;
+  visibleProjects.forEach((p) => {
     projectNameMap[p.id] = p.name;
   });
+  const projectLabels = uniqueLabels(visibleProjects.map((p) => p.name));
+  const projectPickerItems = visibleProjects.map((p, i) => ({
+    name: projectLabels[i],
+    color: p.color,
+  }));
+  const projectIdMap = labelMap(visibleProjects, projectLabels);
 
   // Case picker: filter by selected project
-  const filteredCases = projectId ? allCases.filter((c) => c.projectId === projectId) : allCases;
-  const casePickerItems = filteredCases.map((c) => {
-    const projName = projectNameMap[c.projectId];
-    const label = projectId ? c.name : c.name + (projName ? ` (${projName})` : "");
-    return { name: label, color: "#757575" };
+  const knownCases = withSelected(allCases, caseId, (id) => {
+    const c = DocumentStore.get("cases", id) as { name?: string; projectId?: string } | null;
+    return c ? { id, projectId: String(c.projectId ?? ""), name: String(c.name ?? "") } : null;
   });
-  const caseIdMap: Record<string, string> = {};
-  const caseNameMap: Record<string, string> = {};
-  filteredCases.forEach((c) => {
-    const projName = projectNameMap[c.projectId];
-    const label = projectId ? c.name : c.name + (projName ? ` (${projName})` : "");
-    caseIdMap[label] = c.id;
-    caseNameMap[c.id] = label;
-  });
+  const caseNameById = new Map(knownCases.map((c) => [c.id, c.name]));
+  const filteredCases = projectId
+    ? knownCases.filter((c) => c.projectId === projectId)
+    : knownCases;
+  const caseLabels = uniqueLabels(
+    filteredCases.map((c) => {
+      const projName = projectNameMap[c.projectId];
+      return projectId ? c.name : c.name + (projName ? ` (${projName})` : "");
+    }),
+  );
+  const casePickerItems = caseLabels.map((label) => ({ name: label, color: "#757575" }));
+  const caseIdMap = labelMap(filteredCases, caseLabels);
 
   // Task picker: filter by selected project/case, sort by status → createdAt
   const recentRank = new Map(recentTaskIds.map((id, index) => [id, index]));
-  const filteredTasks = allTasks
+  const knownTasks = withSelected(allTasks, taskId, (id) => {
+    const t = DocumentStore.get("tasks", id) as Record<string, unknown> | null;
+    return t
+      ? {
+          id,
+          projectId: String(t.projectId ?? ""),
+          caseId: String(t.caseId ?? ""),
+          name: String(t.name ?? ""),
+          status: String(t.status ?? "todo"),
+          createdAt: String(t.createdAt ?? ""),
+        }
+      : null;
+  });
+  const filteredTasks = knownTasks
     .filter((t) => {
-      if (t.status === "done") return false;
+      if (t.status === "done" && t.id !== taskId) return false;
       if (caseId) return t.caseId === caseId;
       if (projectId) return t.projectId === projectId;
       return true;
     })
     .sort((a, b) => comparePickerTasks(a, b, recentRank));
-  const taskPickerItems = filteredTasks.map((t) => {
-    const statusColor = (STATUS_CONFIG[t.status] || { color: "#9e9e9e" }).color;
-    let label = t.name;
-    if (!projectId) {
-      // Show hierarchy path when no project filter
-      const projName = projectNameMap[t.projectId] || "";
-      const caseName = allCases.find((c) => c.id === t.caseId)?.name || "";
-      const path = [projName, caseName].filter(Boolean).join(" > ");
-      if (path) label = t.name + ` (${path})`;
-    } else if (!caseId && t.caseId) {
-      const caseName = allCases.find((c) => c.id === t.caseId)?.name || "";
-      if (caseName) label = t.name + ` (${caseName})`;
-    }
-    return { name: label, color: statusColor };
-  });
-  const taskIdMap: Record<string, string> = {};
-  filteredTasks.forEach((t) => {
-    let label = t.name;
-    if (!projectId) {
-      const projName = projectNameMap[t.projectId] || "";
-      const caseName = allCases.find((c) => c.id === t.caseId)?.name || "";
-      const path = [projName, caseName].filter(Boolean).join(" > ");
-      if (path) label = t.name + ` (${path})`;
-    } else if (!caseId && t.caseId) {
-      const caseName = allCases.find((c) => c.id === t.caseId)?.name || "";
-      if (caseName) label = t.name + ` (${caseName})`;
-    }
-    taskIdMap[label] = t.id;
-  });
+  const taskLabels = uniqueLabels(
+    filteredTasks.map((t) => {
+      if (!projectId) {
+        // Show hierarchy path when no project filter
+        const projName = projectNameMap[t.projectId] || "";
+        const caseName = caseNameById.get(t.caseId) || "";
+        const path = [projName, caseName].filter(Boolean).join(" > ");
+        return path ? `${t.name} (${path})` : t.name;
+      }
+      if (!caseId && t.caseId) {
+        const caseName = caseNameById.get(t.caseId) || "";
+        if (caseName) return `${t.name} (${caseName})`;
+      }
+      return t.name;
+    }),
+  );
+  const taskPickerItems = filteredTasks.map((t, i) => ({
+    name: taskLabels[i],
+    color: (STATUS_CONFIG[t.status] || { color: "#9e9e9e" }).color,
+  }));
+  const taskIdMap = labelMap(filteredTasks, taskLabels);
 
   // --- Selected labels ---
-  const selectedProjectLabel =
-    projectId && projectNameMap[projectId] ? [projectNameMap[projectId]] : [];
-  const selectedCaseLabel = caseId && caseNameMap[caseId] ? [caseNameMap[caseId]] : [];
-  const selectedTaskLabel: string[] = [];
-  if (taskId) {
-    const label = Object.entries(taskIdMap).find(([, id]) => id === taskId)?.[0];
-    if (label) selectedTaskLabel.push(label);
-  }
+  const selectedLabel = (map: Record<string, string>, id: string | null) => {
+    const label = id ? Object.entries(map).find(([, value]) => value === id)?.[0] : undefined;
+    return label ? [label] : [];
+  };
+  const selectedProjectLabel = selectedLabel(projectIdMap, projectId);
+  const selectedCaseLabel = selectedLabel(caseIdMap, caseId);
+  const selectedTaskLabel = selectedLabel(taskIdMap, taskId);
 
   // --- Handlers ---
 
@@ -290,6 +305,35 @@ export function HierarchicalTaskPicker({
       </div>
     </RecordField>
   );
+}
+
+/** Append the selected entity when it is filtered out of the active list (done/archived). */
+function withSelected<T extends { id: string }>(
+  items: T[],
+  selectedId: string | null,
+  lookup: (id: string) => T | null,
+): T[] {
+  if (!selectedId || items.some((item) => item.id === selectedId)) return items;
+  const selected = lookup(selectedId);
+  return selected ? [...items, selected] : items;
+}
+
+/** Suffix duplicate labels with (2), (3)... so every label maps to exactly one id. */
+function uniqueLabels(labels: string[]): string[] {
+  const seen = new Map<string, number>();
+  return labels.map((label) => {
+    const count = (seen.get(label) ?? 0) + 1;
+    seen.set(label, count);
+    return count === 1 ? label : `${label} (${count})`;
+  });
+}
+
+function labelMap(items: { id: string }[], labels: string[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  items.forEach((item, i) => {
+    map[labels[i]] = item.id;
+  });
+  return map;
 }
 
 const PICKER_STATUS_ORDER: Record<string, number> = {
