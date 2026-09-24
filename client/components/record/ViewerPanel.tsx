@@ -27,6 +27,7 @@ import {
 } from "../../lib/viewerDraft";
 import type { ViewerDraft } from "../../lib/viewerDraft";
 import { SaveOverlay } from "../shared/SaveOverlay";
+import { DialogShell } from "../shared/Dialog";
 import { errorMessage, showErrorToast } from "../../lib/toast";
 import s from "./ViewerPanel.module.css";
 
@@ -517,27 +518,19 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
         </FormActions>
       )}
       {pendingExit && (
-        <div className={s["exit-backdrop"]} role="presentation">
-          <section
-            className={s["exit-dialog"]}
-            role="dialog"
-            aria-modal="true"
-            aria-label="未保存の変更"
-          >
-            <h2>未保存の変更があります</h2>
-            <p>
-              {pendingExit.intent === "replace"
-                ? "変更を保存して、選択した履歴を開きますか？"
-                : "変更を保存して履歴詳細を閉じますか？"}
-            </p>
-            <div className={s["exit-actions"]}>
+        <DialogShell
+          title="未保存の変更があります"
+          onCancel={() => setPendingExit(null)}
+          dismissible={!isSaving}
+          actions={
+            <>
               <button
                 type="button"
-                className="btn btn-primary"
-                onClick={saveAndProceed}
-                disabled={isSaving || timeRangeInvalid}
+                className="btn btn-secondary"
+                onClick={() => setPendingExit(null)}
+                disabled={isSaving}
               >
-                保存して移動
+                編集を続ける
               </button>
               <button
                 type="button"
@@ -549,15 +542,22 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
               </button>
               <button
                 type="button"
-                className="btn btn-secondary"
-                onClick={() => setPendingExit(null)}
-                disabled={isSaving}
+                className="btn btn-primary"
+                onClick={saveAndProceed}
+                disabled={isSaving || timeRangeInvalid}
+                data-autofocus
               >
-                編集を続ける
+                保存して移動
               </button>
-            </div>
-          </section>
-        </div>
+            </>
+          }
+        >
+          <p className={s["exit-message"]}>
+            {pendingExit.intent === "replace"
+              ? "変更を保存して、選択した履歴を開きますか？"
+              : "変更を保存して履歴詳細を閉じますか？"}
+          </p>
+        </DialogShell>
       )}
     </div>
   );

@@ -11,6 +11,7 @@ import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
 import { HierarchicalTaskPicker } from "../shared/HierarchicalTaskPicker";
 import { EditorLayout } from "../shared/EditorLayout";
+import { ConfirmDialog } from "../shared/Dialog";
 import { useMarkdownEditor } from "../../hooks/useMarkdownEditor";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { useFormDraft } from "../../hooks/useFormDraft";
@@ -59,6 +60,7 @@ export function RecordForm() {
     restoredDraft?.taskId ?? null,
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmingCopy, setConfirmingCopy] = useState(false);
 
   // Refs for latest meta values (stable onChange callback)
   const metaRef = useRef({
@@ -287,7 +289,19 @@ export function RecordForm() {
         placeholder="何に取り組みましたか？"
         onImageUpload={editorConfig.editorProps.onImageUpload}
       >
-        <button className={s["copy-previous-btn"]} onClick={copyFromPrevious}>
+        <button
+          className={s["copy-previous-btn"]}
+          onClick={() => {
+            const hasInput =
+              getMarkdown().trim() ||
+              selectedCategory.length > 0 ||
+              selectedProjectId ||
+              selectedCaseId ||
+              selectedTaskId;
+            if (hasInput) setConfirmingCopy(true);
+            else void copyFromPrevious();
+          }}
+        >
           前回をコピー
         </button>
         <RecordField label="カテゴリ">
@@ -342,6 +356,19 @@ export function RecordForm() {
             })}
           </div>
         </div>
+      )}
+
+      {confirmingCopy && (
+        <ConfirmDialog
+          title="前回の記録で置き換えますか？"
+          message="入力中の内容・カテゴリ・タスクが前回の記録の内容に置き換わります。"
+          confirmLabel="置き換える"
+          onConfirm={() => {
+            setConfirmingCopy(false);
+            void copyFromPrevious();
+          }}
+          onCancel={() => setConfirmingCopy(false)}
+        />
       )}
 
       {/* Action buttons — fixed at bottom */}

@@ -9,6 +9,7 @@ import { RecordField } from "../shared/RecordField";
 import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
 import { EditorLayout } from "../shared/EditorLayout";
+import { ConfirmDialog } from "../shared/Dialog";
 import { useMarkdownEditor } from "../../hooks/useMarkdownEditor";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { useFormDraft } from "../../hooks/useFormDraft";
@@ -36,6 +37,7 @@ export function InterruptionForm() {
 
   const [isWork, setIsWork] = useState(initialDraft?.isWork ?? true);
   const [selectedCategory, setSelectedCategory] = useState<string[]>(initialDraft?.category ?? []);
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 
   // Refs for latest meta values (stable onChange callback)
   const metaRef = useRef({ isWork, category: selectedCategory });
@@ -82,6 +84,7 @@ export function InterruptionForm() {
   }, [isWork, selectedCategory, timer, clearDraft, getMarkdown, resetContent]);
 
   const handleDiscard = useCallback(() => {
+    setConfirmingDiscard(false);
     clearDraft();
     timer.discardInterruption();
     setIsWork(true);
@@ -125,10 +128,27 @@ export function InterruptionForm() {
         <button className="btn btn-primary" onClick={handleResume}>
           再開
         </button>
-        <button className="btn btn-secondary" onClick={handleDiscard}>
+        <button
+          className="btn btn-secondary"
+          onClick={() => {
+            // Only confirm when there is input that would be lost.
+            if (getMarkdown().trim() || selectedCategory.length > 0) setConfirmingDiscard(true);
+            else handleDiscard();
+          }}
+        >
           キャンセル
         </button>
       </FormActions>
+      {confirmingDiscard && (
+        <ConfirmDialog
+          title="中断の記録を破棄しますか？"
+          message="入力した内容は保存されません。"
+          confirmLabel="破棄する"
+          danger
+          onConfirm={handleDiscard}
+          onCancel={() => setConfirmingDiscard(false)}
+        />
+      )}
     </div>
   );
 }
