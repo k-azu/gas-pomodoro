@@ -152,13 +152,9 @@ export function MemoTab({
               onClick: () => setRenamingId(contextMenu.item.id),
             },
             {
-              label: "削除",
+              label: "アーカイブ",
               danger: true,
-              onClick: () => {
-                if (confirm(`「${contextMenu.item.name}」を削除しますか？`)) {
-                  memo.deleteMemo(contextMenu.item.id);
-                }
-              },
+              onClick: () => void memo.archiveMemo(contextMenu.item.id),
             },
           ],
         },

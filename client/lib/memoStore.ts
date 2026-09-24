@@ -68,6 +68,12 @@ export async function deleteMemo(id: string): Promise<void> {
   await DocumentStore.patchMetadata("memos", id, { isActive: false });
 }
 
+export async function restoreMemo(id: string): Promise<void> {
+  await DocumentStore.waitForMetadata("memos", id);
+  if (DocumentStore.get("memos", id)?.isActive !== false) return;
+  await DocumentStore.patchMetadata("memos", id, { isActive: true });
+}
+
 export async function reorderMemos(orderedIds: string[]): Promise<void> {
   DocumentStore.reorderLocal("memos", orderedIds);
   const result = (await serverCall("updateMemoSortOrders", orderedIds)) as { success?: boolean };
