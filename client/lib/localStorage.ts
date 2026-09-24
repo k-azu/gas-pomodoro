@@ -15,6 +15,7 @@ export const STORAGE_KEYS = {
   TASK_SELECTED: "gas_pomodoro_task_selected",
   RECENT_TASK_SELECTIONS: "gas_pomodoro_recent_task_selections",
   ALL_TASKS_FILTERS: "gas_pomodoro_all_tasks_filters",
+  LAST_TAB: "gas_pomodoro_last_tab",
 } as const;
 
 export function lsGet(key: string): string {
