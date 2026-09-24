@@ -10,6 +10,8 @@
   --border: #e0e0e0;
   --border-subtle: #eeeeee;
   --radius: 12px;
+  /* Primary action color; AppLayout switches it to the current timer phase color */
+  --primary-color: var(--work-color);
 }
 
 * {
@@ -50,13 +52,13 @@ body {
 }
 
 .btn-primary {
-  background: var(--work-color);
+  background: var(--primary-color);
   color: white;
-  border-color: var(--work-color);
+  border-color: var(--primary-color);
 }
-.btn-primary:hover {
-  background: #c62828;
-  border-color: #c62828;
+.btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary-color) 85%, black);
+  border-color: color-mix(in srgb, var(--primary-color) 85%, black);
 }
 .btn-secondary {
   background: transparent;

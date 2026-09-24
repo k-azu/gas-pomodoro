@@ -8,7 +8,7 @@ import { readCurrentStandaloneDocumentTarget } from "../../lib/documentWindow";
 import { ToastViewport } from "../shared/Toast";
 
 export function AppLayout() {
-  const { isLoading, error } = useApp();
+  const { isLoading, error, timer } = useApp();
   const standaloneTarget = readCurrentStandaloneDocumentTarget();
 
   if (error) {
@@ -30,7 +30,7 @@ export function AppLayout() {
 
   if (standaloneTarget) {
     return (
-      <div className={s["document-layout"]} data-standalone-document>
+      <div className={s["document-layout"]} data-standalone-document data-phase={timer.dataPhase}>
         {standaloneTarget.tab === "memo" ? (
           <MemoTab standalone documentId={standaloneTarget.memoId} />
         ) : (
@@ -42,7 +42,7 @@ export function AppLayout() {
   }
 
   return (
-    <div className={s["app-layout"]}>
+    <div className={s["app-layout"]} data-phase={timer.dataPhase}>
       <LeftPanel />
       <RightPanel />
       <ToastViewport />

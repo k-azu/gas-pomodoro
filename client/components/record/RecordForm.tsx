@@ -388,7 +388,7 @@ export function RecordForm() {
           次の作業
         </button>
         <button
-          className="btn btn-danger"
+          className="btn btn-secondary"
           onClick={() => submitAndDo("endSession")}
           disabled={isSubmitting || state.phase === "interrupted"}
         >

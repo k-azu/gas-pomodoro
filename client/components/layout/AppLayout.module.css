@@ -3,6 +3,16 @@
   min-height: 100vh;
 }
 
+.app-layout[data-phase="shortBreak"],
+.document-layout[data-phase="shortBreak"] {
+  --primary-color: var(--break-color);
+}
+
+.app-layout[data-phase="longBreak"],
+.document-layout[data-phase="longBreak"] {
+  --primary-color: var(--long-break-color);
+}
+
 .document-layout {
   display: flex;
   width: 100%;
