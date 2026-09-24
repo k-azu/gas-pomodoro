@@ -486,7 +486,6 @@ function updateRecordTimes(
 
 interface TodayStats {
   completedPomodoros: number;
-  abandonedPomodoros: number;
   totalWorkSeconds: number;
   totalBreakSeconds: number;
   totalWorkInterruptionSeconds: number;
@@ -500,7 +499,6 @@ function getTodayStats(): TodayStats {
 
   const stats: TodayStats = {
     completedPomodoros: 0,
-    abandonedPomodoros: 0,
     totalWorkSeconds: 0,
     totalBreakSeconds: 0,
     totalWorkInterruptionSeconds: 0,
@@ -524,17 +522,12 @@ function getTodayStats(): TodayStats {
     if (dateStr !== today) return;
 
     const type = String(row[6]);
-    const status = String(row[13]);
     const actualSeconds = Number(row[5]);
     const workIntSeconds = Number(row[11]);
     const nonWorkIntSeconds = Number(row[12]);
 
     if (type === "work") {
-      if (status === "completed") {
-        stats.completedPomodoros++;
-      } else if (status === "abandoned") {
-        stats.abandonedPomodoros++;
-      }
+      stats.completedPomodoros++;
       // Work time = actual duration minus ALL interruptions (pure focus)
       stats.totalWorkSeconds += actualSeconds - workIntSeconds - nonWorkIntSeconds;
       stats.totalWorkInterruptionSeconds += workIntSeconds;
@@ -561,7 +554,6 @@ function getRefreshData(): {
   const logLastRow = logSheet.getLastRow();
   const stats: TodayStats = {
     completedPomodoros: 0,
-    abandonedPomodoros: 0,
     totalWorkSeconds: 0,
     totalBreakSeconds: 0,
     totalWorkInterruptionSeconds: 0,
@@ -583,14 +575,12 @@ function getRefreshData(): {
       if (dateStr !== today) return;
 
       const type = String(row[6]);
-      const status = String(row[13]);
       const actualSeconds = Number(row[5]);
       const workIntSeconds = Number(row[11]);
       const nonWorkIntSeconds = Number(row[12]);
 
       if (type === "work") {
-        if (status === "completed") stats.completedPomodoros++;
-        else if (status === "abandoned") stats.abandonedPomodoros++;
+        stats.completedPomodoros++;
         stats.totalWorkSeconds += actualSeconds - workIntSeconds - nonWorkIntSeconds;
         stats.totalWorkInterruptionSeconds += workIntSeconds;
         stats.totalNonWorkInterruptionSeconds += nonWorkIntSeconds;
@@ -651,7 +641,6 @@ function getDataForDate(dateStr: string): {
   const logLastRow = logSheet.getLastRow();
   const stats: TodayStats = {
     completedPomodoros: 0,
-    abandonedPomodoros: 0,
     totalWorkSeconds: 0,
     totalBreakSeconds: 0,
     totalWorkInterruptionSeconds: 0,
@@ -670,14 +659,12 @@ function getDataForDate(dateStr: string): {
       if (rowDateStr !== dateStr) return;
 
       const type = String(row[6]);
-      const status = String(row[13]);
       const actualSeconds = Number(row[5]);
       const workIntSeconds = Number(row[11]);
       const nonWorkIntSeconds = Number(row[12]);
 
       if (type === "work") {
-        if (status === "completed") stats.completedPomodoros++;
-        else if (status === "abandoned") stats.abandonedPomodoros++;
+        stats.completedPomodoros++;
         stats.totalWorkSeconds += actualSeconds - workIntSeconds - nonWorkIntSeconds;
         stats.totalWorkInterruptionSeconds += workIntSeconds;
         stats.totalNonWorkInterruptionSeconds += nonWorkIntSeconds;

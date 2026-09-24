@@ -18,6 +18,7 @@ export interface Project extends BaseEntity {
 
 export interface Case extends BaseEntity {
   projectId: string;
+  color?: string;
 }
 
 export type TaskStatus = "docs" | "doing" | "review" | "todo" | "pending" | "done";

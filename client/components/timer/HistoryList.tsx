@@ -62,7 +62,11 @@ export function HistoryList({
   }
 
   return (
-    <ul className={s["history-list"]}>
+    <ul
+      className={`${s["history-list"]}${isViewerSaving ? ` ${s["history-list-disabled"]}` : ""}`}
+      aria-disabled={isViewerSaving || undefined}
+      title={isViewerSaving ? "履歴詳細を保存中です" : undefined}
+    >
       {isLoading && (
         <div className={s["history-loading-overlay"]}>
           <span className={s["spinner"]} />

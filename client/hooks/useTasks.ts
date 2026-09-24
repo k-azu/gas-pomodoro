@@ -6,6 +6,7 @@ import * as TaskStore from "../lib/taskStore";
 import * as DocumentStore from "../lib/documentStore";
 import { STORAGE_KEYS, lsGetJSON, lsSetJSON, lsSet } from "../lib/localStorage";
 import { useNavigation } from "../contexts/NavigationContext";
+import { errorMessage, showErrorToast, showToast } from "../lib/toast";
 import type { TaskStatus } from "../types/entities";
 import {
   requestDocumentTransition,
@@ -132,7 +133,7 @@ export interface UseTasksReturn {
   getArchivedDirectTasks: (projectId: string) => TaskItem[];
   unarchiveProject: (projectId: string) => Promise<void>;
   unarchiveCase: (caseId: string) => Promise<void>;
-  unarchiveTask: (taskId: string, status: TaskStatus) => Promise<void>;
+  unarchiveTask: (taskId: string, status?: TaskStatus) => Promise<void>;
 
   isLoading: boolean;
 }
@@ -463,19 +464,55 @@ export function useTasks(): UseTasksReturn {
     );
   }, []);
 
+  const runReactivation = useCallback(
+    async (operation: () => Promise<void>) => {
+      setIsLoading(true);
+      try {
+        await operation();
+        await refreshFromStore();
+      } catch (error) {
+        showErrorToast(`アーカイブを解除できませんでした: ${errorMessage(error)}`, () => {
+          void runReactivation(operation);
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [refreshFromStore],
+  );
+
   const archiveNode = useCallback(
     async (type: EditableNodeType, id: string) => {
+      const storeName = type === "project" ? "projects" : type === "case" ? "cases" : "tasks";
+      const name = String(DocumentStore.get(storeName, id)?.name ?? "");
       setIsLoading(true);
       try {
         if (type === "project") await TaskStore.archiveProject(id);
         else if (type === "case") await TaskStore.archiveCase(id);
         else await TaskStore.archiveTask(id);
         await refreshFromStore();
+      } catch (error) {
+        showErrorToast(`アーカイブできませんでした: ${errorMessage(error)}`);
+        return;
       } finally {
         setIsLoading(false);
       }
+      showToast({
+        message: `「${name}」をアーカイブしました`,
+        action: {
+          label: "元に戻す",
+          onClick: () =>
+            void runReactivation(() =>
+              type === "project"
+                ? TaskStore.unarchiveProject(id)
+                : type === "case"
+                  ? TaskStore.unarchiveCase(id)
+                  : TaskStore.unarchiveTask(id),
+            ),
+        },
+      });
     },
-    [refreshFromStore],
+    [refreshFromStore, runReactivation],
   );
 
   // =========================================================
@@ -504,27 +541,19 @@ export function useTasks(): UseTasksReturn {
   );
 
   const unarchiveCase = useCallback(
-    async (caseId: string) => {
-      await TaskStore.unarchiveCase(caseId);
-      await refreshFromStore();
-    },
-    [refreshFromStore],
+    (caseId: string) => runReactivation(() => TaskStore.unarchiveCase(caseId)),
+    [runReactivation],
   );
 
   const unarchiveProject = useCallback(
-    async (projectId: string) => {
-      await TaskStore.unarchiveProject(projectId);
-      await refreshFromStore();
-    },
-    [refreshFromStore],
+    (projectId: string) => runReactivation(() => TaskStore.unarchiveProject(projectId)),
+    [runReactivation],
   );
 
   const unarchiveTask = useCallback(
-    async (taskId: string, status: TaskStatus) => {
-      await TaskStore.unarchiveTask(taskId, status);
-      await refreshFromStore();
-    },
-    [refreshFromStore],
+    (taskId: string, status?: TaskStatus) =>
+      runReactivation(() => TaskStore.unarchiveTask(taskId, status)),
+    [runReactivation],
   );
 
   // Reorder

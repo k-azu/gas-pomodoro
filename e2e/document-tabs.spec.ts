@@ -13,11 +13,11 @@ async function gotoStandaloneTaskDocument(
 
 test("アクティブな案件・タスクの単体表示にアーカイブ表示を出さない", async ({ page }) => {
   await gotoStandaloneTaskDocument(page, "case", "mock-case-1");
-  await expect(page.getByText("React化", { exact: true })).toBeVisible();
+  await expect(page.locator('input[value="React化"]')).toBeVisible();
   await expect(page.getByText("アーカイブ済み", { exact: true })).toHaveCount(0);
 
   await gotoStandaloneTaskDocument(page, "task", "mock-task-1");
-  await expect(page.getByText("Phase 6: RecordForm実装", { exact: true })).toBeVisible();
+  await expect(page.locator('input[value="Phase 6: RecordForm実装"]')).toBeVisible();
   await expect(page.getByText("アーカイブ済み", { exact: true })).toHaveCount(0);
 });
 
@@ -30,7 +30,7 @@ test("親だけがアーカイブ済みのタスクは単体表示でもアー�
   });
   await gotoStandaloneTaskDocument(page, "task", "mock-task-9");
 
-  await expect(page.getByText("レガシーCSS整理", { exact: true })).toBeVisible();
+  await expect(page.locator('input[value="レガシーCSS整理"]')).toBeVisible();
   await expect(page.getByText("アーカイブ済み", { exact: true })).toBeVisible();
 });
 

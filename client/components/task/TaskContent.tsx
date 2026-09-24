@@ -4,7 +4,7 @@
  * One editor instance is mounted for the selected node. Switching documents resets
  * its state from the server-confirmed in-memory snapshot.
  */
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { UseTasksReturn } from "../../hooks/useTasks";
 import { STATUS_CONFIG, STATUS_ITEMS_WITH_ARCHIVED, statusLabelToKey } from "../../hooks/useTasks";
 import { useDocumentEditor } from "../../hooks/useDocumentEditor";
@@ -13,7 +13,7 @@ import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { useNavigation } from "../../contexts/NavigationContext";
 import { ItemPicker } from "../shared/ItemPicker";
 import { ContentHeaderName } from "../shared/ContentHeader";
-import { FolderIcon, TaskListIcon } from "../shared/Icons";
+import { FileIcon, FolderIcon, TaskListIcon } from "../shared/Icons";
 import { SidebarExpandButton } from "../shared/Sidebar";
 import { RecordField } from "../shared/RecordField";
 import { EditorLayout, ToolbarSlot, MetaTitle } from "../shared/EditorLayout";
@@ -21,7 +21,9 @@ import { SyncIndicator, type SyncStatus } from "../shared/SyncIndicator";
 import { DocumentSearchNavigation } from "../search/DocumentSearchNavigation";
 import { DocumentContentConflict } from "../shared/DocumentContentConflict";
 import { OpenDocumentWindowButton } from "../shared/OpenDocumentWindowButton";
+import { ArchivedBadge } from "../shared/ArchivedBadge";
 import { TaskTableView } from "./TaskTableView";
+import { DUE_BEFORE_START_MESSAGE, getDueState, isDueBeforeStart } from "../../lib/taskDueState";
 import s from "./TaskContent.module.css";
 import * as TaskStore from "../../lib/taskStore";
 import * as DocumentStore from "../../lib/documentStore";
@@ -81,10 +83,7 @@ function AllTasksContent({ tasks, sidebarCollapsed, onExpandSidebar }: TaskConte
         <span className={s["all-tasks-header-icon"]}>
           <TaskListIcon size={20} color="#1976d2" />
         </span>
-        <div>
-          <h2>全タスク</h2>
-          <p>全プロジェクトの未完了タスクを優先度順に表示します</p>
-        </div>
+        <h2>全タスク</h2>
       </div>
       <div className={s["all-tasks-body"]}>
         <TaskTableView tasks={tasks} parentType="all" parentId="all" />
@@ -118,13 +117,26 @@ function TaskDocumentContent({
   const hiddenByArchivedParent =
     (projectId && DocumentStore.get("projects", projectId)?.isActive === false) ||
     (caseId && DocumentStore.get("cases", caseId)?.isActive === false);
+  const selfArchived = selectedEntity?.isActive === false;
   const isArchivedDocument =
-    selectedEntity?.isActive === false ||
+    selfArchived ||
     Boolean(hiddenByArchivedParent) ||
-    (type === "task" &&
-      nav.searchOpenedDocument?.type === "task" &&
+    (nav.searchOpenedDocument?.type === type &&
       nav.searchOpenedDocument.id === id &&
       nav.searchOpenedDocument.isArchived);
+
+  const restoreSelected = () => {
+    if (type === "project") void tasks.unarchiveProject(id);
+    else if (type === "case") void tasks.unarchiveCase(id);
+    else void tasks.unarchiveTask(id);
+  };
+  // Only the document's own archive can be undone here; an archived parent is restored from it.
+  const archiveBadge = isArchivedDocument ? (
+    <ArchivedBadge
+      onRestore={selfArchived ? restoreSelected : undefined}
+      title={selfArchived ? undefined : "親のプロジェクトまたは案件がアーカイブされています"}
+    />
+  ) : null;
 
   // --- Single useDocumentEditor instance ---
   const {
@@ -137,6 +149,7 @@ function TaskDocumentContent({
     scrollRef,
     readOnly,
     syncStatus,
+    retrySync,
     contentRevision,
     flushPendingSave,
     contentConflict,
@@ -164,6 +177,16 @@ function TaskDocumentContent({
     ...editorConfig.hookOptions,
     hasAfterMeta: !showingDoc && isContainerType,
   });
+
+  // A project/case opened from search must show its document so matches can be revealed.
+  const revealRequestedHere =
+    nav.searchRevealRequest?.tab === "task" && nav.searchRevealRequest.id === id;
+  const { taskViewMode, setTaskViewMode } = tasks;
+  useEffect(() => {
+    if (revealRequestedHere && isContainerType && !standalone && taskViewMode === "table") {
+      setTaskViewMode("doc");
+    }
+  }, [revealRequestedHere, isContainerType, standalone, taskViewMode, setTaskViewMode]);
 
   const searchNavigation = useDocumentSearchNavigation({
     tab: "task",
@@ -258,7 +281,8 @@ function TaskDocumentContent({
             id={id}
             tasks={tasks}
             syncStatus={syncStatus}
-            archived={isArchivedDocument}
+            onRetrySync={retrySync}
+            archiveBadge={archiveBadge}
           />
         )}
         {type === "case" && (
@@ -267,7 +291,8 @@ function TaskDocumentContent({
             id={id}
             tasks={tasks}
             syncStatus={syncStatus}
-            archived={isArchivedDocument}
+            onRetrySync={retrySync}
+            archiveBadge={archiveBadge}
           />
         )}
         {type === "task" && (
@@ -276,7 +301,8 @@ function TaskDocumentContent({
             id={id}
             tasks={tasks}
             syncStatus={syncStatus}
-            archived={isArchivedDocument}
+            onRetrySync={retrySync}
+            archiveBadge={archiveBadge}
           />
         )}
       </EditorLayout>
@@ -309,6 +335,30 @@ function useEntity(storeName: string, entityType: string, id: string) {
   return [entity, setEntity] as const;
 }
 
+/** Document icon that opens a color picker; the hover ring and tooltip show it is editable. */
+function MetaColorIcon({
+  color,
+  onChange,
+  children,
+}: {
+  color: string;
+  onChange: (color: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className={s["meta-color-icon"]} title="色を変更">
+      {children}
+      <input
+        type="color"
+        className={s["meta-color-input"]}
+        value={color}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label="色を変更"
+      />
+    </label>
+  );
+}
+
 function ViewModeToggle({
   showingDoc,
   tableLayoutMode,
@@ -338,46 +388,31 @@ function ProjectMeta({
   id,
   tasks,
   syncStatus,
-  archived = false,
+  onRetrySync,
+  archiveBadge,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
-  archived?: boolean;
+  onRetrySync?: () => void;
+  archiveBadge?: React.ReactNode;
 }) {
   const [entity, setEntity] = useEntity("projects", "project", id);
-  const colorRef = useRef<HTMLInputElement>(null);
 
   if (!entity) return null;
 
+  const color = entity.color || "#4285f4";
   return (
     <>
       <div className={s["meta-status-row"]}>
-        <span
-          className={s["meta-color-folder"]}
-          onClick={(e) => {
-            e.stopPropagation();
-            colorRef.current?.click();
-          }}
+        <MetaColorIcon
+          color={color}
+          onChange={(next) => tasks.updateProjectFields(id, { color: next })}
         >
-          <FolderIcon size={24} color={entity.color || "#4285f4"} />
-          <input
-            ref={colorRef}
-            type="color"
-            value={entity.color || "#4285f4"}
-            onChange={(e) => tasks.updateProjectFields(id, { color: e.target.value })}
-            style={{
-              position: "absolute",
-              inset: 0,
-              opacity: 0,
-              cursor: "pointer",
-              width: "100%",
-              height: "100%",
-            }}
-          />
-        </span>
-        {archived && <span className={s["archived-label"]}>アーカイブ済み</span>}
-        <SyncIndicator status={syncStatus} />
+          <FolderIcon size={24} color={color} />
+        </MetaColorIcon>
+        {archiveBadge}
+        <SyncIndicator status={syncStatus} onRetry={onRetrySync} />
       </div>
       <MetaTitle>
         <ContentHeaderName
@@ -396,12 +431,14 @@ function CaseMeta({
   id,
   tasks,
   syncStatus,
-  archived = false,
+  onRetrySync,
+  archiveBadge,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
-  archived?: boolean;
+  onRetrySync?: () => void;
+  archiveBadge?: React.ReactNode;
 }) {
   const [entity, setEntity] = useEntity("cases", "case", id);
 
@@ -410,8 +447,14 @@ function CaseMeta({
   return (
     <>
       <div className={s["meta-status-row"]}>
-        {archived && <span className={s["archived-label"]}>アーカイブ済み</span>}
-        <SyncIndicator status={syncStatus} />
+        <MetaColorIcon
+          color={entity.color || "#757575"}
+          onChange={(next) => tasks.updateCaseFields(id, { color: next })}
+        >
+          <FileIcon size={22} color={entity.color || "#757575"} />
+        </MetaColorIcon>
+        {archiveBadge}
+        <SyncIndicator status={syncStatus} onRetry={onRetrySync} />
       </div>
       <MetaTitle>
         <ContentHeaderName
@@ -430,24 +473,28 @@ function TaskMeta({
   id,
   tasks,
   syncStatus,
-  archived = false,
+  onRetrySync,
+  archiveBadge,
 }: {
   id: string;
   tasks: UseTasksReturn;
   syncStatus: SyncStatus;
-  archived?: boolean;
+  onRetrySync?: () => void;
+  archiveBadge?: React.ReactNode;
 }) {
   const [entity, setEntity] = useEntity("tasks", "task", id);
 
   if (!entity) return null;
 
   const sc = STATUS_CONFIG[entity.status] || STATUS_CONFIG.todo;
+  const dueState = getDueState(entity);
+  const dueBeforeStart = isDueBeforeStart(entity);
 
   return (
     <>
       <div className={s["meta-status-row"]}>
-        {archived && <span className={s["archived-label"]}>アーカイブ済み</span>}
-        <SyncIndicator status={syncStatus} />
+        {archiveBadge}
+        <SyncIndicator status={syncStatus} onRetry={onRetrySync} />
       </div>
       <MetaTitle>
         <ContentHeaderName
@@ -493,10 +540,26 @@ function TaskMeta({
       <RecordField label="期限">
         <input
           type="date"
-          className={s["task-date-input"]}
+          className={`${s["task-date-input"]}${
+            dueBeforeStart
+              ? ` ${s["due-invalid"]}`
+              : dueState
+                ? ` ${s[dueState === "overdue" ? "due-overdue" : "due-today"]}`
+                : ""
+          }`}
           value={entity.dueDate ? entity.dueDate.slice(0, 10) : ""}
           onChange={(e) => tasks.updateTaskFields(id, { dueDate: e.target.value || "" })}
+          aria-invalid={dueBeforeStart || undefined}
         />
+        {dueBeforeStart ? (
+          <span className={s["due-note-error"]} role="alert">
+            {DUE_BEFORE_START_MESSAGE}
+          </span>
+        ) : dueState === "overdue" ? (
+          <span className={s["due-note-error"]}>期限切れ</span>
+        ) : dueState === "today" ? (
+          <span className={s["due-note-today"]}>今日が期限</span>
+        ) : null}
       </RecordField>
     </>
   );

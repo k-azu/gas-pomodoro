@@ -10,6 +10,11 @@
 import { useRef, useMemo, useCallback, useEffect, useLayoutEffect, type ReactNode } from "react";
 import { RichEditorBody, insertImageWithUpload } from "../../editor/hitomdEditor";
 import type { Editor, EditorMode } from "../../editor/hitomdEditor";
+import {
+  captureModeScrollAnchor,
+  restoreModeScrollAnchor,
+  type ModeScrollAnchor,
+} from "../../lib/modeScrollAnchor";
 import { Toolbar, DEFAULT_TOOLBAR_ITEMS, type ToolbarItem } from "./editorToolbar";
 import { RichTextIcon, MarkdownIcon } from "./Icons";
 import { SaveOverlay } from "./SaveOverlay";
@@ -59,16 +64,21 @@ export function EditorLayout({
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
 
-  // Scroll position preservation across mode switches
-  const scrollRatioRef = useRef<number | null>(null);
+  // Preserve the logical document position across mode switches. Rich Text and
+  // Markdown have different total heights, so a document-wide ratio alone is not enough.
+  const scrollAnchorRef = useRef<ModeScrollAnchor | null>(null);
   const handleModeSwitch = useCallback(() => {
     const container = scrollRef.current;
-    if (container) {
-      const maxScroll = container.scrollHeight - container.clientHeight;
-      scrollRatioRef.current = maxScroll > 0 ? container.scrollTop / maxScroll : 0;
+    if (container && editor) {
+      scrollAnchorRef.current = captureModeScrollAnchor({
+        container,
+        editor,
+        mode,
+        markdown: mode === "markdown" ? rawMarkdown : editor.getMarkdown(),
+      });
     }
     setMode(mode === "wysiwyg" ? "markdown" : "wysiwyg");
-  }, [mode, setMode, scrollRef]);
+  }, [editor, mode, rawMarkdown, setMode, scrollRef]);
 
   // Resolve toolbar items with image upload action
   const toolbarItems = useMemo((): ToolbarItem[] | false => {
@@ -156,42 +166,82 @@ export function EditorLayout({
     resizeFnRef.current?.();
   }, [rawMarkdown]);
 
-  // Restore scroll position after mode switch (must run AFTER textarea resize above)
-  // Uses useEffect + rAF polling (same pattern as document-switch scroll in useDocumentEditor)
-  // because ProseMirror's DOM may not have its final height at useLayoutEffect time.
+  // Restore after textarea auto-resize. Rich content is corrected only when its layout
+  // actually changes; search navigation and user-initiated scrolling take precedence.
   useEffect(() => {
-    const ratio = scrollRatioRef.current;
-    if (ratio === null) return;
-    scrollRatioRef.current = null;
+    const anchor = scrollAnchorRef.current;
+    if (!anchor) return;
+    scrollAnchorRef.current = null;
 
     const container = scrollRef.current;
-    if (!container) return;
-
-    const applyScroll = () => {
-      const maxScroll = container.scrollHeight - container.clientHeight;
-      if (maxScroll <= 0) return 0;
-      const target = ratio * maxScroll;
-      container.scrollTop = target;
-      return target;
-    };
-
-    const target = applyScroll();
-    if (target === 0 || container.scrollTop === target) return;
+    if (!container || !editor) return;
 
     let cancelled = false;
-    const deadline = performance.now() + 500;
-    const poll = () => {
-      if (cancelled) return;
-      const t = applyScroll();
-      if (container.scrollTop >= t - 1 || performance.now() > deadline) return;
-      requestAnimationFrame(poll);
+    let frameId: number | null = null;
+    let timeoutId: number | null = null;
+    let expectedScrollTop: number | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+
+    const removeInteractionListeners = () => {
+      container.removeEventListener("scroll", handleScroll);
+      container.removeEventListener("wheel", cancel);
+      container.removeEventListener("touchstart", cancel);
+      container.removeEventListener("pointerdown", cancel);
+      window.removeEventListener("keydown", cancel, true);
     };
-    requestAnimationFrame(poll);
+    const cancel = () => {
+      if (cancelled) return;
+      cancelled = true;
+      if (frameId !== null) cancelAnimationFrame(frameId);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      resizeObserver?.disconnect();
+      removeInteractionListeners();
+    };
+    const handleScroll = () => {
+      // Setting scrollTop in apply() also emits a scroll event. Ignore exactly that
+      // position, but stop as soon as another feature or the user requests a new one.
+      if (expectedScrollTop !== null && Math.abs(container.scrollTop - expectedScrollTop) <= 1) {
+        expectedScrollTop = null;
+        return;
+      }
+      cancel();
+    };
+    const apply = () => {
+      if (cancelled) return;
+      restoreModeScrollAnchor({ anchor, container, editor, mode, markdown: rawMarkdown });
+      expectedScrollTop = container.scrollTop;
+    };
+    const scheduleApply = () => {
+      if (cancelled || frameId !== null) return;
+      frameId = requestAnimationFrame(() => {
+        frameId = null;
+        apply();
+      });
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    container.addEventListener("wheel", cancel, { passive: true });
+    container.addEventListener("touchstart", cancel, { passive: true });
+    container.addEventListener("pointerdown", cancel, { passive: true });
+    window.addEventListener("keydown", cancel, true);
+    apply();
+
+    if (mode === "wysiwyg" && typeof ResizeObserver !== "undefined") {
+      let previousHeight = editor.view.dom.getBoundingClientRect().height;
+      resizeObserver = new ResizeObserver(() => {
+        const nextHeight = editor.view.dom.getBoundingClientRect().height;
+        if (Math.abs(nextHeight - previousHeight) <= 1) return;
+        previousHeight = nextHeight;
+        scheduleApply();
+      });
+      resizeObserver.observe(editor.view.dom);
+      timeoutId = window.setTimeout(cancel, 500);
+    }
 
     return () => {
-      cancelled = true;
+      cancel();
     };
-  }, [mode, scrollRef]);
+  }, [editor, mode, rawMarkdown, scrollRef]);
 
   const hasToolbarSlots = toolbarLeft || toolbarRight;
   const charCountEl =

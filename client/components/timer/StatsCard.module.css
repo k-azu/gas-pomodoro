@@ -39,8 +39,6 @@
 .stats-item { padding: 8px 4px; background: var(--bg); border-radius: 8px; white-space: nowrap; }
 .stats-value { font-size: 1.1rem; font-weight: 700; color: var(--text); }
 .stats-label { font-size: 0.75rem; color: var(--text-secondary); margin-top: 2px; }
-.stats-abandoned { font-size: 0.75rem; color: var(--work-color); margin-left: 2px; }
-
 @media (max-width: 400px) {
   .stats-value { font-size: 0.95rem; }
   .stats-label { font-size: 0.65rem; }

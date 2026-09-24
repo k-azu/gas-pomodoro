@@ -3,6 +3,7 @@ import {
   gotoApp,
   setMockContentOverride,
   switchToMarkdownMode,
+  switchToRichTextMode,
   waitForSyncComplete,
 } from "./helpers/app";
 
@@ -63,7 +64,7 @@ test.describe("保存済み文書の検索", () => {
     await expect.poll(() => page.evaluate(() => window.__mockDocumentSearchCallCount ?? 0)).toBe(2);
   });
 
-  test("アーカイブ済みメモを検索して読み取り専用で開ける", async ({ page }) => {
+  test("アーカイブ済みメモを検索して通常文書と同じように編集できる", async ({ page }) => {
     await page.getByRole("button", { name: "検索を開く" }).click();
     const dialog = page.getByRole("dialog", { name: "文書を検索" });
 
@@ -73,15 +74,27 @@ test.describe("保存済み文書の検索", () => {
     await result.click();
 
     await expect(page.locator('input[value="旧バグトラッカー"]')).toBeVisible();
-    await expect(page.getByText("アーカイブ済み・読み取り専用")).toBeVisible();
-    await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "false");
-    await expect(page.getByRole("toolbar", { name: "Formatting toolbar" })).toHaveCount(0);
+    await expect(page.getByText("アーカイブ済み", { exact: true })).toBeVisible();
+    await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "true");
 
     await page.getByRole("button", { name: "タスク", exact: true }).click();
     await page.getByRole("button", { name: "メモ", exact: true }).click();
     await expect(page.locator('input[value="旧バグトラッカー"]')).toBeVisible();
-    await expect(page.getByText("アーカイブ済み・読み取り専用")).toBeVisible();
-    await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "false");
+    await expect(page.getByText("アーカイブ済み", { exact: true })).toBeVisible();
+    await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "true");
+  });
+
+  test("アーカイブ済みメモをメタ欄から解除できる", async ({ page }) => {
+    await page.getByRole("button", { name: "検索を開く" }).click();
+    const dialog = page.getByRole("dialog", { name: "文書を検索" });
+
+    await dialog.getByRole("textbox", { name: "検索キーワード" }).fill("旧バグトラッカー");
+    await dialog.getByRole("option", { name: /旧バグトラッカー/ }).click();
+    await expect(page.locator('input[value="旧バグトラッカー"]')).toBeVisible();
+
+    await page.getByRole("button", { name: "アーカイブを解除" }).click();
+    await expect(page.getByText("アーカイブ済み", { exact: true })).toHaveCount(0);
+    await expect(page.locator("[data-id='mock-memo-archived']")).toBeVisible();
   });
 
   test("アーカイブ済みタスクを検索して通常文書と同じように編集できる", async ({ page }) => {
@@ -111,7 +124,7 @@ test.describe("保存済み文書の検索", () => {
     await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "true");
   });
 
-  test("履歴で戻ってもアーカイブ済みメモを読み取り専用で復元する", async ({ page }) => {
+  test("履歴で戻ってもアーカイブ済みメモを編集可能なまま復元する", async ({ page }) => {
     await page.getByRole("button", { name: "検索を開く" }).click();
     const dialog = page.getByRole("dialog", { name: "文書を検索" });
 
@@ -126,8 +139,8 @@ test.describe("保存済み文書の検索", () => {
 
     await page.goBack();
     await expect(page.locator('input[value="旧バグトラッカー"]')).toBeVisible();
-    await expect(page.getByText("アーカイブ済み・読み取り専用")).toBeVisible();
-    await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "false");
+    await expect(page.getByText("アーカイブ済み", { exact: true })).toBeVisible();
+    await expect(page.locator(".ProseMirror:visible")).toHaveAttribute("contenteditable", "true");
   });
 
   test("該当なしとEscapeによる閉じる操作を表示できる", async ({ page }) => {
@@ -238,5 +251,50 @@ test.describe("保存済み文書の検索", () => {
         }),
       )
       .toBeGreaterThan(500);
+  });
+
+  test("検索中のRich Text切り替えではアンカー復元より一致箇所への移動を優先する", async ({
+    page,
+  }) => {
+    const spacer = Array.from(
+      { length: 100 },
+      (_, index) => `## セクション ${index + 1}\n\nスクロール確認用の本文です。`,
+    ).join("\n\n");
+    await setMockContentOverride(page, {
+      content: `# 長い文書\n\n${spacer}\n\n## 対象\n\n最終改善ポイント`,
+      updatedAt: "2030-01-01T00:00:00.000Z",
+    });
+    await page.reload();
+    await expect(page.locator(".ProseMirror")).toContainText("最終改善ポイント");
+    await switchToMarkdownMode(page);
+
+    await page.getByRole("button", { name: "検索を開く" }).click();
+    const dialog = page.getByRole("dialog", { name: "文書を検索" });
+    await page.getByRole("textbox", { name: "検索キーワード" }).fill("改善");
+    await dialog.getByRole("option", { name: /開発メモ/ }).click();
+    await expect(page.getByRole("search", { name: "本文内の検索結果" })).toContainText("1 / 1");
+
+    // Keep the active match selected but move the viewport elsewhere. The mode switch
+    // should let search navigation reveal the match instead of restoring this position.
+    await page.locator(".mdg-raw-editor").evaluate((textarea) => {
+      const scroller = textarea.closest<HTMLElement>("[class*='page-root']");
+      if (scroller) scroller.scrollTop = 300;
+    });
+    await switchToRichTextMode(page);
+
+    await expect
+      .poll(() =>
+        page.locator(".hitomd-search-match-active").evaluate((match) => {
+          const matchRect = match.getBoundingClientRect();
+          const scroller = match.closest<HTMLElement>("[class*='page-root']");
+          const scrollerRect = scroller?.getBoundingClientRect();
+          return Boolean(
+            scrollerRect &&
+            matchRect.bottom > scrollerRect.top &&
+            matchRect.top < scrollerRect.bottom,
+          );
+        }),
+      )
+      .toBe(true);
   });
 });

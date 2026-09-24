@@ -6,7 +6,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useApp } from "../../contexts/AppContext";
 import { useNavigation } from "../../contexts/NavigationContext";
 import type { ViewerState } from "../../contexts/NavigationContext";
-import { TypeToggle, TimeInputGroup } from "../shared/PanelToolbar";
+import { TypeToggle, TimeInputGroup, isTimeRangeReversed } from "../shared/PanelToolbar";
 import { RecordField } from "../shared/RecordField";
 import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
@@ -27,6 +27,9 @@ import {
 } from "../../lib/viewerDraft";
 import type { ViewerDraft } from "../../lib/viewerDraft";
 import { SaveOverlay } from "../shared/SaveOverlay";
+import { DialogShell } from "../shared/Dialog";
+import { formatLabel } from "../../hooks/useDateSelector";
+import { errorMessage, showErrorToast } from "../../lib/toast";
 import s from "./ViewerPanel.module.css";
 
 export function ViewerPanel() {
@@ -39,7 +42,7 @@ export function ViewerPanel() {
 }
 
 function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
-  const { timer } = useApp();
+  const { timer, addCategory, updateCategoryColor } = useApp();
   const { closeViewer, navigateToDocument, setViewerSaving, registerViewerExitGuard } =
     useNavigation();
   const editorConfig = useEditorConfig();
@@ -180,6 +183,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       : timer.state.categories;
 
   const canSave = !!(vs.recordId || vs.onSaveMarkdown);
+  const timeRangeInvalid = isTimeRangeReversed(startTime, endTime);
 
   const isDirty =
     markdownDirty ||
@@ -194,6 +198,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       : false);
 
   const handleSave = useCallback(async (): Promise<boolean> => {
+    if (isTimeRangeReversed(startTime, endTime)) return false;
     const editorMarkdown = getMarkdown() || "";
     const markdown = blobUrlsToDrive(editorMarkdown);
     const newCategory = selectedCategory[0] || "";
@@ -306,7 +311,9 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
       setRestoredDraftVisible(false);
       return true;
     } catch (err) {
-      alert("保存に失敗しました: " + err);
+      showErrorToast(`履歴を保存できませんでした: ${errorMessage(err)}`, () => {
+        void handleSaveRef.current();
+      });
       return false;
     } finally {
       setIsSaving(false);
@@ -326,6 +333,9 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
     getMarkdown,
     identity,
   ]);
+
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
 
   const draft: ViewerDraft | null =
     identity && resolvedMarkdown !== null
@@ -451,6 +461,7 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
         placeholder=""
         onImageUpload={editorConfig.editorProps.onImageUpload}
       >
+        <div className={s["viewer-heading"]}>{describeViewerSource(vs)}</div>
         {vs.startTime && vs.endTime && (
           <RecordField label="時間">
             <TimeInputGroup
@@ -473,10 +484,15 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
               items={categories}
               selected={selectedCategory}
               onSelect={setSelectedCategory}
+              onCreateItem={(name, color) => {
+                if (!vs.sheetType) return;
+                void addCategory(vs.sheetType, name, color).then((ok) => {
+                  // Don't keep a category that doesn't exist on the server selected.
+                  if (!ok) setSelectedCategory((prev) => prev.filter((c) => c !== name));
+                });
+              }}
               onColorChange={(name, color) => {
-                if (vs.sheetType) {
-                  serverCall("updateCategoryColor", name, color, vs.sheetType);
-                }
+                if (vs.sheetType) updateCategoryColor(vs.sheetType, name, color);
               }}
               placeholder="カテゴリを検索 / 作成..."
             />
@@ -498,33 +514,29 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
           <button className="btn btn-secondary" onClick={closeViewer}>
             戻る
           </button>
-          <button className="btn btn-primary" onClick={handleSave} disabled={isSaving || !isDirty}>
+          <button
+            className="btn btn-primary"
+            onClick={handleSave}
+            disabled={isSaving || !isDirty || timeRangeInvalid}
+          >
             保存
           </button>
         </FormActions>
       )}
       {pendingExit && (
-        <div className={s["exit-backdrop"]} role="presentation">
-          <section
-            className={s["exit-dialog"]}
-            role="dialog"
-            aria-modal="true"
-            aria-label="未保存の変更"
-          >
-            <h2>未保存の変更があります</h2>
-            <p>
-              {pendingExit.intent === "replace"
-                ? "変更を保存して、選択した履歴を開きますか？"
-                : "変更を保存して履歴詳細を閉じますか？"}
-            </p>
-            <div className={s["exit-actions"]}>
+        <DialogShell
+          title="未保存の変更があります"
+          onCancel={() => setPendingExit(null)}
+          dismissible={!isSaving}
+          actions={
+            <>
               <button
                 type="button"
-                className="btn btn-primary"
-                onClick={saveAndProceed}
+                className="btn btn-secondary"
+                onClick={() => setPendingExit(null)}
                 disabled={isSaving}
               >
-                保存して移動
+                編集を続ける
               </button>
               <button
                 type="button"
@@ -536,18 +548,40 @@ function ViewerContent({ viewerState: vs }: { viewerState: ViewerState }) {
               </button>
               <button
                 type="button"
-                className="btn btn-secondary"
-                onClick={() => setPendingExit(null)}
-                disabled={isSaving}
+                className="btn btn-primary"
+                onClick={saveAndProceed}
+                disabled={isSaving || timeRangeInvalid}
+                data-autofocus
               >
-                編集を続ける
+                保存して移動
               </button>
-            </div>
-          </section>
-        </div>
+            </>
+          }
+        >
+          <p className={s["exit-message"]}>
+            {pendingExit.intent === "replace"
+              ? "変更を保存して、選択した履歴を開きますか？"
+              : "変更を保存して履歴詳細を閉じますか？"}
+          </p>
+        </DialogShell>
       )}
     </div>
   );
+}
+
+/** Heading such as "作業記録 · 9月24日(水) 10:00" so the viewer shows which record is open. */
+function describeViewerSource(vs: ViewerState): string {
+  const kind =
+    vs.recordType === "interruption"
+      ? "中断"
+      : vs.recordType === "record"
+        ? "作業記録"
+        : vs.interruptionType
+          ? "中断（記録前）"
+          : "履歴";
+  const local = toDatetimeLocal(vs.startTime);
+  if (!local) return kind;
+  return `${kind} · ${formatLabel(local.slice(0, 10))} ${local.slice(11)}`;
 }
 
 /** Convert ISO string to datetime-local input value (YYYY-MM-DDTHH:MM) */

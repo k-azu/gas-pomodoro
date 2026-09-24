@@ -6,7 +6,7 @@ import type {
   DocumentSearchFilter,
   DocumentSearchResult,
 } from "../../types/search";
-import { MemoIcon, SearchIcon, TaskListIcon } from "../shared/Icons";
+import { FileIcon, FolderIcon, MemoIcon, SearchIcon, TaskListIcon } from "../shared/Icons";
 import s from "./SearchPalette.module.css";
 
 interface SearchPaletteProps {
@@ -27,6 +27,13 @@ const STATUS_LABELS: Record<string, string> = {
   todo: "ToDo",
   pending: "Pending",
   done: "Done",
+};
+
+const TYPE_LABELS: Record<DocumentSearchResult["type"], string> = {
+  memo: "メモ",
+  project: "プロジェクト",
+  case: "案件",
+  task: "タスク",
 };
 
 const EMPTY_COUNTS: DocumentSearchCounts = { all: 0, memo: 0, task: 0 };
@@ -81,9 +88,9 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
 
     let cancelled = false;
     if (!hasCachedResults) {
+      // Keep the previous results on screen while the next search runs to avoid flicker.
       setLoading(true);
       setSearchError(null);
-      setResults([]);
     }
 
     const timer = window.setTimeout(() => {
@@ -127,7 +134,7 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
       });
     } else {
       nav.navigateToDocument("task", {
-        taskNode: { type: "task", id: result.id },
+        taskNode: { type: result.type, id: result.id },
         searchQuery: query,
         searchDocument: result,
       });
@@ -161,7 +168,8 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
       setSelectedIndex((index) => (index - 1 + results.length) % results.length);
       return;
     }
-    if (event.key === "Enter" && results[selectedIndex]) {
+    // Stale results are shown while loading; don't open one for an outdated query.
+    if (event.key === "Enter" && !loading && results[selectedIndex]) {
       event.preventDefault();
       openResult(results[selectedIndex]);
     }
@@ -189,7 +197,7 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
             className={s.input}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="メモとタスクを検索..."
+            placeholder="メモ・プロジェクト・案件・タスクを検索..."
             aria-label="検索キーワード"
           />
           {query && (
@@ -216,7 +224,7 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
                 onClick={() => setFilter(item.id)}
               >
                 {item.label}
-                <span className={s.count}>{loading ? "…" : counts[item.id]}</span>
+                <span className={s.count}>{counts[item.id]}</span>
               </button>
             ))}
           </div>
@@ -228,14 +236,20 @@ export function SearchPalette({ open, onClose }: SearchPaletteProps) {
           <span>{resultCountLabel}</span>
         </div>
 
-        <div className={s.results} role="listbox" aria-label="検索結果" aria-busy={loading}>
+        <div
+          className={`${s.results}${loading && results.length > 0 ? ` ${s.stale}` : ""}`}
+          role="listbox"
+          aria-label="検索結果"
+          aria-busy={loading}
+        >
+          {loading && results.length > 0 && <div className={s["loading-bar"]} />}
           {!hasQuery ? (
             <div className={s.empty}>
               <SearchIcon size={28} color="#bdbdbd" />
               <strong>キーワードを入力してください</strong>
-              <span>保存済みのメモとタスクを検索します。</span>
+              <span>保存済みのメモ・プロジェクト・案件・タスクを検索します。</span>
             </div>
-          ) : loading ? (
+          ) : loading && results.length === 0 ? (
             <div className={s.empty} role="status">
               <span className={s.spinner} />
               <strong>保存済みの文書を検索しています</strong>
@@ -300,6 +314,7 @@ function SearchResultRow({
   onMouseEnter: () => void;
   onClick: () => void;
 }) {
+  const typeClass = result.type === "memo" ? s.memo : s.task;
   return (
     <button
       type="button"
@@ -309,9 +324,13 @@ function SearchResultRow({
       onMouseEnter={onMouseEnter}
       onClick={onClick}
     >
-      <span className={`${s["result-icon"]} ${s[result.type]}`}>
+      <span className={`${s["result-icon"]} ${typeClass}`}>
         {result.type === "memo" ? (
           <MemoIcon size={18} color="#5e35b1" />
+        ) : result.type === "project" ? (
+          <FolderIcon size={18} color="#1976d2" />
+        ) : result.type === "case" ? (
+          <FileIcon size={18} color="#1976d2" />
         ) : (
           <TaskListIcon size={18} color="#1976d2" />
         )}
@@ -323,9 +342,7 @@ function SearchResultRow({
         </span>
         <span className={s.snippet}>{highlightText(result.snippet, query)}</span>
         <span className={s.metadata}>
-          <span className={`${s["type-badge"]} ${s[result.type]}`}>
-            {result.type === "memo" ? "メモ" : "タスク"}
-          </span>
+          <span className={`${s["type-badge"]} ${typeClass}`}>{TYPE_LABELS[result.type]}</span>
           {result.isArchived && <span className={s["archived-badge"]}>アーカイブ済み</span>}
           {result.status && (
             <span className={s["status-badge"]}>

@@ -17,6 +17,7 @@ interface CaseMetadata {
   id: string;
   projectId: string;
   name: string;
+  color: string;
   content: string;
   sortOrder: number;
   isActive: boolean;
@@ -84,12 +85,13 @@ function getAllTaskData(): {
   const casesLastRow = casesSheet.getLastRow();
   let cases: CaseMetadata[] = [];
   if (casesLastRow > 1) {
-    const casesData = casesSheet.getRange(2, 1, casesLastRow - 1, 12).getValues();
+    const casesData = casesSheet.getRange(2, 1, casesLastRow - 1, 13).getValues();
     cases = casesData
       .map((row) => ({
         id: String(row[0]),
         projectId: String(row[1]),
         name: String(row[2]),
+        color: String(row[12] ?? ""),
         content: String(row[3]),
         sortOrder: Number(row[4]),
         isActive: Boolean(row[5]),
@@ -248,7 +250,7 @@ function addCase(
     const now = new Date().toISOString();
     const lastRow = sheet.getLastRow();
     const nextOrder = lastRow;
-    sheet.appendRow([id, projectId, name, "", nextOrder, true, now, now, 0, 0, "", ""]);
+    sheet.appendRow([id, projectId, name, "", nextOrder, true, now, now, 0, 0, "", "", ""]);
     return { success: true, id, updatedAt: now };
   } finally {
     lock.releaseLock();

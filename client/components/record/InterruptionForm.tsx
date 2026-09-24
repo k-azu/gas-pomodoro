@@ -9,12 +9,12 @@ import { RecordField } from "../shared/RecordField";
 import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
 import { EditorLayout } from "../shared/EditorLayout";
+import { ConfirmDialog } from "../shared/Dialog";
 import { useMarkdownEditor } from "../../hooks/useMarkdownEditor";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { useFormDraft } from "../../hooks/useFormDraft";
 import { STORAGE_KEYS } from "../../lib/localStorage";
 import { blobUrlsToDrive } from "../../lib/imageCache";
-import { serverCall } from "../../lib/serverCall";
 import s from "./InterruptionForm.module.css";
 
 interface InterruptionDraft {
@@ -24,7 +24,7 @@ interface InterruptionDraft {
 }
 
 export function InterruptionForm() {
-  const { timer } = useApp();
+  const { timer, addCategory, updateCategoryColor } = useApp();
   const editorConfig = useEditorConfig();
   const { state } = timer;
 
@@ -37,6 +37,7 @@ export function InterruptionForm() {
 
   const [isWork, setIsWork] = useState(initialDraft?.isWork ?? true);
   const [selectedCategory, setSelectedCategory] = useState<string[]>(initialDraft?.category ?? []);
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 
   // Refs for latest meta values (stable onChange callback)
   const metaRef = useRef({ isWork, category: selectedCategory });
@@ -83,6 +84,7 @@ export function InterruptionForm() {
   }, [isWork, selectedCategory, timer, clearDraft, getMarkdown, resetContent]);
 
   const handleDiscard = useCallback(() => {
+    setConfirmingDiscard(false);
     clearDraft();
     timer.discardInterruption();
     setIsWork(true);
@@ -112,9 +114,15 @@ export function InterruptionForm() {
             items={state.interruptionCategories}
             selected={selectedCategory}
             onSelect={setSelectedCategory}
-            onColorChange={(name, color) => {
-              serverCall("updateCategoryColor", name, color, "InterruptionCategories");
-            }}
+            onCreateItem={(name, color) =>
+              void addCategory("InterruptionCategories", name, color).then((ok) => {
+                // Don't keep a category that doesn't exist on the server selected.
+                if (!ok) setSelectedCategory((prev) => prev.filter((c) => c !== name));
+              })
+            }
+            onColorChange={(name, color) =>
+              updateCategoryColor("InterruptionCategories", name, color)
+            }
             placeholder="カテゴリを検索 / 作成..."
           />
         </RecordField>
@@ -125,10 +133,27 @@ export function InterruptionForm() {
         <button className="btn btn-primary" onClick={handleResume}>
           再開
         </button>
-        <button className="btn btn-secondary" onClick={handleDiscard}>
+        <button
+          className="btn btn-secondary"
+          onClick={() => {
+            // Only confirm when there is input that would be lost.
+            if (getMarkdown().trim() || selectedCategory.length > 0) setConfirmingDiscard(true);
+            else handleDiscard();
+          }}
+        >
           キャンセル
         </button>
       </FormActions>
+      {confirmingDiscard && (
+        <ConfirmDialog
+          title="中断の記録を破棄しますか？"
+          message="入力した内容は保存されません。"
+          confirmLabel="破棄する"
+          danger
+          onConfirm={handleDiscard}
+          onCancel={() => setConfirmingDiscard(false)}
+        />
+      )}
     </div>
   );
 }

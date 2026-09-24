@@ -29,9 +29,11 @@ function getMemos(): MemoMetadata[] {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
 
+  // Archived memos are included (isActive: false) so they stay editable like task documents;
+  // the client hides them from the sidebar (ADR 0005).
   const data = sheet.getRange(2, 1, lastRow - 1, 12).getValues();
   const result = data
-    .filter((row) => row[7] === true)
+    .filter((row) => Boolean(row[0]))
     .map((row) => ({
       id: String(row[0]),
       name: String(row[1]),

@@ -142,7 +142,7 @@ test("保存中の追加入力を本文競合のlocal側に保持する", async 
   await expect(conflict.locator("textarea").nth(0)).toHaveValue(/保存開始後の追加入力/);
   await expect(conflict.locator("textarea").nth(1)).toHaveValue("別端末の新しい本文");
 
-  await conflict.getByRole("button", { name: "このタブの本文で置換" }).click();
+  await conflict.getByRole("button", { name: "このタブの本文を採用" }).click();
   await expect(conflict).not.toBeVisible();
   await expect
     .poll(async () => {

@@ -32,7 +32,7 @@ export function DocumentContentConflict({
       </div>
       <div className={s.actions}>
         <button type="button" onClick={() => void onKeepLocal()}>
-          このタブの本文で置換
+          このタブの本文を採用
         </button>
         <button type="button" onClick={() => void onAcceptRemote()}>
           サーバーの本文を採用

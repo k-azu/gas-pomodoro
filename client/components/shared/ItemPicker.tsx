@@ -34,7 +34,7 @@ export function ItemPicker({
   placeholder = "検索 / 作成...",
   removable = true,
   compact = false,
-  emptyLabel = "空",
+  emptyLabel = "未設定",
 }: ItemPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -81,15 +81,31 @@ export function ItemPicker({
 
   const handleCreate = useCallback(() => {
     const name = query.trim();
-    if (!name) return;
-    onCreateItem?.(name, "#757575");
+    if (!name || !onCreateItem) return;
+    onCreateItem(name, "#757575");
     toggleItem(name);
     setQuery("");
   }, [query, onCreateItem, toggleItem]);
 
-  const q = query.toLowerCase();
+  const q = query.trim().toLowerCase();
   const filtered = items.filter((item) => !q || item.name.toLowerCase().includes(q));
-  const exactMatch = items.some((item) => item.name.toLowerCase() === q);
+  const exactItem = items.find((item) => item.name.toLowerCase() === q);
+
+  // Enter picks an exact match, then creates (only when creation is supported),
+  // then falls back to the first filtered item. Never select a name absent from items
+  // unless it is being created.
+  const handleEnter = () => {
+    if (!q) return;
+    if (exactItem) {
+      toggleItem(exactItem.name);
+      setQuery("");
+    } else if (onCreateItem) {
+      handleCreate();
+    } else if (filtered.length > 0) {
+      toggleItem(filtered[0].name);
+      setQuery("");
+    }
+  };
 
   const getColor = (name: string) => {
     const item = items.find((i) => i.name === name);
@@ -134,6 +150,8 @@ export function ItemPicker({
                   <span
                     className={s["item-picker-badge-dot"]}
                     style={{ background: color, position: onColorChange ? "relative" : undefined }}
+                    title={onColorChange ? "色を変更" : undefined}
+                    data-editable={onColorChange ? "" : undefined}
                     onClick={onColorChange ? (e) => e.stopPropagation() : undefined}
                   >
                     {onColorChange && (
@@ -151,6 +169,7 @@ export function ItemPicker({
                         }}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => onColorChange(name, e.target.value)}
+                        aria-label={`「${name}」の色を変更`}
                       />
                     )}
                   </span>
@@ -189,8 +208,9 @@ export function ItemPicker({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={placeholder}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !exactMatch && query.trim()) {
-                handleCreate();
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleEnter();
               }
               if (e.key === "Escape") {
                 setOpen(false);
@@ -224,7 +244,7 @@ export function ItemPicker({
                 </div>
               );
             })}
-            {query.trim() && !exactMatch && onCreateItem && (
+            {q && !exactItem && onCreateItem && (
               <div
                 className={`${s["item-picker-option"]} ${s["item-picker-create"]}`}
                 onMouseDown={(e) => {

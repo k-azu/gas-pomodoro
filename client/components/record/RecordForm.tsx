@@ -11,6 +11,7 @@ import { FormActions } from "../shared/FormActions";
 import { ItemPicker } from "../shared/ItemPicker";
 import { HierarchicalTaskPicker } from "../shared/HierarchicalTaskPicker";
 import { EditorLayout } from "../shared/EditorLayout";
+import { ConfirmDialog } from "../shared/Dialog";
 import { useMarkdownEditor } from "../../hooks/useMarkdownEditor";
 import { useEditorConfig } from "../../hooks/useEditorConfig";
 import { useFormDraft } from "../../hooks/useFormDraft";
@@ -19,6 +20,7 @@ import { blobUrlsToDrive, resolveDriveUrls } from "../../lib/imageCache";
 import { serverCall } from "../../lib/serverCall";
 import * as RecordCache from "../../lib/recordCache";
 import { SaveOverlay } from "../shared/SaveOverlay";
+import { errorMessage, showErrorToast } from "../../lib/toast";
 import s from "./RecordForm.module.css";
 
 interface RecordDraft {
@@ -31,7 +33,7 @@ interface RecordDraft {
 }
 
 export function RecordForm() {
-  const { timer } = useApp();
+  const { timer, addCategory, updateCategoryColor } = useApp();
   const nav = useNavigation();
   const editorConfig = useEditorConfig();
   const { state } = timer;
@@ -58,6 +60,7 @@ export function RecordForm() {
     restoredDraft?.taskId ?? null,
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmingCopy, setConfirmingCopy] = useState(false);
 
   // Refs for latest meta values (stable onChange callback)
   const metaRef = useRef({
@@ -190,8 +193,8 @@ export function RecordForm() {
       if (result.projectId) setSelectedProjectId(result.projectId);
       if (result.caseId) setSelectedCaseId(result.caseId);
       if (result.taskId) setSelectedTaskId(result.taskId);
-    } catch {
-      // ignore
+    } catch (err) {
+      showErrorToast(`前回の記録を取得できませんでした: ${errorMessage(err)}`);
     }
   }, [applyContent]);
 
@@ -207,8 +210,6 @@ export function RecordForm() {
         const category = selectedCategory[0] || "";
         const startTime = new Date(state.startTimestamp!);
         const actualSeconds = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
-        const completionStatus =
-          state.elapsedSeconds >= state.totalSeconds ? "completed" : "abandoned";
 
         const record = buildRecord(
           state,
@@ -217,17 +218,11 @@ export function RecordForm() {
           startTime,
           endTime,
           actualSeconds,
-          completionStatus,
           selectedProjectId,
           selectedCaseId,
           selectedTaskId,
         );
         const intRecords = buildInterruptionRecords(state, record.id);
-
-        // Ensure category exists
-        if (category) {
-          await ensureCategory(category, state.categories);
-        }
 
         // Save to server in parallel
         await Promise.all([
@@ -257,7 +252,9 @@ export function RecordForm() {
           timer.endWorkSession();
         }
       } catch (err) {
-        alert("記録の保存に失敗しました: " + err);
+        showErrorToast(`記録を保存できませんでした: ${errorMessage(err)}`, () => {
+          void submitAndDoRef.current(action);
+        });
       } finally {
         setIsSubmitting(false);
       }
@@ -275,6 +272,9 @@ export function RecordForm() {
     ],
   );
 
+  const submitAndDoRef = useRef(submitAndDo);
+  submitAndDoRef.current = submitAndDo;
+
   return (
     <div className={s["record-form"]}>
       <SaveOverlay visible={isSubmitting} />
@@ -289,7 +289,19 @@ export function RecordForm() {
         placeholder="何に取り組みましたか？"
         onImageUpload={editorConfig.editorProps.onImageUpload}
       >
-        <button className={s["copy-previous-btn"]} onClick={copyFromPrevious}>
+        <button
+          className={s["copy-previous-btn"]}
+          onClick={() => {
+            const hasInput =
+              getMarkdown().trim() ||
+              selectedCategory.length > 0 ||
+              selectedProjectId ||
+              selectedCaseId ||
+              selectedTaskId;
+            if (hasInput) setConfirmingCopy(true);
+            else void copyFromPrevious();
+          }}
+        >
           前回をコピー
         </button>
         <RecordField label="カテゴリ">
@@ -298,9 +310,13 @@ export function RecordForm() {
             items={state.categories}
             selected={selectedCategory}
             onSelect={setSelectedCategory}
-            onColorChange={(name, color) => {
-              serverCall("updateCategoryColor", name, color, "Categories");
-            }}
+            onCreateItem={(name, color) =>
+              void addCategory("Categories", name, color).then((ok) => {
+                // Don't keep a category that doesn't exist on the server selected.
+                if (!ok) setSelectedCategory((prev) => prev.filter((c) => c !== name));
+              })
+            }
+            onColorChange={(name, color) => updateCategoryColor("Categories", name, color)}
             placeholder="カテゴリを検索 / 作成..."
           />
         </RecordField>
@@ -347,6 +363,19 @@ export function RecordForm() {
         </div>
       )}
 
+      {confirmingCopy && (
+        <ConfirmDialog
+          title="前回の記録で置き換えますか？"
+          message="入力中の内容・カテゴリ・タスクが前回の記録の内容に置き換わります。"
+          confirmLabel="置き換える"
+          onConfirm={() => {
+            setConfirmingCopy(false);
+            void copyFromPrevious();
+          }}
+          onCancel={() => setConfirmingCopy(false)}
+        />
+      )}
+
       {/* Action buttons — fixed at bottom */}
       <FormActions>
         <button
@@ -364,7 +393,7 @@ export function RecordForm() {
           次の作業
         </button>
         <button
-          className="btn btn-danger"
+          className="btn btn-secondary"
           onClick={() => submitAndDo("endSession")}
           disabled={isSubmitting || state.phase === "interrupted"}
         >
@@ -390,7 +419,6 @@ function buildRecord(
   startTime: Date,
   endTime: Date,
   actualSeconds: number,
-  completionStatus: string,
   projectId: string | null,
   caseId: string | null,
   taskId: string | null,
@@ -418,7 +446,8 @@ function buildRecord(
     nonWorkInterruptions: nonWorkCount,
     workInterruptionSeconds: workIntSeconds,
     nonWorkInterruptionSeconds: nonWorkIntSeconds,
-    completionStatus,
+    // The column is kept for spreadsheet compatibility; early finishes are normal records.
+    completionStatus: "completed",
     pomodoroSetIndex: state.pomodoroSetIndex,
     taskId: taskId || "",
     projectId: projectId || "",
@@ -440,13 +469,4 @@ function buildInterruptionRecords(
     category: i.category || "",
     content: i.content || "",
   }));
-}
-
-async function ensureCategory(category: string, existing: { name: string }[]) {
-  if (!category) return;
-  if (existing.some((c) => c.name === category)) return;
-  const result = (await serverCall("addCategory", category, "#757575")) as any;
-  if (result?.success) {
-    await serverCall("getCategories");
-  }
 }

@@ -7,6 +7,7 @@ import * as DocumentStore from "../lib/documentStore";
 import type { MemoTag } from "../types";
 import { STORAGE_KEYS, lsGet, lsSet, lsRemove } from "../lib/localStorage";
 import { useNavigation } from "../contexts/NavigationContext";
+import { errorMessage, showErrorToast, showToast } from "../lib/toast";
 import {
   flushDocument,
   requestDocumentTransition,
@@ -27,7 +28,10 @@ export interface UseMemosReturn {
   tags: MemoTag[];
   selectMemo: (id: string) => void;
   createMemo: (name: string) => Promise<void>;
-  deleteMemo: (id: string) => Promise<void>;
+  /** Archive (hide) a memo; shows an undo toast. */
+  archiveMemo: (id: string) => Promise<void>;
+  /** Unarchive a memo so it reappears in the sidebar. */
+  restoreMemo: (id: string) => Promise<void>;
   renameMemo: (id: string, name: string) => void;
   reorderMemos: (ids: string[]) => void;
   addTagToMemo: (id: string, tag: string) => void;
@@ -41,6 +45,8 @@ export interface UseMemosReturn {
 export function useMemos(): UseMemosReturn {
   const nav = useNavigation();
   const [memos, setMemos] = useState<MemoItem[]>([]);
+  const memosRef = useRef(memos);
+  memosRef.current = memos;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [tags, setTags] = useState<MemoTag[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -70,7 +76,11 @@ export function useMemos(): UseMemosReturn {
     refreshFromStore().then((list) => {
       const saved = lsGet(STORAGE_KEYS.MEMO_ACTIVE);
       let id: string | null = null;
-      if (saved && list.some((m: MemoItem) => m.id === saved)) {
+      // An archived memo (opened from search) stays selected across reloads.
+      if (
+        saved &&
+        (list.some((m: MemoItem) => m.id === saved) || DocumentStore.get("memos", saved))
+      ) {
         id = saved;
       } else if (list.length > 0) {
         id = list[0].id;
@@ -132,11 +142,34 @@ export function useMemos(): UseMemosReturn {
     [refreshFromStore, nav],
   );
 
-  const deleteMemo = useCallback(
+  const restoreMemo = useCallback(
     async (id: string) => {
       setIsLoading(true);
       try {
-        if (activeIdRef.current === id && !(await flushDocument("memo"))) return;
+        await MemoStore.restoreMemo(id);
+        await refreshFromStore();
+      } catch (error) {
+        showErrorToast(`メモを元に戻せませんでした: ${errorMessage(error)}`, () => {
+          void restoreMemoRef.current(id);
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [refreshFromStore],
+  );
+  const restoreMemoRef = useRef(restoreMemo);
+  restoreMemoRef.current = restoreMemo;
+
+  const archiveMemo = useCallback(
+    async (id: string) => {
+      const name = memosRef.current.find((m) => m.id === id)?.name ?? "";
+      setIsLoading(true);
+      try {
+        if (activeIdRef.current === id && !(await flushDocument("memo"))) {
+          showErrorToast("本文の保存が完了していないため、アーカイブできませんでした");
+          return;
+        }
         await MemoStore.deleteMemo(id);
         const list = await refreshFromStore();
         if (activeIdRef.current === id) {
@@ -144,12 +177,19 @@ export function useMemos(): UseMemosReturn {
           setActiveId(newActive);
           if (newActive) lsSet(STORAGE_KEYS.MEMO_ACTIVE, newActive);
           else lsRemove(STORAGE_KEYS.MEMO_ACTIVE);
+          nav.notifyMemoChange(newActive, { replace: true });
         }
+        showToast({
+          message: `「${name}」をアーカイブしました`,
+          action: { label: "元に戻す", onClick: () => void restoreMemo(id) },
+        });
+      } catch (error) {
+        showErrorToast(`アーカイブできませんでした: ${errorMessage(error)}`);
       } finally {
         setIsLoading(false);
       }
     },
-    [refreshFromStore],
+    [refreshFromStore, restoreMemo, nav],
   );
 
   const renameMemo = useCallback((id: string, name: string) => {
@@ -221,7 +261,8 @@ export function useMemos(): UseMemosReturn {
     tags,
     selectMemo,
     createMemo,
-    deleteMemo,
+    archiveMemo,
+    restoreMemo,
     renameMemo,
     reorderMemos,
     addTagToMemo,

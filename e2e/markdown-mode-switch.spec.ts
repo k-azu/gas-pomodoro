@@ -12,7 +12,9 @@ import {
   waitForSyncComplete,
   getEditorText,
   switchToMarkdownMode,
+  switchToRichTextMode,
   getRawEditorText,
+  setMockContentOverride,
 } from "./helpers/app";
 
 test.describe("Markdown モードとドキュメント切り替え", () => {
@@ -170,5 +172,62 @@ test.describe("Markdown モードとドキュメント切り替え", () => {
     await switchToMarkdownMode(page);
     rawText = await getRawEditorText(page);
     expect(rawText).toContain("マークダウン確認");
+  });
+
+  test("M7: モードを往復しても画面上端付近の文章を維持する", async ({ page }) => {
+    const before = Array.from(
+      { length: 24 },
+      (_, index) => `# 大きな見出し ${index + 1}\n\n短い本文 ${index + 1}`,
+    ).join("\n\n");
+    const after = Array.from(
+      { length: 16 },
+      (_, index) => `## 後続見出し ${index + 1}\n\n後続本文 ${index + 1}`,
+    ).join("\n\n");
+    await setMockContentOverride(page, {
+      content: `${before}\n\n## 表示位置の目印\n\nこの段落を表示したまま切り替える\n\n${after}`,
+      updatedAt: "2030-01-01T00:00:00.000Z",
+    });
+    await gotoApp(page);
+    await waitForSyncComplete(page);
+
+    const marker = page.locator(".ProseMirror h2", { hasText: "表示位置の目印" });
+    await marker.evaluate((element) => {
+      const root = element.closest<HTMLElement>("[class*='page-root']");
+      const toolbar = root?.querySelector<HTMLElement>(
+        ".mdg-editor-toolbar-row, .mdg-editor-header",
+      );
+      if (!root || !toolbar) throw new Error("editor scroll container not found");
+      root.scrollTop +=
+        element.getBoundingClientRect().top - toolbar.getBoundingClientRect().bottom - 8;
+    });
+
+    await switchToMarkdownMode(page);
+    const markdownOffset = await page.locator(".mdg-raw-editor").evaluate((textarea) => {
+      const root = textarea.closest<HTMLElement>("[class*='page-root']");
+      const toolbar = root?.querySelector<HTMLElement>(
+        ".mdg-editor-toolbar-row, .mdg-editor-header",
+      );
+      if (!root || !toolbar) throw new Error("editor scroll container not found");
+      const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight);
+      const markerOffset = textarea.value.indexOf("## 表示位置の目印");
+      const linesBefore = textarea.value.slice(0, markerOffset).split("\n").length - 1;
+      return (
+        textarea.getBoundingClientRect().top +
+        linesBefore * lineHeight -
+        toolbar.getBoundingClientRect().bottom
+      );
+    });
+    expect(Math.abs(markdownOffset - 8)).toBeLessThan(35);
+
+    await switchToRichTextMode(page);
+    const richOffset = await marker.evaluate((element) => {
+      const root = element.closest<HTMLElement>("[class*='page-root']");
+      const toolbar = root?.querySelector<HTMLElement>(
+        ".mdg-editor-toolbar-row, .mdg-editor-header",
+      );
+      if (!root || !toolbar) throw new Error("editor scroll container not found");
+      return element.getBoundingClientRect().top - toolbar.getBoundingClientRect().bottom;
+    });
+    expect(Math.abs(richOffset - 8)).toBeLessThan(35);
   });
 });

@@ -21,31 +21,35 @@
   gap: 8px;
 }
 
-.archived-label {
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: #efebe9;
-  color: #6d4c41;
-  font-size: 12px;
-  font-weight: 600;
-}
-
 .readonly-value {
   color: var(--text-secondary);
   font-size: 13px;
 }
 
-.meta-color-folder {
+.meta-color-icon {
   position: relative;
   display: inline-flex;
-  cursor: pointer;
   flex-shrink: 0;
-  transition: transform 0.1s;
-  margin-bottom: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    box-shadow 0.15s;
 }
 
-.meta-color-folder:hover {
-  transform: scale(1.1);
+.meta-color-icon:hover {
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.meta-color-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .task-date-input {
@@ -136,16 +140,36 @@
   font-weight: 700;
 }
 
-.all-tasks-header p {
-  margin: 2px 0 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
 .all-tasks-body {
   flex: 1;
   min-height: 0;
   min-width: 0;
   display: flex;
   padding: 0 60px;
+}
+
+/* Due-date states (after .task-date-input so the border override wins) */
+.due-overdue {
+  color: #c62828;
+  font-weight: 600;
+}
+
+.due-today {
+  color: #e65100;
+  font-weight: 600;
+}
+
+.due-invalid {
+  color: #c62828;
+  border-color: #ef9a9a;
+}
+
+.due-note-error {
+  color: #c62828;
+  font-size: 0.78rem;
+}
+
+.due-note-today {
+  color: #e65100;
+  font-size: 0.78rem;
 }

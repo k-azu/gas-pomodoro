@@ -16,6 +16,7 @@ import {
   runWithDocumentKeyFrozen,
 } from "../lib/documentNavigationGuard";
 import { readCurrentStandaloneDocumentTarget } from "../lib/documentWindow";
+import { errorMessage, showErrorToast } from "../lib/toast";
 
 interface AppContextValue {
   timer: UseTimerReturn;
@@ -26,7 +27,16 @@ interface AppContextValue {
   /** Save a break record to the server + IDB cache */
   saveBreakRecord: (timerState: import("../types").TimerState) => Promise<void>;
   refreshDocuments: () => Promise<boolean>;
+  /**
+   * Add a category locally and on the server. Resolves false (after reverting the local
+   * list) when the server rejects it, so callers can drop the name from their selection.
+   */
+  addCategory: (sheetType: CategorySheetType, name: string, color: string) => Promise<boolean>;
+  /** Change a category color locally and on the server */
+  updateCategoryColor: (sheetType: CategorySheetType, name: string, color: string) => void;
 }
+
+export type CategorySheetType = "Categories" | "InterruptionCategories";
 
 const AppContext = createContext<AppContextValue | null>(null);
 
@@ -94,12 +104,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       completionStatus: "completed",
       pomodoroSetIndex: timerState.pomodoroSetIndex,
     };
-    try {
-      await serverCall("saveRecord", record);
-      await RecordCache.upsertRecord(record);
-    } catch (err) {
-      console.error("休憩記録の保存に失敗:", err);
-    }
+    const save = async () => {
+      try {
+        await serverCall("saveRecord", record);
+        await RecordCache.upsertRecord(record);
+      } catch (err) {
+        console.error("休憩記録の保存に失敗:", err);
+        showErrorToast(`休憩の記録を保存できませんでした: ${errorMessage(err)}`, () => {
+          void save();
+        });
+      }
+    };
+    await save();
   }, []);
 
   // refreshAll is now a no-op (cache events drive UI updates)
@@ -110,6 +126,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const timer = useTimer(onTargetReached, saveBreakRecord, refreshAll);
+  const { setCategories, setInterruptionCategories } = timer;
+
+  const addCategory = useCallback(
+    (sheetType: CategorySheetType, name: string, color: string): Promise<boolean> => {
+      const setList = sheetType === "Categories" ? setCategories : setInterruptionCategories;
+      setList((prev) =>
+        prev.some((c) => c.name === name)
+          ? prev
+          : [...prev, { name, color, sortOrder: prev.length + 1, isActive: true }],
+      );
+      const fn = sheetType === "Categories" ? "addCategory" : "addInterruptionCategory";
+      return serverCall(fn, name, color)
+        .then((result) => {
+          const r = result as { success?: boolean; message?: string } | null;
+          // A duplicate on the server still means the category exists there.
+          if (!r?.success && r?.message !== "カテゴリが既に存在します") {
+            throw new Error(r?.message || "カテゴリを追加できませんでした");
+          }
+          return true;
+        })
+        .catch((err) => {
+          console.error("Category creation failed:", err);
+          setList((prev) => prev.filter((c) => c.name !== name));
+          showErrorToast(`カテゴリ「${name}」を追加できませんでした: ${errorMessage(err)}`);
+          return false;
+        });
+    },
+    [setCategories, setInterruptionCategories],
+  );
+
+  const updateCategoryColor = useCallback(
+    (sheetType: CategorySheetType, name: string, color: string) => {
+      const setList = sheetType === "Categories" ? setCategories : setInterruptionCategories;
+      setList((prev) => prev.map((c) => (c.name === name ? { ...c, color } : c)));
+      serverCall("updateCategoryColor", name, color, sheetType).catch((err) => {
+        console.error("Category color update failed:", err);
+        showErrorToast(`カテゴリの色を保存できませんでした: ${errorMessage(err)}`);
+      });
+    },
+    [setCategories, setInterruptionCategories],
+  );
 
   const refreshDocuments = useCallback((): Promise<boolean> => {
     if (refreshPromiseRef.current) {
@@ -283,6 +340,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         error,
         saveBreakRecord,
         refreshDocuments,
+        addCategory,
+        updateCategoryColor,
       }}
     >
       {children}

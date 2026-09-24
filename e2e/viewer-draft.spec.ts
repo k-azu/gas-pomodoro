@@ -166,6 +166,24 @@ test.describe("履歴詳細の未保存変更", () => {
     await expect(restoredPage.getByRole("status")).toHaveCount(0);
   });
 
+  test("履歴詳細を開いたまま別タブへ移ると、再読み込み後は最後のタブを表示する", async ({
+    page,
+  }) => {
+    await gotoApp(page);
+    await openHistory(page);
+    await page.getByRole("button", { name: "タスク", exact: true }).click();
+    await expect(page.locator("[class*='tab-btn'][class*='active']")).toHaveText("タスク");
+
+    await page.reload();
+
+    await expect(page.locator("[class*='tab-btn'][class*='active']")).toHaveText("タスク", {
+      timeout: 10_000,
+    });
+    // The viewer is still restored in the background and can be reopened from its tab.
+    await page.getByRole("button", { name: "履歴詳細" }).click();
+    await expect(page.locator(".ProseMirror:visible")).toBeEditable();
+  });
+
   test("保存後の最新内容をクリーンな状態としてクラッシュ復元する", async ({ page }) => {
     await gotoApp(page);
     await openHistory(page);

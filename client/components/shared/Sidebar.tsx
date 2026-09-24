@@ -1,8 +1,8 @@
 /**
  * Sidebar — High-level sidebar for flat item lists (memos).
- * Wraps SidebarShell and adds search, long-press-drag reorder, context menu support.
+ * Wraps SidebarShell and adds long-press-drag reorder, context menu support.
  */
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { SidebarShell, SidebarAddButton, SidebarItem, sidebarStyles as sh } from "./SidebarShell";
 import { useLongPressDrag } from "../../hooks/useLongPressDrag";
 
@@ -17,7 +17,6 @@ export interface SidebarProps<T extends { id: string; name: string }> {
   renderItem: (item: T) => ReactNode;
   onReorder?: (newOrderIds: string[]) => void;
   onContextMenu?: (e: React.MouseEvent, item: T) => void;
-  searchFilter?: (item: T, query: string) => boolean;
   collapsed: boolean;
   onToggle: () => void;
   width?: number;
@@ -29,7 +28,7 @@ export interface SidebarProps<T extends { id: string; name: string }> {
   emptyLabel?: string;
   /** Additional filter (e.g. tag filter) that hides items */
   extraFilter?: (item: T) => boolean;
-  /** Slot rendered between search and list (e.g. tag filter button) */
+  /** Slot rendered between header and list (e.g. tag filter button) */
   filterSlot?: ReactNode;
   disabled?: boolean;
 }
@@ -42,7 +41,6 @@ export function Sidebar<T extends { id: string; name: string }>({
   renderItem,
   onReorder,
   onContextMenu,
-  searchFilter,
   collapsed,
   onToggle,
   width,
@@ -56,18 +54,10 @@ export function Sidebar<T extends { id: string; name: string }>({
   filterSlot,
   disabled = false,
 }: SidebarProps<T>) {
-  const [searchQuery, setSearchQuery] = useState("");
-
-  const q = searchQuery.toLowerCase();
-  const hasFilter = !!q || extraFilter != null;
+  const hasFilter = extraFilter != null;
   const canReorder = !!onReorder && !disabled && !hasFilter && items.length > 1;
 
-  const visibleItems = items.filter((item) => {
-    const matchSearch =
-      !q || (searchFilter ? searchFilter(item, q) : item.name.toLowerCase().includes(q));
-    const matchExtra = !extraFilter || extraFilter(item);
-    return matchSearch && matchExtra;
-  });
+  const visibleItems = extraFilter ? items.filter(extraFilter) : items;
 
   const drag = useLongPressDrag(
     (_dragId, newOrder) => {
@@ -77,24 +67,14 @@ export function Sidebar<T extends { id: string; name: string }>({
   );
 
   const headerSlot = (
-    <>
-      <input
-        className={sh["sidebar-search"]}
-        type="text"
-        placeholder="検索..."
-        value={searchQuery}
-        onChange={(e) => setSearchQuery(e.target.value)}
-        disabled={disabled}
-      />
-      <SidebarAddButton
-        onClick={onAdd}
-        disabled={disabled}
-        ariaLabel={addButtonAriaLabel}
-        title={addButtonTitle}
-      >
-        {addLabel}
-      </SidebarAddButton>
-    </>
+    <SidebarAddButton
+      onClick={onAdd}
+      disabled={disabled}
+      ariaLabel={addButtonAriaLabel}
+      title={addButtonTitle}
+    >
+      {addLabel}
+    </SidebarAddButton>
   );
 
   // Build display list: skip dragged item, insert placeholder

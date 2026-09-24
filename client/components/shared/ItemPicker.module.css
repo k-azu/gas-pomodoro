@@ -39,8 +39,10 @@
   transition: filter 0.1s;
 }
 .item-picker-badge:hover { filter: brightness(0.95); }
-.item-picker-badge-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 2px; cursor: pointer; flex-shrink: 0; transition: transform 0.1s; }
-.item-picker-badge-dot:hover { transform: scale(1.4); }
+.item-picker-badge-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 2px; flex-shrink: 0; transition: transform 0.1s, box-shadow 0.1s; }
+/* Editable color dots get a ring so it is clear they can be clicked to change the color */
+.item-picker-badge-dot[data-editable] { cursor: pointer; box-shadow: 0 0 0 1.5px var(--surface), 0 0 0 2.5px currentColor; }
+.item-picker-badge-dot[data-editable]:hover { transform: scale(1.4); }
 .item-picker-badge-remove { cursor: pointer; font-size: 0.8rem; margin-left: 2px; opacity: 0; transition: opacity 0.1s; line-height: 1; }
 .item-picker-badge:hover .item-picker-badge-remove { opacity: 0.5; }
 .item-picker-badge-remove:hover { opacity: 1 !important; }

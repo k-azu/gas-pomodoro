@@ -226,6 +226,32 @@ export function SearchIcon({
   );
 }
 
+/** Refresh (circular arrow) */
+export function RefreshIcon({
+  size = 16,
+  color = "currentColor",
+}: {
+  size?: number;
+  color?: string;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke={color}
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" />
+      <path d="M13.5 2.5v3h-3" />
+    </svg>
+  );
+}
+
 /** Rich Text (formatted lines) */
 export function RichTextIcon({
   size = 14,

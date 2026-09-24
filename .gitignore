@@ -151,6 +151,7 @@ src/ClientBundle.html
 
 # Tool configs
 .claude/settigs.local.json
+.codex/rules/local.rules
 # .mcp.json
 .playwright-mcp/
 playwright.config.json

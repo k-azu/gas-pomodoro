@@ -1,6 +1,7 @@
 import type { Memo, MemoTag, MemoMetadata } from "../types";
 import * as DocumentStore from "./documentStore";
 import { serverCall } from "./serverCall";
+import { errorMessage, showErrorToast } from "./toast";
 
 let memoTags: MemoTag[] = [];
 
@@ -68,6 +69,12 @@ export async function deleteMemo(id: string): Promise<void> {
   await DocumentStore.patchMetadata("memos", id, { isActive: false });
 }
 
+export async function restoreMemo(id: string): Promise<void> {
+  await DocumentStore.waitForMetadata("memos", id);
+  if (DocumentStore.get("memos", id)?.isActive !== false) return;
+  await DocumentStore.patchMetadata("memos", id, { isActive: true });
+}
+
 export async function reorderMemos(orderedIds: string[]): Promise<void> {
   DocumentStore.reorderLocal("memos", orderedIds);
   const result = (await serverCall("updateMemoSortOrders", orderedIds)) as { success?: boolean };
@@ -84,6 +91,7 @@ export function addTag(name: string, color = "#757575"): void {
   memoTags = [...memoTags, { name, color, sortOrder: memoTags.length + 1, isActive: true }];
   void serverCall("addMemoTag", name, color).catch((error) => {
     console.error("[MemoStore] Failed to add tag", error);
+    showErrorToast(`タグ「${name}」を追加できませんでした: ${errorMessage(error)}`);
   });
 }
 
@@ -91,6 +99,7 @@ export function updateTagColor(name: string, color: string): void {
   memoTags = memoTags.map((tag) => (tag.name === name ? { ...tag, color } : tag));
   void serverCall("updateMemoTagColor", name, color).catch((error) => {
     console.error("[MemoStore] Failed to update tag color", error);
+    showErrorToast(`タグの色を保存できませんでした: ${errorMessage(error)}`);
   });
 }
 

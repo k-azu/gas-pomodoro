@@ -85,7 +85,7 @@ const DOCUMENT_SHEETS: Record<DocumentStoreName, DocumentSheetConfig> = {
     metadataRevisionColumn: 10,
     lastContentMutationColumn: 11,
     lastMetadataMutationColumn: 12,
-    metadataColumns: { projectId: 2, name: 3, isActive: 6 },
+    metadataColumns: { projectId: 2, name: 3, isActive: 6, color: 13 },
   },
   tasks: {
     sheetName: "Tasks",
@@ -225,9 +225,6 @@ function putDocumentContent(request: PutDocumentContentRequest): DocumentContent
     if (current.lastMutationId === request.mutationId) {
       return { status: "applied", mutationId: request.mutationId, snapshot: current };
     }
-    if (storeName === "memos" && values[config.isActiveColumn - 1] !== true) {
-      return { status: "missing", mutationId: request.mutationId };
-    }
     if (current.revision !== request.expectedRevision) {
       return { status: "conflict", mutationId: request.mutationId, snapshot: current };
     }
@@ -307,17 +304,6 @@ function patchDocumentMetadata(
     const current = readMetadataSnapshotValues(values, request.documentKey, storeName, config);
     if (current.lastMutationId === request.mutationId) {
       return { status: "applied", mutationId: request.mutationId, snapshot: current };
-    }
-    if (
-      storeName === "memos" &&
-      current.metadata.isActive === false &&
-      !(fields.length === 1 && request.patch.isActive === true)
-    ) {
-      return {
-        status: "rejected",
-        mutationId: request.mutationId,
-        reason: "archived document is read-only",
-      };
     }
     if (current.revision !== request.expectedRevision) {
       return { status: "conflict", mutationId: request.mutationId, snapshot: current };
@@ -424,7 +410,7 @@ function getDocumentViewData(documentKey: string): DocumentViewData {
   }
 
   if (storeName === "cases") {
-    const values = sheet.getRange(row, 1, 1, 12).getValues()[0];
+    const values = sheet.getRange(row, 1, 1, 13).getValues()[0];
     const projectId = String(values[1]);
     result.cases.push({
       id: String(values[0]),
@@ -439,6 +425,7 @@ function getDocumentViewData(documentKey: string): DocumentViewData {
       metadataRevision: readRevision(values[9]),
       lastContentMutationId: String(values[10] ?? ""),
       lastMetadataMutationId: String(values[11] ?? ""),
+      color: String(values[12] ?? ""),
     });
     if (projectId) mergeDocumentViewData(result, getDocumentViewData(`projects:${projectId}`));
     return result;

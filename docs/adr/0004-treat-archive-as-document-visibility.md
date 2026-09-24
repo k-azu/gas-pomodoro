@@ -1,6 +1,6 @@
 # ADR 0004: タスク文書のアーカイブを可視性属性として扱う
 
-- Status: Accepted
+- Status: Accepted（メモの扱いは [ADR 0005](0005-treat-memo-archive-as-document-visibility.md) で改訂）
 - Date: 2026-08-15
 - Deciders: Repository owner
 
@@ -19,7 +19,7 @@
 - アーカイブ済み文書を通常のサイドバーやタスク一覧へ表示しない。
 - 文書検索からアーカイブ済み文書を除外しない。
 - 並び順の競合方式を変更しない。
-- メモのアーカイブと復元の挙動を変更しない。
+- ~~メモのアーカイブと復元の挙動を変更しない。~~（ADR 0005で置き換え）
 
 ## Decision
 

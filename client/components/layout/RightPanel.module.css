@@ -66,6 +66,38 @@
   color: var(--text);
 }
 
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+.icon-button:hover:not(:disabled) {
+  border-color: #bdbdbd;
+  background: #f7f7f7;
+  color: var(--text);
+}
+.icon-button:disabled {
+  cursor: wait;
+}
+.icon-button.refreshing svg {
+  animation: refresh-spin 0.8s linear infinite;
+}
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .search-button kbd {
   padding: 1px 4px;
   border: 1px solid #dedede;
@@ -101,7 +133,39 @@
   }
 
   .search-button span,
-  .search-button kbd {
+  .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+.icon-button:hover:not(:disabled) {
+  border-color: #bdbdbd;
+  background: #f7f7f7;
+  color: var(--text);
+}
+.icon-button:disabled {
+  cursor: wait;
+}
+.icon-button.refreshing svg {
+  animation: refresh-spin 0.8s linear infinite;
+}
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.search-button kbd {
     display: none;
   }
 }
