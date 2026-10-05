@@ -203,6 +203,10 @@ or
 
 ツールバーボタン、ドラッグ&ドロップ、クリップボードからのペーストで挿入可能。画像は Google Drive に保存される。
 
+## VS Code Pomodoro への移行
+
+プロジェクト・案件・タスク・Pomodoro履歴と本文中の画像を、VS Code Pomodoro の記録用ワークスペースへ移せる。手順は [scripts/export-to-vscode.md](scripts/export-to-vscode.md)。
+
 ## 技術的な制約
 
 - **タイマーはクライアントサイドで動作** — GAS の 6 分実行制限のため、サーバーサイドでタイマーは動かせない
